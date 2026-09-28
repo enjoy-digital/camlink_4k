@@ -104,6 +104,19 @@ FX3 GPIO58/59 (I2C master), FPGA `P18`/`P19`, IT6802 `PCSCL`/`PCSDA`.
 
 The unit serial number is stored as a USB string descriptor inside the FX3 image.
 
+## Flash Layout (LiteCamLink)
+
+| Offset     | Content                                                                   |
+|------------|---------------------------------------------------------------------------|
+| `0x000000` | LiteCamLink FX3 boot image (read by the FX3 boot ROM).                    |
+| `0x040000` | Stock bitstream header + bitstream, left untouched (stock image RAM-load). |
+| `0x100000` | 256-byte header: size (LE32), ~size, magic `LCLK`, then the bitstream.    |
+| `0x3F0000` | Stock settings (untouched).                                               |
+
+At startup the FX3 firmware loads the `LCLK` bitstream (if valid) and initializes the IT6802.
+Tools: `camlink.py flash-bitstream`, `flash-fx3`, `flash-dump`, `fpga-boot`, and `flash-recover`
+(erases block 0 and resets: the boot ROM falls back to the USB bootloader `04b4:00f3`).
+
 ## Stock USB Behaviour
 
 - UVC 1.10 bulk (EP `0x83`), UAC 1.0 48kHz stereo 16-bit (iso EP `0x81`), vendor HID (interface 2:

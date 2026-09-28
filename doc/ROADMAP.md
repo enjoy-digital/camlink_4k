@@ -50,7 +50,7 @@ A `software/bench.py` harness will run each test on both firmwares and write the
 
 | # | Item                          | Description                                                                              |
 |---|-------------------------------|------------------------------------------------------------------------------------------|
-| 1 | Standalone boot               | Flash our FX3 image + bitstream so the device works without the host loader; keep a safe recovery path (USB boot fallback, stock image restore tool). |
+| 1 | Standalone boot               | Flash our FX3 image + bitstream so the device works without the host loader; keep a safe recovery path (USB boot fallback, stock image restore tool). **Done**: flash boot + `flash-recover` validated on hardware. |
 | 2 | 4K30 full resolution          | NV12 output + USB throughput to ~380 MB/s (bigger/more DMA buffers, GPIF at ~100 MHz); 4K30 NV12 needs ~373 MB/s. |
 | 3 | Native 1080p60 input          | Validate the IT6802 SDR path (1 pixel/clock) and its clock phase window.                 |
 | 4 | Audio (UAC)                   | I2S capture in the FPGA, in-band transfer through the GPIF, UAC 1.0 stereo 48 kHz, A/V sync. |
