@@ -311,17 +311,20 @@ static void video_start(void)
     const struct uvc_frame *frame = uvc_frame(&commit);
     const struct it6802_status *hdmi = it6802_get_status();
     int m420 = uvc_formats[commit.bFormatIndex - 1].m420;
-    /* HDMI input when stable and matching the requested frame size directly, 2x downscaled, or
-     * cropped (crop mode, input larger than the frame), test pattern otherwise. M420: direct only. */
-    int direct = hdmi->hactive == frame->width   && hdmi->vactive == frame->height;
-    int half   = !m420 && hdmi->hactive == 2*frame->width && hdmi->vactive == 2*frame->height;
-    int crop   = !m420 && !direct && crop_mode &&
-                 hdmi->hactive >= frame->width && hdmi->vactive >= frame->height;
+    /* HDMI input (when stable) always fits the requested frame: direct, 2x downscaled, cropped
+     * (crop mode, or centered for larger inputs that are not 2x), or centered in black borders
+     * (smaller inputs). M420: direct only, test pattern otherwise. */
+    int direct  = hdmi->hactive == frame->width   && hdmi->vactive == frame->height;
+    int larger  = hdmi->hactive >= frame->width && hdmi->vactive >= frame->height;
+    int smaller = hdmi->hactive <= frame->width && hdmi->vactive <= frame->height;
+    int half    = !m420 && hdmi->hactive == 2*frame->width && hdmi->vactive == 2*frame->height;
+    int crop    = !m420 && !direct && larger && (crop_mode || !half);
+    int canvas  = !m420 && !direct && smaller && hdmi->hactive && hdmi->vactive;
     struct fpga_video v = {
         .width     = frame->width,
         .height    = frame->height,
         .fps       = 10000000UL/commit.dwFrameInterval,
-        .hdmi      = hdmi->stable && (direct || half || crop),
+        .hdmi      = hdmi->stable && (direct || half || crop || canvas),
         .ddr       = 1, /* IT6802 always in 0.5x PCLK DDR output mode (see it6802.c). */
         .c_swap    = hdmi->colorspace != 0,
         .m420      = m420,
@@ -329,10 +332,16 @@ static void video_start(void)
     };
 
     if (v.hdmi && crop) {
-        /* Clamp the window to the input (x on a 2-pixel boundary). */
+        /* Crop mode: window at (crop_x, crop_y), clamped to the input; else centered. */
+        uint16_t max_x = hdmi->hactive - frame->width;
+        uint16_t max_y = hdmi->vactive - frame->height;
         v.crop   = 1;
-        v.crop_x = (crop_x < hdmi->hactive - frame->width  ? crop_x : hdmi->hactive - frame->width) & ~1;
-        v.crop_y =  crop_y < hdmi->vactive - frame->height ? crop_y : hdmi->vactive - frame->height;
+        v.crop_x = (crop_mode ? (crop_x < max_x ? crop_x : max_x) : max_x/2) & ~1;
+        v.crop_y =  crop_mode ? (crop_y < max_y ? crop_y : max_y) : max_y/2;
+    } else if (v.hdmi && canvas) {
+        v.canvas    = 1;
+        v.in_width  = hdmi->hactive & ~3; /* Even number of words (x0 on a 2-pixel boundary). */
+        v.in_height = hdmi->vactive;
     } else if (v.hdmi && half) {
         v.downscale = 1;
     }

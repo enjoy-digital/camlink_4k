@@ -59,6 +59,13 @@ void fpga_stream_start(const struct fpga_video *v)
     fpga_csr_write(CSR_PATTERN_MODE,          v->no_signal);
     fpga_csr_write(CSR_UVC_PAYLOAD_WORDS,     (UVC_PAYLOAD_SIZE - 12)/4);
     fpga_csr_write(CSR_UVC_FRAME_WORDS,       frame_words);
+    fpga_csr_write(CSR_CANVAS_OUT_HWORDS,     v->width/2);
+    fpga_csr_write(CSR_CANVAS_OUT_VRES,       v->height);
+    fpga_csr_write(CSR_CANVAS_IN_HWORDS,      v->in_width/2);
+    fpga_csr_write(CSR_CANVAS_IN_VRES,        v->in_height);
+    fpga_csr_write(CSR_CANVAS_X0,             (v->width - v->in_width)/4);
+    fpga_csr_write(CSR_CANVAS_Y0,             (v->height - v->in_height)/2);
+    fpga_csr_write(CSR_CANVAS_ENABLE,         v->canvas);
     /* Sources enabled last (the UVC packetizer leaves reset with its configuration set).
      * HDMI: enable, Y lane 1 (QE[23:16]), C lane 2 (QE[35:28]), DDR/downscale/crop/M420. The Cb/Cr
      * order depends on the IT6802 path: swapped with CSC bypass (YCbCr sources), not with the

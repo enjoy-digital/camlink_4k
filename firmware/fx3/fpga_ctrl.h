@@ -24,6 +24,8 @@ struct fpga_video {
     uint8_t  c_swap;          /* Cb/Cr swap.                                              */
     uint8_t  m420;            /* M420 output (YUV 4:2:0), else YUY2.                      */
     uint8_t  no_signal;       /* Pattern: "no signal" mode.                               */
+    uint8_t  canvas;          /* Smaller input centered in the frame (black borders).     */
+    uint16_t in_width, in_height;
 };
 
 void fpga_stream_start(const struct fpga_video *v);

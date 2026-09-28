@@ -38,6 +38,7 @@ from litecamlink.gateware.hdmi_in    import HDMIIn
 from litecamlink.gateware.ioscan     import IOScan
 from litecamlink.gateware.audio      import AudioSource
 from litecamlink.gateware.color      import ColorAdjust
+from litecamlink.gateware.canvas     import Canvas
 
 from litex.build.generic_platform import Pins, IOStandard, Subsignal
 
@@ -127,6 +128,7 @@ class BaseSoC(SoCCore):
             self.pattern = VideoPatternGenerator(sys_clk_freq)
             self.uvc     = ResetInserter()(UVCPacketizer())
             self.color   = ColorAdjust() # HDMI: brightness/contrast/saturation (UVC Processing Unit).
+            self.canvas  = Canvas()      # HDMI: smaller inputs centered in the UVC frame.
 
             # Timestamp (sys clock) for UVC PTS/SCR.
             timestamp = Signal(32)
@@ -146,7 +148,8 @@ class BaseSoC(SoCCore):
                     1: [self.pattern.source.connect(self.uvc.sink), self.uvc.source.connect(gpif_buf.sink)],
                     2: self.pattern.source.connect(gpif_buf.sink, omit={"last"}),
                     3: [
-                        self.hdmi_in.source.connect(self.color.sink),
+                        self.hdmi_in.source.connect(self.canvas.sink),
+                        self.canvas.source.connect(self.color.sink),
                         self.color.source.connect(self.uvc.sink),
                         self.uvc.source.connect(gpif_buf.sink),
                     ],

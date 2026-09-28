@@ -1,6 +1,6 @@
 # Hardware Validation Checklist (features developed offline, 2026-09-28 night)
 
-Everything below passed simulation (`python3 -m pytest test`: 24 tests) and timing (seeds 1-3 pass, default seed 1:
+Everything below passed simulation (`python3 -m pytest test`: 27 tests) and timing (seeds 1-3 pass, default seed 1:
 hdmi 157 MHz / 150, sys 115 MHz / 100, fx3 115 MHz / 100.8) but was written while the device was
 offline. Validate in this order: each step relies on the previous ones.
 
@@ -54,6 +54,8 @@ level/sign looks wrong: left-justified vs I2S framing (I2SReceiver MSB position)
 | Crop off | `uvc_xu.py crop off` | back to downscale |
 | Input info | `uvc_xu.py info` | resolution, fps, color space |
 | Controls | `v4l2-ctl -d /dev/videoN -l`; set brightness/contrast/saturation | visible effect, defaults = identity |
+| Letterbox | source 1280x720 (`xrandr --output HDMI-0 --mode 1280x720`), capture 1080p | 720p image centered, black borders |
+| Center crop | source 2560x1440, capture 1080p (crop off) | centered 1080p region (not the pattern) |
 
 ## 5. 4K30 M420 (commit bee4433)
 
