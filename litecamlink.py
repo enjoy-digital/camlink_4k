@@ -1,0 +1,63 @@
+#!/usr/bin/env python3
+
+#
+# This file is part of LiteCamLink.
+#
+# Copyright (c) 2019-2026 Florent Kermarrec <florent@enjoy-digital.fr>
+# SPDX-License-Identifier: BSD-2-Clause
+
+"""LiteCamLink: LiteX based gateware for the Elgato Cam Link 4K."""
+
+import os
+import argparse
+
+from migen import *
+
+from litex.gen import *
+
+from litex.soc.integration.soc_core import *
+from litex.soc.integration.builder  import *
+from litex.soc.cores.led            import LedChaser
+
+from litecamlink_platform import Platform
+
+from litecamlink.gateware.crg import CRG
+
+# BaseSoC ------------------------------------------------------------------------------------------
+
+class BaseSoC(SoCMini):
+    def __init__(self, sys_clk_freq=75e6, toolchain="trellis"):
+        platform = Platform(toolchain=toolchain)
+
+        # CRG --------------------------------------------------------------------------------------
+        self.crg = CRG(platform, sys_clk_freq)
+
+        # SoCMini ----------------------------------------------------------------------------------
+        SoCMini.__init__(self, platform, sys_clk_freq, ident="LiteCamLink SoC on Cam Link 4K.")
+
+        # Leds -------------------------------------------------------------------------------------
+        self.leds = LedChaser(
+            pads         = platform.request_all("user_led"),
+            sys_clk_freq = sys_clk_freq,
+        )
+
+# Build --------------------------------------------------------------------------------------------
+
+def main():
+    parser = argparse.ArgumentParser(description="LiteCamLink gateware for the Cam Link 4K.")
+    parser.add_argument("--build",        action="store_true", help="Build bitstream.")
+    parser.add_argument("--no-compile",   action="store_true", help="Generate build files without running the toolchain.")
+    parser.add_argument("--load",         action="store_true", help="Load bitstream (through the FX3, see software/camlink.py).")
+    parser.add_argument("--sys-clk-freq", default=75e6, type=float, help="System clock frequency.")
+    args = parser.parse_args()
+
+    soc     = BaseSoC(sys_clk_freq=args.sys_clk_freq)
+    builder = Builder(soc, output_dir="build", csr_csv="build/csr.csv")
+    builder.build(build_name="litecamlink", run=args.build and not args.no_compile)
+
+    if args.load:
+        bitstream = os.path.join(builder.gateware_dir, "litecamlink.bit")
+        os.system(f"python3 software/camlink.py fpga-load {bitstream}")
+
+if __name__ == "__main__":
+    main()

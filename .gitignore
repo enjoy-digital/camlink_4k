@@ -1,0 +1,8 @@
+/build
+/build_*
+__pycache__
+.pytest_cache/
+*.egg-info/
+*.csv
+/firmware/fx3/build
+!/doc/*.csv
