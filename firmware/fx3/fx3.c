@@ -216,20 +216,26 @@ static uint16_t dma_free_list         = 0;
 
 uint16_t dma_alloc_descriptor(void)
 {
+    /* Called from the main loop (stream rings) and the USB interrupt (EP0 transfers). */
+    uint32_t irq = irq_save();
     uint16_t d = dma_free_list;
     if (d)
         dma_free_list = DMA_DESCRIPTOR(d)->chain;
     else if (dma_first_unallocated < 768)
         d = dma_first_unallocated++;
+    irq_restore(irq);
     return d;
 }
 
 void dma_free_descriptor(uint16_t d)
 {
-    if (d) {
-        DMA_DESCRIPTOR(d)->chain = dma_free_list;
-        dma_free_list = d;
-    }
+    uint32_t irq;
+    if (!d)
+        return;
+    irq = irq_save();
+    DMA_DESCRIPTOR(d)->chain = dma_free_list;
+    dma_free_list = d;
+    irq_restore(irq);
 }
 
 static void dma_socket_wait_disabled(uint32_t socket)

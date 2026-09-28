@@ -271,6 +271,8 @@ static void usb_enable_phy(void)
 
 /* Interrupts ------------------------------------------------------------------------------------ */
 
+static uint16_t usb_ep0_wlength; /* wLength of the current control request. */
+
 static void usb_setup_dispatch(uint32_t dat0, uint32_t dat1)
 {
     struct usb_setup setup = {
@@ -280,6 +282,7 @@ static void usb_setup_dispatch(uint32_t dat0, uint32_t dat1)
         .index        = (dat1 >>  0) & 0xffff,
         .length       = (dat1 >> 16) & 0xffff,
     };
+    usb_ep0_wlength = setup.length;
     if (setup.request_type & USB_DIR_IN)
         reg_write(FX3_DEV_EPI_XFER_CNT, setup.length);
     else
@@ -404,6 +407,9 @@ void usb_ep0_ack(void)
 
 int usb_ep0_in(const volatile void *buffer, uint16_t length)
 {
+    /* Never return more than requested (wLength). */
+    if (length > usb_ep0_wlength)
+        length = usb_ep0_wlength;
     usb_ep0_ack();
     return dma_transfer_read(DMA_UIB_SCK(0), buffer, length);
 }

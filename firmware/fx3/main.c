@@ -69,6 +69,7 @@ extern volatile uint32_t usb_isr_count;
 extern volatile uint32_t usb_link_stats[3];
 extern volatile uint32_t uvc_stats[4];
 static volatile int hdmi_init_request;
+static volatile int debug_stream_request; /* 0x100 | streams: start, 0x200: stop. */
 
 /* Flash / FPGA Boot ------------------------------------------------------------------------------ */
 
@@ -196,13 +197,13 @@ static void vendor_request(const struct usb_setup *setup)
         ep0_buf[0] = (uint8_t)i2c_status;
         usb_ep0_in(ep0_buf, 1);
         return;
-    case VREQ_STREAM_START:
+    case VREQ_STREAM_START: /* Debug (raw streaming tests): applied from the main loop. */
+        debug_stream_request = 0x100 | (setup->value & 3);
         usb_ep0_ack();
-        gpif_stream_start(setup->value & 1, (setup->value >> 1) & 1);
         return;
     case VREQ_STREAM_STOP:
+        debug_stream_request = 0x200;
         usb_ep0_ack();
-        gpif_stream_stop();
         return;
     case VREQ_STREAM_STATUS:
         gpif_stream_status((uint32_t *)ep0_buf);
@@ -334,6 +335,8 @@ static void standard_request(const struct usb_setup *setup, enum usb_speed speed
         if (setup->value > 1)
             break;
         configuration = setup->value;
+        if (!configuration)
+            uvc_bus_reset(); /* Deconfigured: stop all streams. */
         if (configuration) {
             usb_enable_in_ep(USB_DESC_EP_STREAM, USB_EP_BULK,
                 (speed == USB_SUPER_SPEED) ? 1024 : 512,
@@ -441,6 +444,17 @@ int main(void)
             spi_flash_erase_block(FLASH_FX3_IMAGE);
             delay_us(10000);
             gctl_hard_reset();
+        }
+        if (debug_stream_request) {
+            int r;
+            irq_disable();
+            r = debug_stream_request;
+            debug_stream_request = 0;
+            irq_enable();
+            if (r & 0x100)
+                gpif_stream_start(r & 1, (r >> 1) & 1);
+            else
+                gpif_stream_stop();
         }
         if (hdmi_init_request) {
             hdmi_init_request = 0;

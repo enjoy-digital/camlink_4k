@@ -49,8 +49,8 @@ void fpga_stream_start(const struct fpga_video *v)
     fpga_stream_stop();
     fpga_csr_write(CSR_HDMI_IN_CROP_X,        v->crop_x/2);
     fpga_csr_write(CSR_HDMI_IN_CROP_Y,        v->crop_y);
-    fpga_csr_write(CSR_HDMI_IN_CROP_W,        v->width/2);
-    fpga_csr_write(CSR_HDMI_IN_CROP_H,        v->height);
+    fpga_csr_write(CSR_HDMI_IN_CROP_W,        (v->in_width  ? v->in_width  : v->width)/2);
+    fpga_csr_write(CSR_HDMI_IN_CROP_H,         v->in_height ? v->in_height : v->height);
     fpga_csr_write(CSR_MAIN_SOURCE_SEL,       v->hdmi ? 3 : 1); /* UVC HDMI / UVC pattern. */
     fpga_csr_write(CSR_PATTERN_HWORDS,        v->width/2);
     fpga_csr_write(CSR_PATTERN_VRES,          pattern_lines);

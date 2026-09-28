@@ -37,6 +37,7 @@
 
 /* Caches ---------------------------------------------------------------------------------------- */
 
+#if defined(__arm__)
 static inline void cache_invalidate_all(void)
 {
     __asm__ __volatile__("mcr p15, 0, %0, c7, c7, 0" : : "r"(0));
@@ -61,6 +62,14 @@ static inline void cache_invalidate_dcache_line(const volatile void *ptr)
 {
     __asm__ __volatile__("mcr p15, 0, %0, c7, c6, 1" : : "r"(((uint32_t)ptr) & ~0x1fUL));
 }
+#else
+/* Host builds (firmware unit tests, test/fx3): no caches. */
+static inline void cache_invalidate_all(void) {}
+static inline void cache_invalidate_icache(void) {}
+static inline void cache_clean_dcache(void) {}
+static inline void cache_clean_dcache_line(const volatile void *ptr) { (void)ptr; }
+static inline void cache_invalidate_dcache_line(const volatile void *ptr) { (void)ptr; }
+#endif
 
 void cache_clean_dcache_range(const volatile void *ptr, uint32_t len);
 void cache_invalidate_dcache_range(const volatile void *ptr, uint32_t len);
@@ -78,6 +87,7 @@ enum {
     IRQ_GCTL_POWER = 21,
 };
 
+#if defined(__arm__)
 static inline void irq_enable(void)
 {
     uint32_t cpsr;
@@ -104,6 +114,13 @@ static inline void irq_restore(uint32_t cpsr)
 {
     __asm__ __volatile__("msr cpsr_c, %0" : : "r"(cpsr));
 }
+#else
+/* Host builds (firmware unit tests, test/fx3): no interrupts. */
+static inline void irq_enable(void) {}
+static inline void irq_disable(void) {}
+static inline uint32_t irq_save(void) { return 0; }
+static inline void irq_restore(uint32_t cpsr) { (void)cpsr; }
+#endif
 
 void irq_init(void);
 

@@ -52,7 +52,7 @@ static int streaming;
 
 static volatile int      crop_mode;     /* 0: downscale, 1: crop (inputs larger than the frame). */
 static volatile uint16_t crop_x, crop_y; /* Crop window position (pixels, lines). */
-static volatile int      video_request; /* Video settings changed: restart if streaming. */
+static volatile int      settings_request; /* Settings changed: re-apply if a stream is active. */
 static uint32_t          input_generation;
 
 static volatile int     audio_request; /* Pending audio alternate setting + 1 (0: none). */
@@ -153,6 +153,8 @@ static int uvc_pu_request(const struct usb_setup *setup, uint8_t *buf)
     switch (setup->request) {
     case UVC_SET_CUR: {
         int16_t v;
+        if (setup->length != 2)
+            return -1;
         if (usb_ep0_out(buf, 2) < 0)
             return 0;
         v = (int16_t)(buf[0] | (buf[1] << 8));
@@ -214,7 +216,7 @@ static int uvc_xu_request(const struct usb_setup *setup, uint8_t *buf)
         usb_ep0_in(buf, len);
         return 0;
     case UVC_SET_CUR:
-        if (selector != XU_CROP_CONTROL)
+        if (selector != XU_CROP_CONTROL || setup->length != 4)
             return -1;
         if (usb_ep0_out(buf, 4) < 0)
             return 0;
@@ -255,6 +257,9 @@ int uvc_class_request(const struct usb_setup *setup, uint8_t *buf)
 
     switch (setup->request) {
     case UVC_SET_CUR:
+        /* UVC 1.1 probe/commit is 34 bytes (up to 48 for UVC 1.5 hosts, extra fields ignored). */
+        if (setup->length > 48)
+            return -1;
         memset(buf, 0, sizeof(struct uvc_probe));
         if (usb_ep0_out(buf, setup->length) < 0)
             return 0;
@@ -310,40 +315,46 @@ static void video_start(void)
 {
     const struct uvc_frame *frame = uvc_frame(&commit);
     const struct it6802_status *hdmi = it6802_get_status();
-    int m420 = uvc_formats[commit.bFormatIndex - 1].m420;
-    /* HDMI input (when stable) always fits the requested frame: direct, 2x downscaled, cropped
-     * (crop mode, or centered for larger inputs that are not 2x), or centered in black borders
-     * (smaller inputs). M420: direct only, test pattern otherwise. */
-    int direct  = hdmi->hactive == frame->width   && hdmi->vactive == frame->height;
-    int larger  = hdmi->hactive >= frame->width && hdmi->vactive >= frame->height;
-    int smaller = hdmi->hactive <= frame->width && hdmi->vactive <= frame->height;
-    int half    = !m420 && hdmi->hactive == 2*frame->width && hdmi->vactive == 2*frame->height;
-    int crop    = !m420 && !direct && larger && (crop_mode || !half);
-    int canvas  = !m420 && !direct && smaller && hdmi->hactive && hdmi->vactive;
+    uint16_t in_w = hdmi->hactive;
+    uint16_t in_h = hdmi->vactive;
+    int m420   = uvc_formats[commit.bFormatIndex - 1].m420;
+    int signal = hdmi->stable && in_w && in_h;
+    int direct = in_w == frame->width   && in_h == frame->height;
+    int half   = in_w == 2*frame->width && in_h == 2*frame->height;
     struct fpga_video v = {
         .width     = frame->width,
         .height    = frame->height,
         .fps       = 10000000UL/commit.dwFrameInterval,
-        .hdmi      = hdmi->stable && (direct || half || crop || canvas),
         .ddr       = 1, /* IT6802 always in 0.5x PCLK DDR output mode (see it6802.c). */
         .c_swap    = hdmi->colorspace != 0,
         .m420      = m420,
-        .no_signal = !hdmi->stable,
+        .no_signal = !signal,
     };
 
-    if (v.hdmi && crop) {
-        /* Crop mode: window at (crop_x, crop_y), clamped to the input; else centered. */
-        uint16_t max_x = hdmi->hactive - frame->width;
-        uint16_t max_y = hdmi->vactive - frame->height;
-        v.crop   = 1;
-        v.crop_x = (crop_mode ? (crop_x < max_x ? crop_x : max_x) : max_x/2) & ~1;
-        v.crop_y =  crop_mode ? (crop_y < max_y ? crop_y : max_y) : max_y/2;
-    } else if (v.hdmi && canvas) {
-        v.canvas    = 1;
-        v.in_width  = hdmi->hactive & ~3; /* Even number of words (x0 on a 2-pixel boundary). */
-        v.in_height = hdmi->vactive;
-    } else if (v.hdmi && half) {
+    /* The HDMI input (when stable) always fits the requested frame:
+     * - direct (same size, YUY2 or M420),
+     * - 2x2 downscale (2x input, YUY2, crop mode off),
+     * - window (YUY2): the input clipped to the frame size, cropped from the input when larger
+     *   (at the crop mode position, else centered) and centered in black borders when smaller
+     *   (per axis: e.g. 1600x1200 -> centered 1600x1080 region, pillarboxed in 1920x1080).
+     * M420 inputs of another size: test pattern. */
+    if (signal && direct) {
+        v.hdmi = 1;
+    } else if (signal && !m420 && half && !crop_mode) {
+        v.hdmi      = 1;
         v.downscale = 1;
+    } else if (signal && !m420) {
+        uint16_t win_w = (in_w < frame->width  ? in_w : frame->width) & ~3; /* Even word count. */
+        uint16_t win_h =  in_h < frame->height ? in_h : frame->height;
+        uint16_t max_x = in_w - win_w;
+        uint16_t max_y = in_h - win_h;
+        v.hdmi      = 1;
+        v.in_width  = win_w;
+        v.in_height = win_h;
+        v.crop      = (win_w != in_w) || (win_h != in_h);
+        v.crop_x    = (crop_mode ? (crop_x < max_x ? crop_x : max_x) : max_x/2) & ~1;
+        v.crop_y    =  crop_mode ? (crop_y < max_y ? crop_y : max_y) : max_y/2;
+        v.canvas    = (win_w < frame->width) || (win_h < frame->height);
     }
     fpga_stream_start(&v);
 }
@@ -376,32 +387,29 @@ uint8_t uvc_audio_get_interface(void)
 
 void uvc_set_crop(int enable, uint16_t x, uint16_t y)
 {
-    crop_mode     = enable;
-    crop_x        = x;
-    crop_y        = y;
-    video_request = 1;
+    crop_mode        = enable;
+    crop_x           = x;
+    crop_y           = y;
+    settings_request = 1;
 }
 
 void uvc_audio_set_batch(int batch)
 {
-    audio_batch   = (batch < 1) ? 1 : (batch > 8) ? 8 : batch;
-    audio_request = audio_alt + 1;
+    audio_batch      = (batch < 1) ? 1 : (batch > 8) ? 8 : batch;
+    settings_request = 1;
 }
 
 void uvc_audio_set_test(int test)
 {
-    audio_test    = test;
-    audio_request = audio_alt + 1;
+    audio_test       = test;
+    settings_request = 1;
 }
 
 void uvc_service(void)
 {
-    int request;
-
-    int audio;
-
-    /* Take the pending requests atomically (set from the USB interrupt). */
-    int video;
+    int request, audio, settings;
+    int was_streaming = streaming;
+    int was_audio_on  = audio_on;
 
     if (color_request) {
         color_request = 0;
@@ -410,47 +418,37 @@ void uvc_service(void)
     /* Settled input change (mode, color space, loss): re-evaluate the video source. */
     if (it6802_get_status()->generation != input_generation) {
         input_generation = it6802_get_status()->generation;
-        if (streaming)
-            video_request = 1;
+        settings_request = 1;
     }
-    if (stream_request == STREAM_IDLE && !audio_request && !video_request)
+    if (stream_request == STREAM_IDLE && !audio_request && !settings_request)
         return;
+
+    /* Take the pending requests atomically (set from the USB interrupt). */
     irq_disable();
-    request        = stream_request;
-    stream_request = STREAM_IDLE;
-    audio          = audio_request;
-    audio_request  = 0;
-    video          = video_request;
-    video_request  = 0;
+    request          = stream_request;
+    stream_request   = STREAM_IDLE;
+    audio            = audio_request;
+    audio_request    = 0;
+    settings         = settings_request;
+    settings_request = 0;
     irq_enable();
 
-    if (video && request == STREAM_IDLE && !audio) {
-        /* Settings change: only applied immediately while streaming. */
-        if (streaming)
-            streams_apply();
-        return;
+    if (request == STREAM_START) {
+        uvc_stats[2]++;
+        streaming = 1;
     }
-
-    {
-        int was_streaming = streaming;
-        int was_audio_on  = audio_on;
-
-        if (request == STREAM_START) {
-            uvc_stats[2]++;
-            streaming = 1;
-        }
-        if (request == STREAM_STOP) {
-            uvc_stats[3]++;
-            streaming = 0;
-        }
-        if (audio)
-            audio_on = (audio - 1) != 0;
-        /* Video (re)start requests always apply (new format); otherwise only on changes. */
-        if (request != STREAM_START && !video &&
-            streaming == was_streaming && audio_on == was_audio_on)
-            return;
+    if (request == STREAM_STOP) {
+        uvc_stats[3]++;
+        streaming = 0;
     }
-    streams_apply();
+    if (audio)
+        audio_on = (audio - 1) != 0;
+
+    /* (Re)start on stream start (new format), stream on/off changes, or settings changes while a
+     * stream is active. */
+    if (request == STREAM_START || streaming != was_streaming || audio_on != was_audio_on ||
+        (settings && (streaming || audio_on)))
+        streams_apply();
 }
 
 /* Init ------------------------------------------------------------------------------------------ */

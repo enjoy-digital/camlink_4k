@@ -19,13 +19,13 @@ struct fpga_video {
     uint8_t  hdmi;            /* HDMI input (else test pattern).                          */
     uint8_t  ddr;             /* IT6802 0.5x PCLK DDR output.                             */
     uint8_t  downscale;       /* 2x2 box downscale.                                       */
-    uint8_t  crop;            /* Crop window at (crop_x, crop_y) (x even).                */
+    uint8_t  crop;            /* Crop window (crop_x, crop_y, in_width x in_height).       */
     uint16_t crop_x, crop_y;
     uint8_t  c_swap;          /* Cb/Cr swap.                                              */
     uint8_t  m420;            /* M420 output (YUV 4:2:0), else YUY2.                      */
     uint8_t  no_signal;       /* Pattern: "no signal" mode.                               */
-    uint8_t  canvas;          /* Smaller input centered in the frame (black borders).     */
-    uint16_t in_width, in_height;
+    uint8_t  canvas;          /* Window centered in the frame (black borders).            */
+    uint16_t in_width, in_height; /* Window size (crop/canvas), 0: frame size.            */
 };
 
 void fpga_stream_start(const struct fpga_video *v);

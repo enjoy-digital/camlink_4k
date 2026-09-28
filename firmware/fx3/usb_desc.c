@@ -62,7 +62,7 @@ static const uint8_t bos[] = {
 
 /* Configuration --------------------------------------------------------------------------------- */
 
-#define VC_TOTAL      (13 + 18 + 11 + 26 + 9)
+#define VC_TOTAL      (13 + 18 + 12 + 26 + 9)
 #define FRAME_LEN     (26 + 4*UVC_FRAME_INTERVALS)
 #define FRAME30_LEN   (26 + 4)
 #define VS_TOTAL      (15 + (27 + UVC_YUY2_FRAME_COUNT*FRAME_LEN + 6) + (27 + FRAME30_LEN + FRAME_LEN + 6))
@@ -100,9 +100,9 @@ static const uint8_t bos[] = {
     /* Camera Terminal (ID 1). */                                                                   \
     18, UVC_CS_INTERFACE, UVC_VC_INPUT_TERMINAL, 1, W16(0x0201), 0, 0, W16(0), W16(0), W16(0),      \
     3, 0, 0, 0,                                                                                     \
-    /* Processing Unit (ID 3): brightness, contrast, saturation. */                               \
-    11, UVC_CS_INTERFACE, UVC_VC_PROCESSING_UNIT, UVC_ID_PROCESSING, UVC_ID_CAMERA, W16(0), 2,      \
-    W16(0x000b), 0,                                                                                 \
+    /* Processing Unit (ID 3): brightness, contrast, saturation (UVC 1.1: + bmVideoStandards). */ \
+    12, UVC_CS_INTERFACE, UVC_VC_PROCESSING_UNIT, UVC_ID_PROCESSING, UVC_ID_CAMERA, W16(0), 2,      \
+    W16(0x000b), 0, 0,                                                                              \
     /* Extension Unit (ID 4): input info, crop. */                                                 \
     26, UVC_CS_INTERFACE, UVC_VC_EXTENSION_UNIT, UVC_ID_EXTENSION, XU_GUID, XU_CONTROLS, 1,         \
     UVC_ID_PROCESSING, 1, 0x03, 0,                                                                  \
