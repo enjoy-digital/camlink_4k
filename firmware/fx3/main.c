@@ -52,6 +52,7 @@ enum {
     VREQ_WATCHDOG      = 0x72, /* OUT: Watchdog, value = reload ticks >> 8 (0: off), index = backup clock divider. */
     VREQ_WATCHDOG_READ = 0x73, /* IN : Watchdog timer value (calibration).         */
     VREQ_HANG          = 0x74, /* OUT: Debug: hang with interrupts off (watchdog test). */
+    VREQ_STATS         = 0x75, /* IN : Debug counters (see vendor_request).          */
     VREQ_CROP          = 0x71, /* OUT: Crop mode, value = x (0xffff: off, downscale), index = y. */
     VREQ_FPGA_BOOT     = 0x66, /* OUT: Load the FPGA from the flash bitstream (deferred, status via FLASH_STATUS). */
 };
@@ -62,6 +63,10 @@ static uint8_t ep0_buf[EP0_BUF_SIZE] __attribute__((aligned(32)));
 static volatile int reboot_request;
 static int i2c_status;
 volatile uint32_t main_loops;
+
+extern volatile uint32_t usb_isr_count;
+extern volatile uint32_t usb_link_stats[3];
+extern volatile uint32_t uvc_stats[4];
 static volatile int hdmi_init_request;
 
 /* Flash / FPGA Boot ------------------------------------------------------------------------------ */
@@ -259,6 +264,19 @@ static void vendor_request(const struct usb_setup *setup)
             watchdog_stop();
         usb_ep0_ack();
         return;
+    case VREQ_STATS: {
+        /* main loops, USB ISRs, SS->USB2 fallbacks, SS connects, PHY CR timeouts, UVC commits,
+         * halts, stream starts, stream stops. */
+        uint32_t *d = (uint32_t *)ep0_buf;
+        d[0] = main_loops;
+        d[1] = usb_isr_count;
+        for (int i = 0; i < 3; i++)
+            d[2 + i] = usb_link_stats[i];
+        for (int i = 0; i < 4; i++)
+            d[5 + i] = uvc_stats[i];
+        usb_ep0_in(ep0_buf, setup->length < 36 ? setup->length : 36);
+        return;
+    }
     case VREQ_WATCHDOG_READ:
         ((uint32_t *)ep0_buf)[0] = watchdog_value();
         usb_ep0_in(ep0_buf, 4);

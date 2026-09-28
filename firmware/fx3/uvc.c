@@ -273,6 +273,13 @@ int uvc_class_request(const struct usb_setup *setup, uint8_t *buf)
     return -1;
 }
 
+void uvc_bus_reset(void)
+{
+    stream_request = STREAM_STOP;
+    audio_alt      = 0;
+    audio_request  = 1; /* Alt 0. */
+}
+
 void uvc_stream_halt(void)
 {
     stream_request = STREAM_STOP;
@@ -383,18 +390,25 @@ void uvc_service(void)
         return;
     }
 
-    if (request == STREAM_START) {
-        uvc_stats[2]++;
-        streaming = 1;
-    }
-    if (request == STREAM_STOP) {
-        uvc_stats[3]++;
-        if (!streaming && !audio)
+    {
+        int was_streaming = streaming;
+        int was_audio_on  = audio_on;
+
+        if (request == STREAM_START) {
+            uvc_stats[2]++;
+            streaming = 1;
+        }
+        if (request == STREAM_STOP) {
+            uvc_stats[3]++;
+            streaming = 0;
+        }
+        if (audio)
+            audio_on = (audio - 1) != 0;
+        /* Video (re)start requests always apply (new format); otherwise only on changes. */
+        if (request != STREAM_START && !video &&
+            streaming == was_streaming && audio_on == was_audio_on)
             return;
-        streaming = 0;
     }
-    if (audio)
-        audio_on = (audio - 1) != 0;
     streams_apply();
 }
 

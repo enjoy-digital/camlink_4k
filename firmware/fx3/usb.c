@@ -10,6 +10,7 @@
  */
 
 #include "fx3.h"
+#include "uvc.h"
 
 #include <rdb/gctl.h>
 #include <rdb/uib.h>
@@ -37,29 +38,42 @@ static void usb_set_uib_clock(uint32_t pclk_src, uint32_t epmclk_src)
     delay_us(5);
 }
 
+/* Link debug counters: SS -> USB2 fallbacks, SS connects, PHY CR access timeouts. */
+volatile uint32_t usb_link_stats[3];
+
+#define USB_PHY_CR_DATA 0xe0033024
+#define USB_PHY_CR_STAT 0xe0033028
+
+static int usb_phy_cr_wait(int ack)
+{
+    /* Bounded: called from the link interrupt, the PHY may not answer while it is powered down. */
+    for (uint32_t timeout = 1000; timeout; timeout--) {
+        if (!!(reg_read(USB_PHY_CR_STAT) & (1UL << 16)) == ack)
+            return 0;
+        delay_us(1);
+    }
+    usb_link_stats[2]++;
+    return -1;
+}
+
 static void usb_phy_write(uint16_t addr, uint16_t value)
 {
-    /* USB3 PHY control register access (CR port). */
-    const uint32_t cr_data = 0xe0033024;
-    const uint32_t cr_stat = 0xe0033028;
+    /* USB3 PHY control register access (CR port): capture address, capture data, write. */
+    static const uint32_t strobes[3] = {1UL << 16, 1UL << 17, 1UL << 19};
 
     if (!(reg_read(FX3_OTG_CTRL) & FX3_OTG_CTRL_SSDEV_ENABLE))
         return;
 
-    reg_write(cr_data, addr);
-    reg_write(cr_data, addr | (1UL << 16));
-    while (!(reg_read(cr_stat) & (1UL << 16)));
-    reg_write(cr_data, addr);
-    while (reg_read(cr_stat) & (1UL << 16));
-    reg_write(cr_data, value);
-    reg_write(cr_data, value | (1UL << 17));
-    while (!(reg_read(cr_stat) & (1UL << 16)));
-    reg_write(cr_data, value);
-    while (reg_read(cr_stat) & (1UL << 16));
-    reg_write(cr_data, value | (1UL << 19));
-    while (!(reg_read(cr_stat) & (1UL << 16)));
-    reg_write(cr_data, value);
-    while (reg_read(cr_stat) & (1UL << 16));
+    for (int i = 0; i < 3; i++) {
+        uint32_t data = (i == 0) ? addr : value;
+        reg_write(USB_PHY_CR_DATA, data);
+        reg_write(USB_PHY_CR_DATA, data | strobes[i]);
+        if (usb_phy_cr_wait(1))
+            return;
+        reg_write(USB_PHY_CR_DATA, data);
+        if (usb_phy_cr_wait(0))
+            return;
+    }
 }
 
 static void usb_ep0_flush(void)
@@ -76,6 +90,7 @@ static void usb_ep0_flush(void)
 static void usb_connect_high_speed(void)
 {
     usb_speed = USB_HIGH_SPEED;
+    usb_link_stats[0]++;
 
     usb_phy_write(0x1005, 0x0000);
 
@@ -140,6 +155,7 @@ static void usb_connect_high_speed(void)
 static void usb_connect_super_speed(void)
 {
     usb_speed = USB_SUPER_SPEED;
+    usb_link_stats[1]++;
 
     reg_write(FX3_LNK_PHY_TX_TRIM, 0x0b569011UL);
     usb_phy_write(0x1006, 0x0180);
@@ -297,10 +313,14 @@ static void usb_lnk_isr(void)
     uint32_t req = reg_read(FX3_LNK_INTR) & reg_read(FX3_LNK_INTR_MASK);
     reg_write(FX3_LNK_INTR, req);
 
-    if (req & FX3_LNK_INTR_LTSSM_DISCONNECT)
+    if (req & FX3_LNK_INTR_LTSSM_DISCONNECT) {
+        uvc_bus_reset();
         usb_connect_high_speed();
-    if (req & FX3_LNK_INTR_LTSSM_CONNECT)
+    }
+    if (req & FX3_LNK_INTR_LTSSM_CONNECT) {
+        uvc_bus_reset();
         usb_connect_super_speed();
+    }
 }
 
 static void usb_dev_ctl_isr(void)
@@ -308,6 +328,8 @@ static void usb_dev_ctl_isr(void)
     uint32_t req = reg_read(FX3_DEV_CTRL_INTR) & reg_read(FX3_DEV_CTRL_INTR_MASK);
     reg_write(FX3_DEV_CTRL_INTR, req);
 
+    if (req & FX3_DEV_CTRL_INTR_URESET)
+        uvc_bus_reset();
     if (req & FX3_DEV_CTRL_INTR_SUDAV) {
         reg_write(FX3_DEV_EPO_CS + 0, FX3_DEV_EPO_CS_VALID);
         reg_write(FX3_DEV_EPI_CS + 0, FX3_DEV_EPI_CS_VALID);

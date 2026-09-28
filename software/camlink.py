@@ -125,6 +125,7 @@ VREQ_CROP          = 0x71
 VREQ_WATCHDOG      = 0x72
 VREQ_WATCHDOG_READ = 0x73
 VREQ_HANG          = 0x74
+VREQ_STATS         = 0x75
 
 FLASH_BLOCK_SIZE      = 0x10000
 FLASH_BITSTREAM_HDR   = 0x100000
@@ -311,6 +312,11 @@ class CamLink:
 
     def watchdog_value(self):
         return struct.unpack("<I", self.vendor_in(VREQ_WATCHDOG_READ, length=4))[0]
+
+    def stats(self):
+        names = ["main_loops", "usb_isrs", "ss_to_usb2_fallbacks", "ss_connects", "phy_cr_timeouts",
+            "uvc_commits", "uvc_halts", "stream_starts", "stream_stops"]
+        return dict(zip(names, struct.unpack("<9I", self.vendor_in(VREQ_STATS, length=36))))
 
     def hang(self):
         """Debug: hang the FX3 CPU with interrupts off (watchdog test)."""
@@ -594,6 +600,7 @@ def main():
     p.add_argument("image", nargs="?", default="firmware/fx3/build/fx3.img")
     sub.add_parser("flash-recover", help="Erase the FX3 image and reboot to the USB bootloader.")
     sub.add_parser("fpga-boot", help="Load the FPGA from the flash bitstream.")
+    sub.add_parser("stats", help="Show FX3 debug counters (link fallbacks, PHY timeouts, streams).")
     p = sub.add_parser("crop", help="Crop window for inputs larger than the UVC frame (no args: downscale).")
     p.add_argument("x", nargs="?", type=int)
     p.add_argument("y", nargs="?", type=int, default=0)
@@ -705,6 +712,10 @@ def main():
 
     if args.cmd == "flash-recover":
         CamLink().flash_recover()
+
+    if args.cmd == "stats":
+        for k, v in CamLink().stats().items():
+            print(f"{k:22s}: {v}")
 
     if args.cmd == "crop":
         CamLink().crop(args.x, args.y)

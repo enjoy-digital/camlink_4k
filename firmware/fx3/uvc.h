@@ -108,6 +108,8 @@ void uvc_init(void);
 int  uvc_class_request(const struct usb_setup *setup, uint8_t *buf);
 /* Endpoint halt cleared on the streaming endpoint (stream off). */
 void uvc_stream_halt(void);
+/* USB bus reset / link change: stop all streams (interrupt context). */
+void uvc_bus_reset(void);
 /* Main loop service: applies pending stream start/stop (FPGA configuration over I2C). */
 void uvc_service(void);
 /* Audio streaming interface alternate setting (0: idle, 1: streaming). Called from interrupt context. */
