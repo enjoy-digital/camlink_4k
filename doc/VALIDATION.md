@@ -1,14 +1,14 @@
 # Hardware Validation Checklist (features developed offline, 2026-09-28 night)
 
-Everything below passed simulation (`python3 -m pytest test`: 22 tests) and timing (seed 2:
-hdmi 152 MHz / 150, sys 110 MHz / 100, fx3 114 MHz / 100.8) but was written while the device was
+Everything below passed simulation (`python3 -m pytest test`: 24 tests) and timing (seeds 1-3 pass, default seed 1:
+hdmi 157 MHz / 150, sys 115 MHz / 100, fx3 115 MHz / 100.8) but was written while the device was
 offline. Validate in this order: each step relies on the previous ones.
 
 Setup: replug the Cam Link (flash block 0 is erased: it enumerates as the FX3 bootloader
 `04b4:00f3`), HDMI-0 of this PC as source, screen unlocked for latency/quality.
 
 ```
-make -C firmware/fx3 && python3 litecamlink.py --build --seed 2
+make -C firmware/fx3 && python3 litecamlink.py --build
 python3 software/camlink.py boot
 ```
 
@@ -62,7 +62,13 @@ level/sign looks wrong: left-justified vs I2S framing (I2SReceiver MSB position)
 2. `stream-test` throughput at 100.8 MHz PCLK (expect ~395-400 MB/s).
 3. `v4l2-ctl --list-formats-ext` -> M420 3840x2160@30; capture with `v4l2cap.Capture(..., 3840, 2160,
    30, pixfmt="M420")` and `m420_to_rgb` (check colors, ~30 fps, 0 drops, `hdmi_in_overflow` 0).
-4. If stable: make `PLL_FBDIV=21` the default, add 2160p30 M420 to `bench.py` (stock: NV12).
+4. Bandwidth margin (~0.4% with 1 audio packet per switch): with audio streaming, try
+   `camlink.py audio-batch 4` (thread switches every 4 ms) and tune the `gpif_switch_guard` CSR
+   (1024 cycles default) down to the smallest value without audio/video corruption
+   (`uvc_raw.py` + `audio_check.py test`).
+5. Throughput with 32KB DMA buffers: `make -C firmware/fx3 clean && make -C firmware/fx3
+   DMA_BUF_SIZE=32768 PLL_FBDIV=21` (FX3 bss 272KB), compare `stream-test` and 4K30 drops.
+6. If stable: make `PLL_FBDIV=21` the default, add 2160p30 M420 to `bench.py` (stock: NV12).
 
 ## 6. EDID (not implemented: needs hardware investigation)
 
