@@ -90,8 +90,18 @@ A `software/bench.py` harness will run each test on both firmwares and write the
 - IT6802 10-bit output mapping onto the 24 wired lines.
 - Best host API for extension-unit controls (v4l2 controls via uvcvideo XU mapping vs vendor requests).
 
+## Status (2026-09-28 night)
+
+Implemented offline (simulation + timing), hardware validation checklist in `doc/VALIDATION.md`:
+robustness (input change handling, no-signal pattern, clean restarts, first-frame fix), UVC
+Processing Unit (brightness/contrast/saturation) + Extension Unit (input info, crop), 2x2 box
+downscale, 4K crop, audio (UAC, partially validated), 4K30 M420 (no DRAM), FX3 hang hardening.
+
 ## Notes (2026-09-28 night)
 
+- 4K30 NV12 through DDR3 needs ~746 MB/s of DRAM bandwidth (each frame written then read, NV12
+  sends the whole Y plane first), above the LiteDRAM ECP5 PHY (~400 MT/s x 16-bit). 4K30 is
+  provided as M420 instead (same 4:2:0 data, line-interleaved, no DRAM).
 - Native 3840x2160 YUY2 (even at 15 fps) is not possible without frame buffering: during active
   lines the IT6802 delivers ~518 MB/s, above the GPIF rate (~384 MB/s), so the 2048-word FIFO
   overflows within a few lines. It needs the DDR3 frame buffer (same path as 4K30 NV12).
