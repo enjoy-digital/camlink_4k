@@ -39,14 +39,16 @@ int fpga_csr_read(uint32_t addr, uint32_t *value)
 
 /* Stream ---------------------------------------------------------------------------------------- */
 
-void fpga_stream_start(uint16_t width, uint16_t height, uint32_t fps, int hdmi, int ddr, int downscale)
+void fpga_stream_start(uint16_t width, uint16_t height, uint32_t fps, int hdmi, int ddr, int downscale,
+    int c_swap)
 {
     fpga_stream_stop();
     fpga_csr_write(CSR_MAIN_SOURCE_SEL,       hdmi ? 3 : 1); /* UVC HDMI / UVC pattern. */
-    /* HDMI: enable, Y lane 1 (QE[23:16]), C lane 2 (QE[35:28]), Cb/Cr swap, DDR/downscale
-     * (validated on hardware with a MacBook Pro 4K30 source). */
+    /* HDMI: enable, Y lane 1 (QE[23:16]), C lane 2 (QE[35:28]), DDR/downscale. The Cb/Cr order
+     * depends on the IT6802 path: swapped with CSC bypass (YCbCr sources), not with the RGB->YUV
+     * CSC (RGB sources) (validated with a MacBook YCbCr and a PC RGB source). */
     fpga_csr_write(CSR_HDMI_IN_CONTROL, hdmi ?
-        (1 | (1 << 4) | (2 << 6) | (1 << 8) | (ddr << 12) | (downscale << 14)) : 0);
+        (1 | (1 << 4) | (2 << 6) | (c_swap << 8) | (ddr << 12) | (downscale << 14)) : 0);
     fpga_csr_write(CSR_PATTERN_HWORDS,        width/2);
     fpga_csr_write(CSR_PATTERN_VRES,          height);
     fpga_csr_write(CSR_PATTERN_BAR_WORDS,     width/16);

@@ -156,7 +156,8 @@ static void uvc_stream_start(void)
     if (streaming)
         fpga_stream_stop();
     gpif_stream_start(GPIF_CLK_DIV_X2, GPIF_FLAG_OMEGA);
-    fpga_stream_start(frame->width, frame->height, fps, use_hdmi, ddr, use_hdmi && half);
+    fpga_stream_start(frame->width, frame->height, fps, use_hdmi, ddr, use_hdmi && half,
+        hdmi->colorspace != 0);
     streaming = 1;
 }
 

@@ -31,10 +31,20 @@ FX3_CHUNK       = 2048
 
 # Helpers ------------------------------------------------------------------------------------------
 
+def _is_litecamlink(dev):
+    try:
+        return dev.product == "LiteCamLink"
+    except (ValueError, usb.core.USBError):
+        return False
+
 def find_device(vid, pid, timeout=0.0):
     deadline = time.time() + timeout
     while True:
-        dev = usb.core.find(idVendor=vid, idProduct=pid)
+        if (vid, pid) == (LITECAMLINK_VID, LITECAMLINK_PID):
+            # The pid.codes test VID/PID is shared: also match the product string.
+            dev = usb.core.find(idVendor=vid, idProduct=pid, custom_match=_is_litecamlink)
+        else:
+            dev = usb.core.find(idVendor=vid, idProduct=pid)
         if dev is not None or time.time() >= deadline:
             return dev
         time.sleep(0.1)

@@ -13,7 +13,15 @@ import usb1
 class USBStreamReader:
     def __init__(self, vid=0x1209, pid=0x0001, ep=0x81, transfer_size=512*1024, transfers=8, interface=1):
         self.ctx    = usb1.USBContext()
-        self.handle = self.ctx.openByVendorIDAndProductID(vid, pid)
+        self.handle = None
+        for device in self.ctx.getDeviceIterator(skip_on_error=True):
+            if (device.getVendorID(), device.getProductID()) == (vid, pid):
+                try:
+                    if device.getProduct() == "LiteCamLink":
+                        self.handle = device.open()
+                        break
+                except usb1.USBError:
+                    pass
         if self.handle is None:
             raise RuntimeError("Device not found.")
         self.handle.setAutoDetachKernelDriver(True)
