@@ -230,26 +230,29 @@ def stream_test(cl, bus, size=64*1024*1024, clk_div_x2=16, flag_omega=GPIF_OMEGA
           f"FLAG: {bus.regs.gpif_status.read() & 1}")
     bus.regs.gen_enable.write(1)
     bus.regs.gpif_control.write(1 | (flag_invert << 1) | (data_delay << 4))
-    received = 0
-    errors   = 0
-    last     = None
-    start    = time.time()
-    try:
-        while received < size:
-            data = np.frombuffer(bytes(cl.read_stream(chunk)), dtype=np.uint32)
-            if last is not None:
-                data = np.concatenate([[last], data])
-            diffs   = np.diff(data.astype(np.int64)) % (1 << 32)
-            errors += int(np.count_nonzero(diffs != 1))
-            if received == 0:
-                print("First words: " + " ".join(f"{w:08x}" for w in data[:8]))
-            last      = data[-1]
-            received += 4*(len(data) - (1 if received else 0))
-    except usb.core.USBError as e:
-        print(f"USB error: {e}")
-    duration = time.time() - start
+    from usb_stream import USBStreamReader
+    state  = {"errors": 0, "last": None, "first": True}
+    def check(chunk):
+        data = np.frombuffer(chunk, dtype=np.uint32)
+        if not len(data):
+            return
+        if state["first"]:
+            print("First words: " + " ".join(f"{w:08x}" for w in data[:8]))
+            state["first"] = False
+        if state["last"] is not None:
+            state["errors"] += int((int(data[0]) - int(state["last"])) % (1 << 32) != 1)
+        diffs = np.diff(data.astype(np.int64)) % (1 << 32)
+        state["errors"] += int(np.count_nonzero(diffs != 1))
+        state["last"] = data[-1]
+    usb.util.dispose_resources(cl.dev)
+    reader = USBStreamReader()
+    received, duration, error = reader.read(size, check)
+    reader.close()
+    errors = state["errors"]
+    if error is not None:
+        print(f"USB error: {error}")
     print(f"Received {received/1e6:.1f} MB in {duration:.2f}s: {received/duration/1e6:.1f} MB/s, "
-          f"{errors} counter discontinuities, {bus.regs.gpif_bursts.read()} bursts.")
+          f"{errors} counter discontinuities.")
     for k, v in cl.stream_status().items():
         print(f"  {k:16s}: 0x{v:08x}")
     bus.regs.gpif_control.write(0)
