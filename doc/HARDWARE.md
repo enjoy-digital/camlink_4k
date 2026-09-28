@@ -29,7 +29,12 @@ Rev.3 (`0x00A1`) are different designs and are not covered.
   (ktemkin/camlink-re: `0x79` refresh, `0xC6` ISC enable, `0x0E` erase, `0x46` set address,
   `0x7A` burst, poll DONE bit 8 of status).
 - **FX3 RESET#** is connected to FPGA `P20`.
-- **Extra GPIOs**: FX3 GPIO26 <-> `D7`, GPIO27 <-> `C7`, GPIO45 <-> `C8`.
+- **Extra GPIOs**: FX3 GPIO27 <-> `C7`, GPIO45 <-> `C8`. FX3 GPIO26 <-> `D7` is not a direct
+  connection (FPGA output not seen by the FX3, netlist says "TR?, I2C sel?").
+
+**Verified on hardware** (`litecamlink.py --with-pintest` + `camlink.py pintest`): all 32 GPIF
+`DQ` lines, `PCLK`, the 9 `CTL` lines and GPIO27 (FPGA -> FX3), GPIO45 (FX3 -> FPGA).
+FPGA Slave-SPI configuration from the FX3 verified (IDCODE `0x41111043`, ~0.4s for 100KB).
 
 ### I2C (shared)
 
@@ -91,7 +96,7 @@ The unit serial number is stored as a USB string descriptor inside the FX3 image
 | 1 | IT6802 init sequence (datasheet under NDA)    | Dump all IT6802 registers through the stock HID I2C tunnel per mode; sniff stock boot I2C with a logic analyzer; public vendor BSP drivers. |
 | 2 | IT6802 output format (SDR/DDR, YUV422/RGB, pixel clock at 4K) | Frequency counters and LiteScope on the FPGA side once IT6802 init is ours. |
 | 3 | DDR3 VCCIO (1.35V vs 1.5V)                    | Measure; LiteDRAM memtest with SSTL135 already passed in 2019.       |
-| 4 | Pin verification of the netlist spreadsheet   | Toggle/readback tests between FX3 GPIOs and FPGA IOs.                |
+| 4 | Pin verification of the netlist spreadsheet   | FX3 <-> FPGA done (PinTest). IT6802/I2C/I2S pins still to verify.    |
 | 5 | Audio path                                    | Ours: I2S -> FPGA -> GPIF (in-band) -> FX3 -> UAC.                   |
 | 6 | Device at I2C `0x38`                          | Low priority.                                                        |
 

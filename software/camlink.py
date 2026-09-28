@@ -88,6 +88,16 @@ VREQ_IDENT     = 0x00
 VREQ_MEM_READ  = 0x01
 VREQ_MEM_WRITE = 0x02
 VREQ_REBOOT    = 0x0f
+VREQ_FPGA_INFO = 0x10
+VREQ_FPGA_CFG  = 0x11
+VREQ_FPGA_DATA = 0x12
+VREQ_FPGA_DONE = 0x13
+VREQ_GPIO_CFG  = 0x20
+VREQ_GPIO_READ = 0x21
+
+FPGA_STATUS_DONE = (1 <<  8)
+FPGA_STATUS_BUSY = (1 << 12)
+FPGA_STATUS_FAIL = (1 << 13)
 
 class CamLink:
     def __init__(self, timeout=5.0):
@@ -113,9 +123,64 @@ class CamLink:
     def write32(self, addr, value):
         self.vendor_out(VREQ_MEM_WRITE, addr & 0xffff, addr >> 16, struct.pack("<I", value))
 
+    def fpga_info(self):
+        return struct.unpack("<II", self.vendor_in(VREQ_FPGA_INFO, length=8))
+
+    def fpga_load(self, filename, chunk=4096):
+        bitstream = open(filename, "rb").read()
+        start     = time.time()
+        self.vendor_out(VREQ_FPGA_CFG)
+        for i in range(0, len(bitstream), chunk):
+            self.dev.ctrl_transfer(0x40, VREQ_FPGA_DATA, 0, 0, bitstream[i:i + chunk], timeout=5000)
+        status, = struct.unpack("<I", self.vendor_in(VREQ_FPGA_DONE, length=4))
+        print(f"FPGA configured with {filename} ({len(bitstream)} bytes, {time.time() - start:.2f}s), "
+              f"status 0x{status:08x}.")
+        if not (status & FPGA_STATUS_DONE) or (status & FPGA_STATUS_FAIL):
+            raise RuntimeError("FPGA configuration failed.")
+
+    def gpio_cfg(self, pin, mode):
+        self.vendor_out(VREQ_GPIO_CFG, mode, pin)
+
+    def gpio_read(self):
+        return struct.unpack("<Q", self.vendor_in(VREQ_GPIO_READ, length=8))[0]
+
     def reboot(self):
         self.vendor_out(VREQ_REBOOT)
         usb.util.dispose_resources(self.dev)
+
+# Pin Test -----------------------------------------------------------------------------------------
+
+# FPGA PinTest pins order (see litecamlink.py) with their expected FX3 GPIO.
+PINTEST_PINS = \
+    [(f"dq{i}",  i)      for i in range(16)] + \
+    [(f"dq{i}",  i + 17) for i in range(16, 28)] + \
+    [(f"dq{i}",  i + 18) for i in range(28, 32)] + \
+    [(f"ctl{i}", g)      for i, g in enumerate([17, 18, 19, 20, 21, 22, 24, 28, 29])] + \
+    [("pclk", 16), ("gpio27", 27)]
+PINTEST_STEP_GPIO = 45
+
+def pintest(cl, id_bits=8):
+    gpios = sorted(g for _, g in PINTEST_PINS)
+    for g in gpios:
+        cl.gpio_cfg(g, 0)
+    cl.gpio_cfg(PINTEST_STEP_GPIO, 1)
+    samples = []
+    for step in range(id_bits):
+        time.sleep(0.01)
+        samples.append(cl.gpio_read())
+        cl.gpio_cfg(PINTEST_STEP_GPIO, 2)
+        time.sleep(0.01)
+        cl.gpio_cfg(PINTEST_STEP_GPIO, 1)
+    errors = 0
+    for g in gpios:
+        ident = sum(((samples[b] >> g) & 1) << b for b in range(id_bits))
+        name  = PINTEST_PINS[ident - 1][0] if 1 <= ident <= len(PINTEST_PINS) else "?"
+        exp   = [n for n, eg in PINTEST_PINS if eg == g][0]
+        ok    = (name == exp)
+        errors += not ok
+        print(f"FX3 GPIO{g:2d}: id {ident:3d} -> {name:7s} (expected {exp:7s}) {'OK' if ok else 'ERROR'}")
+    print(f"{len(gpios) - errors}/{len(gpios)} pins OK.")
+    return errors == 0
 
 # Main ---------------------------------------------------------------------------------------------
 
@@ -125,6 +190,15 @@ def main():
 
     p = sub.add_parser("fx3-load", help="Load a FX3 image to RAM (device in FX3 bootloader).")
     p.add_argument("image")
+
+    p = sub.add_parser("boot", help="Boot: load FX3 firmware (if in bootloader) and FPGA bitstream.")
+    p.add_argument("--fx3", default="firmware/fx3/build/fx3.img")
+    p.add_argument("--bit", default="build/gateware/litecamlink.bit")
+
+    p = sub.add_parser("fpga-load", help="Load a bitstream to the FPGA (through the FX3).")
+    p.add_argument("bitstream")
+    sub.add_parser("fpga-info", help="Show FPGA IDCODE/status.")
+    sub.add_parser("pintest",   help="Run FX3 <-> FPGA pin test (needs --with-pintest bitstream).")
 
     sub.add_parser("list",   help="List Cam Link related USB devices.")
     sub.add_parser("ident",  help="Show LiteCamLink firmware identification.")
@@ -140,6 +214,23 @@ def main():
 
     if args.cmd == "fx3-load":
         fx3_load(args.image)
+
+    if args.cmd == "boot":
+        if find_device(FX3_BOOT_VID, FX3_BOOT_PID) is not None:
+            fx3_load(args.fx3)
+        cl = CamLink()
+        print(cl.ident())
+        cl.fpga_load(args.bit)
+
+    if args.cmd == "fpga-load":
+        CamLink().fpga_load(args.bitstream)
+
+    if args.cmd == "fpga-info":
+        idcode, status = CamLink().fpga_info()
+        print(f"IDCODE: 0x{idcode:08x}, status: 0x{status:08x} (done: {(status >> 8) & 1})")
+
+    if args.cmd == "pintest":
+        sys.exit(0 if pintest(CamLink()) else 1)
 
     if args.cmd == "ident":
         cl  = CamLink()

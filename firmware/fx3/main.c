@@ -11,6 +11,7 @@
 
 #include "fx3.h"
 #include "usb_desc.h"
+#include "fpga.h"
 
 /* Vendor Requests ------------------------------------------------------------------------------- */
 
@@ -19,6 +20,12 @@ enum {
     VREQ_MEM_READ  = 0x01, /* IN : Read FX3 memory at (index << 16 | value).       */
     VREQ_MEM_WRITE = 0x02, /* OUT: Write FX3 memory at (index << 16 | value).      */
     VREQ_REBOOT    = 0x0f, /* OUT: Hard reset (back to the USB bootloader).        */
+    VREQ_FPGA_INFO = 0x10, /* IN : FPGA IDCODE + status (2x32-bit).                */
+    VREQ_FPGA_CFG  = 0x11, /* OUT: Start FPGA configuration (Slave-SPI).           */
+    VREQ_FPGA_DATA = 0x12, /* OUT: FPGA bitstream chunk.                           */
+    VREQ_FPGA_DONE = 0x13, /* IN : Finish FPGA configuration, returns status.      */
+    VREQ_GPIO_CFG  = 0x20, /* OUT: GPIO value: 0 = input, 1 = output low, 2 = high. */
+    VREQ_GPIO_READ = 0x21, /* IN : GPIO 0-60 input values (64-bit bitmap).         */
 };
 
 #define EP0_BUF_SIZE 4096
@@ -56,6 +63,43 @@ static void vendor_request(const struct usb_setup *setup)
         for (int i = 0; i < setup->length; i += 4)
             reg_write(addr + i, *(uint32_t *)&ep0_buf[i]);
         return;
+    case VREQ_FPGA_INFO:
+        ((uint32_t *)ep0_buf)[0] = fpga_read_idcode();
+        ((uint32_t *)ep0_buf)[1] = fpga_read_status();
+        usb_ep0_in(ep0_buf, 8);
+        return;
+    case VREQ_FPGA_CFG:
+        fpga_config_start();
+        usb_ep0_ack();
+        return;
+    case VREQ_FPGA_DATA:
+        if (setup->length > EP0_BUF_SIZE)
+            break;
+        if (usb_ep0_out(ep0_buf, setup->length) < 0)
+            return;
+        fpga_config_data(ep0_buf, setup->length);
+        return;
+    case VREQ_FPGA_DONE:
+        ((uint32_t *)ep0_buf)[0] = fpga_config_finish();
+        usb_ep0_in(ep0_buf, 4);
+        return;
+    case VREQ_GPIO_CFG:
+        if (setup->index > 60)
+            break;
+        if (setup->value == 0)
+            gpio_setup_input(setup->index);
+        else
+            gpio_setup_output(setup->index, setup->value == 2);
+        usb_ep0_ack();
+        return;
+    case VREQ_GPIO_READ: {
+        uint32_t bitmap[2] = {0, 0};
+        for (int i = 0; i < 61; i++)
+            bitmap[i/32] |= (uint32_t)gpio_get(i) << (i%32);
+        memcpy(ep0_buf, bitmap, 8);
+        usb_ep0_in(ep0_buf, 8);
+        return;
+    }
     case VREQ_REBOOT:
         usb_ep0_ack();
         reboot_request = 1;
@@ -141,6 +185,7 @@ int main(void)
     gctl_init_clock();
     gctl_init_iomatrix(IOMATRIX_GPIF32BIT_UART_I2S);
     gpio_init_clock();
+    fpga_init();
     irq_enable();
 
     usb_init(setup_request);

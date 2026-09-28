@@ -21,12 +21,13 @@ from litex.soc.cores.led            import LedChaser
 
 from litecamlink_platform import Platform
 
-from litecamlink.gateware.crg import CRG
+from litecamlink.gateware.crg     import CRG
+from litecamlink.gateware.pintest import PinTest
 
 # BaseSoC ------------------------------------------------------------------------------------------
 
 class BaseSoC(SoCMini):
-    def __init__(self, sys_clk_freq=75e6, toolchain="trellis"):
+    def __init__(self, sys_clk_freq=75e6, toolchain="trellis", with_pintest=False):
         platform = Platform(toolchain=toolchain)
 
         # CRG --------------------------------------------------------------------------------------
@@ -41,6 +42,16 @@ class BaseSoC(SoCMini):
             sys_clk_freq = sys_clk_freq,
         )
 
+        # PinTest ----------------------------------------------------------------------------------
+        if with_pintest:
+            fx3      = platform.request("fx3")
+            fx3_gpio = [platform.request("fx3_gpio", i) for i in (1, 2)]
+            self.pintest = PinTest(
+                step_pin = fx3_gpio[1], # FX3 GPIO45.
+                pins     = [fx3.dq[i] for i in range(32)] + [fx3.ctl[i] for i in range(9)] +
+                           [fx3.pclk, fx3_gpio[0]],
+            )
+
 # Build --------------------------------------------------------------------------------------------
 
 def main():
@@ -49,9 +60,10 @@ def main():
     parser.add_argument("--no-compile",   action="store_true", help="Generate build files without running the toolchain.")
     parser.add_argument("--load",         action="store_true", help="Load bitstream (through the FX3, see software/camlink.py).")
     parser.add_argument("--sys-clk-freq", default=75e6, type=float, help="System clock frequency.")
+    parser.add_argument("--with-pintest", action="store_true",       help="Enable FX3 <-> FPGA pin test.")
     args = parser.parse_args()
 
-    soc     = BaseSoC(sys_clk_freq=args.sys_clk_freq)
+    soc     = BaseSoC(sys_clk_freq=args.sys_clk_freq, with_pintest=args.with_pintest)
     builder = Builder(soc, output_dir="build", csr_csv="build/csr.csv")
     builder.build(build_name="litecamlink", run=args.build and not args.no_compile)
 

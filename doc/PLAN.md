@@ -15,7 +15,7 @@ Commit/Push**. The stock firmware can be restored at any time from the flash bac
 |----|--------------------------------|---------------------------------------------------------------------------------------------|--------|
 | 0  | Bootstrap                      | Repo, docs, platform, flash backup, stock I2C/EDID dumps, bench scripts.                    | Done   |
 | 1  | FX3 bare-metal hello           | Bare-metal C (fx3lafw register defs), RAM boot, EP0 vendor requests (ident, peek/poke).     | Done   |
-| 2  | FPGA configuration from FX3    | Slave-SPI bitstream load from the host, DONE readback. `litecamlink.py --load`.             |        |
+| 2  | FPGA configuration from FX3    | Slave-SPI bitstream load from the host, DONE readback. `litecamlink.py --load`.             | Done   |
 | 3  | FX3 USB streaming              | Bulk IN from FX3 memory, host throughput benchmark (target >350MB/s on SuperSpeed).         |        |
 | 4  | GPIF-II + FPGA pattern         | 32-bit GPIF state machine, LiteX GPIF PHY, pattern generator, CRC checked on the host.      |        |
 | 5  | UVC                            | UVC 1.1 descriptors (YUY2 first), probe/commit, payload headers, VLC/ffplay/OBS. No quirks. |        |

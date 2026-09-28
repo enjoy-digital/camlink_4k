@@ -83,8 +83,11 @@ _io = [
         IOStandard("LVCMOS33"),
     ),
 
-    # FX3 extra GPIOs (FX3 GPIO26/27/45).
-    ("fx3_gpio", 0, Pins("D7 C7 C8"), IOStandard("LVCMOS33")),
+    # FX3 extra GPIOs.
+    ("fx3_gpio", 0, Pins("D7"), IOStandard("LVCMOS33")), # FX3 GPIO26 (not direct, "TR?" in netlist).
+    ("fx3_gpio", 1, Pins("C7"), IOStandard("LVCMOS33")), # FX3 GPIO27.
+    ("fx3_gpio", 2, Pins("C8"), IOStandard("LVCMOS33")), # FX3 GPIO45.
+    # Note: GPIF dq/ctl/pclk and fx3_gpio 1/2 verified on hardware with PinTest (2026-09-28).
 
     # Shared I2C (FX3 GPIO58/59, IT6802 PCSCL/PCSDA).
     ("i2c", 0,
@@ -125,6 +128,8 @@ class Platform(LatticePlatform):
 
     def __init__(self, toolchain="trellis", **kwargs):
         LatticePlatform.__init__(self, "LFE5U-25F-8BG381C", _io, toolchain=toolchain, **kwargs)
+        # Keep the Slave-SPI port enabled after configuration: the FX3 (re)configures the FPGA.
+        self.add_platform_command("SYSCONFIG SLAVE_SPI_PORT=ENABLE;")
 
     def do_finalize(self, fragment):
         LatticePlatform.do_finalize(self, fragment)

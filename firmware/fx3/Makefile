@@ -14,7 +14,7 @@ CFLAGS += -Wall -Wextra -Werror -ffunction-sections -fdata-sections -fno-stack-p
 CFLAGS += -I. -MMD -MP -DGIT_VERSION=\"$(VERSION)\"
 LDFLAGS = -nostartfiles -static -T fx3.ld -Wl,--gc-sections -Wl,-Map,$(BUILD)/fx3.map
 
-OBJS = start.o fx3.o usb.o usb_desc.o main.o
+OBJS = start.o fx3.o usb.o usb_desc.o fpga.o main.o
 OBJS := $(addprefix $(BUILD)/,$(OBJS))
 
 all: $(BUILD)/fx3.img
