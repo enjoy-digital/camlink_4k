@@ -68,6 +68,43 @@ void gctl_hard_reset(void)
     for (;;);
 }
 
+/* Watchdog -------------------------------------------------------------------------------------- */
+
+/* Watchdog timer 0 in reset mode, clocked from the backup clock (system clock divider, no 32kHz
+ * input assumed). Field layout from the FX3 register map; tick rate to be calibrated on hardware
+ * (`ticks` is the reload value). */
+static uint32_t watchdog_ticks;
+
+void watchdog_start(uint32_t ticks, uint16_t divider)
+{
+    watchdog_ticks = ticks;
+    reg_write(FX3_GCTL_WATCHDOG_TIMER0, ticks);
+    reg_write(FX3_GCTL_WATCHDOG_CS,
+        (reg_read(FX3_GCTL_WATCHDOG_CS) &
+         ~(FX3_GCTL_WATCHDOG_CS_MODE0_MASK | FX3_GCTL_WATCHDOG_CS_BITS0_MASK |
+           FX3_GCTL_WATCHDOG_CS_BACKUP_DIVIDER_MASK)) |
+        FX3_GCTL_WATCHDOG_CS_BACKUP_CLK |
+        ((uint32_t)divider << FX3_GCTL_WATCHDOG_CS_BACKUP_DIVIDER_SHIFT) |
+        (0UL << FX3_GCTL_WATCHDOG_CS_MODE0_SHIFT)); /* Mode 0: reset. */
+}
+
+void watchdog_stop(void)
+{
+    reg_write(FX3_GCTL_WATCHDOG_CS, reg_read(FX3_GCTL_WATCHDOG_CS) | FX3_GCTL_WATCHDOG_CS_MODE0_MASK);
+    watchdog_ticks = 0;
+}
+
+void watchdog_kick(void)
+{
+    if (watchdog_ticks)
+        reg_write(FX3_GCTL_WATCHDOG_TIMER0, watchdog_ticks);
+}
+
+uint32_t watchdog_value(void)
+{
+    return reg_read(FX3_GCTL_WATCHDOG_TIMER0);
+}
+
 /* Caches ---------------------------------------------------------------------------------------- */
 
 void cache_enable(void)

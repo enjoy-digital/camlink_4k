@@ -119,6 +119,10 @@ enum {
 void gctl_init_clock(void);
 void gctl_init_iomatrix(uint32_t alt_func);
 void gctl_hard_reset(void) __attribute__((noreturn));
+void     watchdog_start(uint32_t ticks, uint16_t divider);
+void     watchdog_stop(void);
+void     watchdog_kick(void);
+uint32_t watchdog_value(void);
 void delay_us(uint32_t us);
 
 /* GPIO ------------------------------------------------------------------------------------------ */

@@ -55,7 +55,7 @@ A `software/bench.py` harness will run each test on both firmwares and write the
 | 3 | Native 1080p60 input          | Validate the IT6802 SDR path (1 pixel/clock) and its clock phase window.                 |
 | 4 | Audio (UAC)                   | I2S capture in the FPGA, in-band transfer through the GPIF, UAC 1.0 stereo 48 kHz, A/V sync.  **In progress**: UAC 1.0 on iso EP 0x82 via GPIF thread 1, bit-exact with the FPGA test counter (audio alone and with 370 MB/s video, 0 video errors); HDMI I2S untested; FX3 hang seen after repeated stream start/stop (under investigation). |
 | 5 | Stream/signal robustness      | Fix the first-frame loss, clean handling of signal loss and input mode changes while streaming, "no signal" screen. |
-| 6 | Better downscaling            | Proper 2x2 box filter (line buffer) instead of line dropping; later a generic scaler.     |
+| 6 | Better downscaling            | Proper 2x2 box filter (line buffer) instead of line dropping; later a generic scaler. **Implemented** (sim, timing met), hardware validation pending. |
 | 7 | Input-matched modes           | Report/offer the input mode the way stock does (dynamic descriptors) or scale to the requested mode. |
 
 ## 3. New Features (Not in Stock)
@@ -64,7 +64,7 @@ A `software/bench.py` harness will run each test on both firmwares and write the
 |---------------------------------|-----------------------------------------------------------------------------------------|
 | Low-latency mode                | Line/slice based streaming without frame buffering, for gaming and live monitoring; built-in latency measurement. |
 | Fixed output mode               | Always deliver 1080p60 (or a chosen mode) whatever the input, with scaling/letterboxing: OBS scenes and video calls never break on source mode changes. |
-| 4K crop / zoom                  | Pixel-exact 1080p window anywhere in a 4K desktop (screen recording, tutorials, demos).  |
+| 4K crop / zoom                  | Pixel-exact 1080p window anywhere in a 4K desktop (screen recording, tutorials, demos). **Implemented** (`camlink.py crop x y`, sim), hardware validation pending. |
 | Host-programmable EDID          | Choose advertised modes (1440p, 1080p120 within 300 MHz TMDS), or clone the monitor's EDID for pass-through setups. |
 | Input information for apps      | Resolution, frame rate, colour space/range, audio format, hotplug events exposed through a UVC extension unit and the CLI. |
 | Accurate timestamps             | Device PTS/SCR from the FPGA clock for A/V sync and latency analysis.                    |
@@ -89,3 +89,12 @@ A `software/bench.py` harness will run each test on both firmwares and write the
 - Stock 4K30 NV12 throughput: how close to the FX3 limit does the stock firmware run?
 - IT6802 10-bit output mapping onto the 24 wired lines.
 - Best host API for extension-unit controls (v4l2 controls via uvcvideo XU mapping vs vendor requests).
+
+## Notes (2026-09-28 night)
+
+- Native 3840x2160 YUY2 (even at 15 fps) is not possible without frame buffering: during active
+  lines the IT6802 delivers ~518 MB/s, above the GPIF rate (~384 MB/s), so the 2048-word FIFO
+  overflows within a few lines. It needs the DDR3 frame buffer (same path as 4K30 NV12).
+- The FX3 dropped off USB (no enumeration, not even the ROM bootloader) after repeated audio/video
+  stream start/stop: interrupts-off hang suspected. Bounded DMA/PIB spin waits added; an opt-in
+  watchdog (`VREQ_WATCHDOG`, `VREQ_HANG` debug request) awaits calibration on hardware.

@@ -46,6 +46,9 @@ enum {
     VREQ_FLASH_STATUS  = 0x64, /* IN : 1 while a deferred flash operation is pending. */
     VREQ_FLASH_RECOVER = 0x65, /* OUT: Erase block 0 (FX3 image) and reboot to the USB bootloader. */
     VREQ_AUDIO_TEST    = 0x70, /* OUT: Audio source, value = 0: HDMI (I2S), 1: test counter. */
+    VREQ_WATCHDOG      = 0x72, /* OUT: Watchdog, value = reload ticks >> 8 (0: off), index = backup clock divider. */
+    VREQ_WATCHDOG_READ = 0x73, /* IN : Watchdog timer value (calibration).         */
+    VREQ_HANG          = 0x74, /* OUT: Debug: hang with interrupts off (watchdog test). */
     VREQ_CROP          = 0x71, /* OUT: Crop mode, value = x (0xffff: off, downscale), index = y. */
     VREQ_FPGA_BOOT     = 0x66, /* OUT: Load the FPGA from the flash bitstream (deferred, status via FLASH_STATUS). */
 };
@@ -241,6 +244,22 @@ static void vendor_request(const struct usb_setup *setup)
         flash_recover_request = 1;
         usb_ep0_ack();
         return;
+    case VREQ_WATCHDOG:
+        if (setup->value)
+            watchdog_start((uint32_t)setup->value << 8, setup->index);
+        else
+            watchdog_stop();
+        usb_ep0_ack();
+        return;
+    case VREQ_WATCHDOG_READ:
+        ((uint32_t *)ep0_buf)[0] = watchdog_value();
+        usb_ep0_in(ep0_buf, 4);
+        return;
+    case VREQ_HANG:
+        usb_ep0_ack();
+        delay_us(1000);
+        irq_disable();
+        for (;;);
     case VREQ_CROP:
         uvc_set_crop(setup->value != 0xffff, setup->value, setup->index);
         usb_ep0_ack();
@@ -375,6 +394,7 @@ int main(void)
 
     for (;;) {
         main_loops++;
+        watchdog_kick();
         uvc_service();
         it6802_service();
         if (flash_erase_request) {

@@ -122,6 +122,9 @@ VREQ_FLASH_RECOVER = 0x65
 VREQ_FPGA_BOOT     = 0x66
 VREQ_AUDIO_TEST    = 0x70
 VREQ_CROP          = 0x71
+VREQ_WATCHDOG      = 0x72
+VREQ_WATCHDOG_READ = 0x73
+VREQ_HANG          = 0x74
 
 FLASH_BLOCK_SIZE      = 0x10000
 FLASH_BITSTREAM_HDR   = 0x100000
@@ -297,6 +300,17 @@ class CamLink:
     def crop(self, x=None, y=0):
         """Inputs larger than the UVC frame: crop window at (x, y), or 2x downscale (x=None)."""
         self.vendor_out(VREQ_CROP, 0xffff if x is None else x, y)
+
+    def watchdog(self, ticks, divider=1):
+        """FX3 watchdog (reset mode): reload value (ticks, multiple of 256, 0 = off), backup divider."""
+        self.vendor_out(VREQ_WATCHDOG, ticks >> 8, divider)
+
+    def watchdog_value(self):
+        return struct.unpack("<I", self.vendor_in(VREQ_WATCHDOG_READ, length=4))[0]
+
+    def hang(self):
+        """Debug: hang the FX3 CPU with interrupts off (watchdog test)."""
+        self.vendor_out(VREQ_HANG)
 
     def reboot(self):
         self.vendor_out(VREQ_REBOOT)
