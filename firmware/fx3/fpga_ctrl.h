@@ -12,7 +12,7 @@
 
 int  fpga_csr_write(uint32_t addr, uint32_t value);
 int  fpga_csr_read(uint32_t addr, uint32_t *value);
-void fpga_stream_start(uint16_t width, uint16_t height, uint32_t fps);
+void fpga_stream_start(uint16_t width, uint16_t height, uint32_t fps, int hdmi);
 void fpga_stream_stop(void);
 
 #endif /* FPGA_CTRL_H */

@@ -182,6 +182,13 @@ void it6802_service(void)
     if (!(sys & SYS_5V_DET) && status.hpd)
         it6802_hpd(0);
 
+    if ((sys & SYS_SCDT) && !status.stable) {
+        /* Video became stable: YUV 4:2:2 8-bit output (16-bit bus), RGB -> YUV CSC, outputs on. */
+        it6802_write(0, 0x65, 0x12);
+        it6802_write(0, 0x53, 0x40);
+    }
+    if (!(sys & SYS_SCDT) && status.stable)
+        it6802_write(0, 0x53, 0x4f); /* Outputs tri-stated. */
     status.stable = !!(sys & SYS_SCDT);
     if (status.stable) {
         status.htotal  = it6802_read16(0x9c, 0x9d, 0x3f, 0);

@@ -17,6 +17,7 @@
 #include "uvc.h"
 #include "gpif.h"
 #include "fpga_ctrl.h"
+#include "it6802.h"
 
 const struct uvc_frame uvc_frames[UVC_FRAME_COUNT] = {
     {1920, 1080},
@@ -143,12 +144,15 @@ void uvc_stream_halt(void)
 static void uvc_stream_start(void)
 {
     const struct uvc_frame *frame = &uvc_frames[commit.bFrameIndex - 1];
+    const struct it6802_status *hdmi = it6802_get_status();
     uint32_t fps = 10000000UL/commit.dwFrameInterval;
+    /* HDMI input when stable and matching the requested frame size, test pattern otherwise. */
+    int use_hdmi = hdmi->stable && hdmi->hactive == frame->width && hdmi->vactive == frame->height;
 
     if (streaming)
         fpga_stream_stop();
     gpif_stream_start(GPIF_CLK_DIV_X2, GPIF_FLAG_OMEGA);
-    fpga_stream_start(frame->width, frame->height, fps);
+    fpga_stream_start(frame->width, frame->height, fps, use_hdmi);
     streaming = 1;
 }
 

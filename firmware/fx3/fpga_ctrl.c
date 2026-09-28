@@ -39,10 +39,11 @@ int fpga_csr_read(uint32_t addr, uint32_t *value)
 
 /* Stream ---------------------------------------------------------------------------------------- */
 
-void fpga_stream_start(uint16_t width, uint16_t height, uint32_t fps)
+void fpga_stream_start(uint16_t width, uint16_t height, uint32_t fps, int hdmi)
 {
     fpga_stream_stop();
-    fpga_csr_write(CSR_MAIN_SOURCE_SEL,       1); /* UVC pattern. */
+    fpga_csr_write(CSR_MAIN_SOURCE_SEL,       hdmi ? 3 : 1); /* UVC HDMI / UVC pattern. */
+    fpga_csr_write(CSR_HDMI_IN_CONTROL,       hdmi ? (1 | (1 << 4) | (0 << 6)) : 0); /* Y: lane 1, C: lane 0. */
     fpga_csr_write(CSR_PATTERN_HWORDS,        width/2);
     fpga_csr_write(CSR_PATTERN_VRES,          height);
     fpga_csr_write(CSR_PATTERN_BAR_WORDS,     width/16);
@@ -50,11 +51,12 @@ void fpga_stream_start(uint16_t width, uint16_t height, uint32_t fps)
     fpga_csr_write(CSR_UVC_PAYLOAD_WORDS,     (UVC_PAYLOAD_SIZE - 12)/4);
     fpga_csr_write(CSR_UVC_FRAME_WORDS,       (uint32_t)width*height/2);
     fpga_csr_write(CSR_GPIF_CONTROL,          (4 << 8) | 0x3); /* Head lead 4, FLAG inverted, enable. */
-    fpga_csr_write(CSR_PATTERN_ENABLE,        1);
+    fpga_csr_write(CSR_PATTERN_ENABLE,        !hdmi);
 }
 
 void fpga_stream_stop(void)
 {
-    fpga_csr_write(CSR_PATTERN_ENABLE, 0);
-    fpga_csr_write(CSR_GPIF_CONTROL,   0);
+    fpga_csr_write(CSR_PATTERN_ENABLE,  0);
+    fpga_csr_write(CSR_HDMI_IN_CONTROL, 0);
+    fpga_csr_write(CSR_GPIF_CONTROL,    0);
 }
