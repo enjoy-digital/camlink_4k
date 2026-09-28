@@ -76,7 +76,20 @@ def select_firmware(fw):
         subprocess.run([sys.executable, os.path.join(ROOT, "software", "camlink.py"), "boot"], cwd=ROOT, check=True)
     if not wait_state(fw, timeout=30):
         raise RuntimeError(f"{fw} did not enumerate.")
-    time.sleep(6) # uvcvideo enumeration + HDMI relock.
+    time.sleep(4) # uvcvideo enumeration.
+    reprobe_output()
+
+def screen_locked():
+    out = subprocess.run(["gdbus", "call", "--session", "--dest", "org.gnome.ScreenSaver", "--object-path",
+        "/org/gnome/ScreenSaver", "--method", "org.gnome.ScreenSaver.GetActive"], capture_output=True, text=True).stdout
+    return "true" in out
+
+def reprobe_output():
+    """Re-probe the HDMI output (the NVIDIA source only restarts after a re-probe)."""
+    subprocess.run(["xrandr", "--output", OUTPUT, "--off"])
+    time.sleep(2)
+    subprocess.run(["xrandr", "--output", OUTPUT, "--auto", "--right-of", "DP-1"])
+    time.sleep(5)
 
 def video_node(fw):
     return find_device("LiteCamLink" if fw == "litecamlink" else "Cam Link 4K")
@@ -257,10 +270,11 @@ def run(fw, scenarios, seconds):
         print(f"[{fw}] {name}: source {mode}@{rate}, capture {fmt} {w}x{h}@{fps}", flush=True)
         set_mode(mode, rate)
         node = video_node(fw)
-        entry = {"source": f"{mode}@{rate}", "capture": f"{fmt} {w}x{h}@{fps}", "node": node}
+        entry = {"source": f"{mode}@{rate}", "capture": f"{fmt} {w}x{h}@{fps}", "node": node,
+                 "screen_locked": screen_locked()}
         for test, fn in [
             ("latency_pacing", lambda: test_latency_pacing(node, fmt, w, h, fps, seconds)),
-            ("quality",        lambda: test_quality(node, fmt, w, h, fps, fw, name)),
+            ("quality",        lambda: {"skipped": "screen locked"} if screen_locked() else test_quality(node, fmt, w, h, fps, fw, name)),
             ("start_stop",     lambda: test_start_stop(node, fmt, w, h, fps)),
             ("modes",          lambda: test_modes(node)),
         ]:

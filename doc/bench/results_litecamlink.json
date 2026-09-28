@@ -1,0 +1,166 @@
+{
+  "1080p60": {
+    "source": "1920x1080@60",
+    "capture": "YUYV 1920x1080@60",
+    "node": "/dev/video0",
+    "screen_locked": true,
+    "latency_pacing": {
+      "frames": 1199,
+      "decoded": 0,
+      "time_to_first_s": 0.044,
+      "fps": 60.0,
+      "interval_ms_mean": 16.67,
+      "interval_ms_std": 0.0,
+      "interval_ms_max": 16.68,
+      "seq_gaps": 0,
+      "duplicates": 0,
+      "short_frames": 0,
+      "lat_first_ms": null,
+      "lat_complete_ms": null,
+      "capture_cpu_pct": 4.8
+    },
+    "quality": {
+      "skipped": "screen locked"
+    },
+    "start_stop": {
+      "cycles": 20,
+      "ok": 20,
+      "first_frame_s_median": 0.031
+    },
+    "modes": [
+      "[0]: 'YUYV' (YUYV 4:2:2)",
+      "Size: Discrete 1920x1080",
+      "Interval: Discrete 0.017s (60.000 fps)",
+      "Interval: Discrete 0.033s (30.000 fps)",
+      "Size: Discrete 1280x720",
+      "Interval: Discrete 0.017s (60.000 fps)",
+      "Interval: Discrete 0.033s (30.000 fps)",
+      "Size: Discrete 640x480",
+      "Interval: Discrete 0.017s (60.000 fps)",
+      "Interval: Discrete 0.033s (30.000 fps)"
+    ]
+  },
+  "1080p30": {
+    "source": "1920x1080@29.97",
+    "capture": "YUYV 1920x1080@30",
+    "node": "/dev/video0",
+    "screen_locked": true,
+    "latency_pacing": {
+      "frames": 600,
+      "decoded": 0,
+      "time_to_first_s": 0.044,
+      "fps": 29.97,
+      "interval_ms_mean": 33.37,
+      "interval_ms_std": 0.0,
+      "interval_ms_max": 33.37,
+      "seq_gaps": 0,
+      "duplicates": 0,
+      "short_frames": 0,
+      "lat_first_ms": null,
+      "lat_complete_ms": null,
+      "capture_cpu_pct": 3.6
+    },
+    "quality": {
+      "skipped": "screen locked"
+    },
+    "start_stop": {
+      "cycles": 20,
+      "ok": 20,
+      "first_frame_s_median": 0.098
+    },
+    "modes": [
+      "[0]: 'YUYV' (YUYV 4:2:2)",
+      "Size: Discrete 1920x1080",
+      "Interval: Discrete 0.017s (60.000 fps)",
+      "Interval: Discrete 0.033s (30.000 fps)",
+      "Size: Discrete 1280x720",
+      "Interval: Discrete 0.017s (60.000 fps)",
+      "Interval: Discrete 0.033s (30.000 fps)",
+      "Size: Discrete 640x480",
+      "Interval: Discrete 0.017s (60.000 fps)",
+      "Interval: Discrete 0.033s (30.000 fps)"
+    ]
+  },
+  "720p60": {
+    "source": "1280x720@60",
+    "capture": "YUYV 1280x720@60",
+    "node": "/dev/video0",
+    "screen_locked": true,
+    "latency_pacing": {
+      "frames": 1199,
+      "decoded": 0,
+      "time_to_first_s": 0.036,
+      "fps": 60.0,
+      "interval_ms_mean": 16.67,
+      "interval_ms_std": 0.0,
+      "interval_ms_max": 16.67,
+      "seq_gaps": 0,
+      "duplicates": 0,
+      "short_frames": 0,
+      "lat_first_ms": null,
+      "lat_complete_ms": null,
+      "capture_cpu_pct": 2.7
+    },
+    "quality": {
+      "skipped": "screen locked"
+    },
+    "start_stop": {
+      "cycles": 20,
+      "ok": 20,
+      "first_frame_s_median": 0.032
+    },
+    "modes": [
+      "[0]: 'YUYV' (YUYV 4:2:2)",
+      "Size: Discrete 1920x1080",
+      "Interval: Discrete 0.017s (60.000 fps)",
+      "Interval: Discrete 0.033s (30.000 fps)",
+      "Size: Discrete 1280x720",
+      "Interval: Discrete 0.017s (60.000 fps)",
+      "Interval: Discrete 0.033s (30.000 fps)",
+      "Size: Discrete 640x480",
+      "Interval: Discrete 0.017s (60.000 fps)",
+      "Interval: Discrete 0.033s (30.000 fps)"
+    ]
+  },
+  "2160p30": {
+    "source": "3840x2160@30",
+    "capture": "YUYV 1920x1080@30",
+    "node": "/dev/video0",
+    "screen_locked": true,
+    "latency_pacing": {
+      "frames": 599,
+      "decoded": 0,
+      "time_to_first_s": 0.067,
+      "fps": 30.0,
+      "interval_ms_mean": 33.33,
+      "interval_ms_std": 0.0,
+      "interval_ms_max": 33.35,
+      "seq_gaps": 0,
+      "duplicates": 0,
+      "short_frames": 0,
+      "lat_first_ms": null,
+      "lat_complete_ms": null,
+      "capture_cpu_pct": 2.2
+    },
+    "quality": {
+      "skipped": "screen locked"
+    },
+    "start_stop": {
+      "cycles": 20,
+      "ok": 20,
+      "first_frame_s_median": 0.098
+    },
+    "modes": [
+      "[0]: 'YUYV' (YUYV 4:2:2)",
+      "Size: Discrete 1920x1080",
+      "Interval: Discrete 0.017s (60.000 fps)",
+      "Interval: Discrete 0.033s (30.000 fps)",
+      "Size: Discrete 1280x720",
+      "Interval: Discrete 0.017s (60.000 fps)",
+      "Interval: Discrete 0.033s (30.000 fps)",
+      "Size: Discrete 640x480",
+      "Interval: Discrete 0.017s (60.000 fps)",
+      "Interval: Discrete 0.033s (30.000 fps)"
+    ]
+  }
+}
