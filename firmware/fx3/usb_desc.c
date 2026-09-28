@@ -4,10 +4,13 @@
  * Copyright (c) 2026 Florent Kermarrec <florent@enjoy-digital.fr>
  * SPDX-License-Identifier: BSD-2-Clause
  *
- * USB descriptors (High-Speed and SuperSpeed): UVC 1.1 camera, bulk streaming on EP1 IN.
+ * USB descriptors (High-Speed and SuperSpeed): UVC 1.1 camera, bulk streaming on EP1 IN, UAC 1.0
+ * 48kHz stereo 16-bit audio, isochronous EP2 IN.
  *
  * Interface 0: Video Control   (Camera Terminal -> Output Terminal).
  * Interface 1: Video Streaming (YUY2, frames from uvc_frames[], bulk EP1 IN).
+ * Interface 2: Audio Control   (Input Terminal (digital audio interface) -> USB Streaming).
+ * Interface 3: Audio Streaming (alt 0: idle, alt 1: PCM 48kHz stereo 16-bit, iso EP2 IN, 1ms).
  */
 
 #include "usb_desc.h"
@@ -61,8 +64,11 @@ static const uint8_t bos[] = {
 #define VC_TOTAL      (13 + 18 + 9)
 #define FRAME_LEN     (26 + 4*UVC_FRAME_INTERVALS)
 #define VS_TOTAL      (14 + 27 + UVC_FRAME_COUNT*FRAME_LEN + 6)
-#define CONFIG_HS_LEN (9 + 8 + 9 + VC_TOTAL + 9 + VS_TOTAL + 7)
-#define CONFIG_SS_LEN (CONFIG_HS_LEN + 6)
+#define AC_TOTAL      (9 + 12 + 9)
+#define AUDIO_HS_LEN  (8 + 9 + AC_TOTAL + 9 + 9 + 7 + 11 + 9 + 7)
+#define AUDIO_SS_LEN  (AUDIO_HS_LEN + 6)
+#define CONFIG_HS_LEN (9 + 8 + 9 + VC_TOTAL + 9 + VS_TOTAL + 7 + AUDIO_HS_LEN)
+#define CONFIG_SS_LEN (9 + 8 + 9 + VC_TOTAL + 9 + VS_TOTAL + 7 + 6 + AUDIO_SS_LEN)
 
 #define FRAME_DESC(index, w, h)                                                                     \
     FRAME_LEN, UVC_CS_INTERFACE, UVC_VS_FRAME_UNCOMPRESSED, index, 0x00,                            \
@@ -73,7 +79,7 @@ static const uint8_t bos[] = {
 
 #define CONFIG_BODY(total, max_power)                                                               \
     /* Configuration. */                                                                            \
-    9, USB_DT_CONFIG, W16(total), 2, 1, 0, 0x80, max_power,                                         \
+    9, USB_DT_CONFIG, W16(total), 4, 1, 0, 0x80, max_power,                                         \
     /* Interface Association. */                                                                   \
     8, 0x0b, 0, 2, UVC_CC_VIDEO, UVC_SC_VIDEO_INTERFACE_COLLECTION, 0, 2,                           \
     /* VC Interface. */                                                                             \
@@ -102,10 +108,38 @@ static const uint8_t bos[] = {
     /* Color Matching (BT.709 primaries/transfer/matrix). */                                       \
     6, UVC_CS_INTERFACE, UVC_VS_COLORFORMAT, 1, 1, 1
 
+#define AUDIO_BODY_START                                                                            \
+    /* Interface Association. */                                                                   \
+    8, 0x0b, UAC_INTF_CONTROL, 2, UAC_CC_AUDIO, 0x00, 0x00, 0,                                      \
+    /* AC Interface. */                                                                             \
+    9, USB_DT_INTERFACE, UAC_INTF_CONTROL, 0, 0, UAC_CC_AUDIO, UAC_SC_AUDIOCONTROL, 0, 0,          \
+    /* AC Header. */                                                                                \
+    9, UAC_CS_INTERFACE, UAC_AC_HEADER, W16(0x0100), W16(AC_TOTAL), 1, UAC_INTF_STREAMING,         \
+    /* Input Terminal (ID 1): digital audio interface (HDMI), stereo. */                           \
+    12, UAC_CS_INTERFACE, UAC_AC_INPUT_TERMINAL, 1, W16(0x0602), 0, 2, W16(0x0003), 0, 0,           \
+    /* Output Terminal (ID 2): USB streaming. */                                                   \
+    9, UAC_CS_INTERFACE, UAC_AC_OUTPUT_TERMINAL, 2, W16(0x0101), 0, 1, 0,                           \
+    /* AS Interface, alt 0 (idle). */                                                              \
+    9, USB_DT_INTERFACE, UAC_INTF_STREAMING, 0, 0, UAC_CC_AUDIO, UAC_SC_AUDIOSTREAMING, 0, 0,      \
+    /* AS Interface, alt 1 (streaming). */                                                         \
+    9, USB_DT_INTERFACE, UAC_INTF_STREAMING, 1, 1, UAC_CC_AUDIO, UAC_SC_AUDIOSTREAMING, 0, 0,      \
+    /* AS General: linked to the Output Terminal, PCM. */                                          \
+    7, UAC_CS_INTERFACE, UAC_AS_GENERAL, 2, 1, W16(0x0001),                                         \
+    /* Format Type I: 2 channels, 16-bit, 48kHz. */                                                \
+    11, UAC_CS_INTERFACE, UAC_AS_FORMAT_TYPE, 0x01, 2, 2, 16, 1, 0x80, 0xbb, 0x00,                  \
+    /* EP2 IN: Isochronous (asynchronous), 1ms. */                                                 \
+    9, USB_DT_ENDPOINT, 0x80 | USB_DESC_EP_AUDIO, 0x05, W16(UAC_PACKET_SIZE), 4, 0, 0
+
+#define AUDIO_BODY_END                                                                              \
+    /* CS Endpoint General. */                                                                      \
+    7, UAC_CS_ENDPOINT, UAC_EP_GENERAL, 0x00, 0, W16(0)
+
 static const uint8_t config_hs[] = {
     CONFIG_BODY(CONFIG_HS_LEN, 250),
     /* EP1 IN: Bulk 512. */
     7, USB_DT_ENDPOINT, 0x80 | USB_DESC_EP_STREAM, 0x02, W16(512), 0,
+    AUDIO_BODY_START,
+    AUDIO_BODY_END,
 };
 
 static const uint8_t config_ss[] = {
@@ -113,6 +147,10 @@ static const uint8_t config_ss[] = {
     /* EP1 IN: Bulk 1024 + SuperSpeed companion. */
     7, USB_DT_ENDPOINT, 0x80 | USB_DESC_EP_STREAM, 0x02, W16(1024), 0,
     6, 0x30, USB_DESC_SS_BURST - 1, 0, 0, 0,
+    AUDIO_BODY_START,
+    /* EP2 SuperSpeed companion: 1 packet per interval. */
+    6, 0x30, 0, 0, W16(UAC_PACKET_SIZE),
+    AUDIO_BODY_END,
 };
 
 _Static_assert(sizeof(config_hs) == CONFIG_HS_LEN, "HS configuration length mismatch");

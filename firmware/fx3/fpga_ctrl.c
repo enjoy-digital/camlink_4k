@@ -55,7 +55,6 @@ void fpga_stream_start(uint16_t width, uint16_t height, uint32_t fps, int hdmi, 
     fpga_csr_write(CSR_PATTERN_FRAME_PERIOD,  UVC_CLOCK_FREQ/fps);
     fpga_csr_write(CSR_UVC_PAYLOAD_WORDS,     (UVC_PAYLOAD_SIZE - 12)/4);
     fpga_csr_write(CSR_UVC_FRAME_WORDS,       (uint32_t)width*height/2);
-    fpga_csr_write(CSR_GPIF_CONTROL,          (4 << 8) | 0x3); /* Head lead 4, FLAG inverted, enable. */
     fpga_csr_write(CSR_PATTERN_ENABLE,        !hdmi);
 }
 
@@ -63,5 +62,15 @@ void fpga_stream_stop(void)
 {
     fpga_csr_write(CSR_PATTERN_ENABLE,  0);
     fpga_csr_write(CSR_HDMI_IN_CONTROL, 0);
-    fpga_csr_write(CSR_GPIF_CONTROL,    0);
+}
+
+void fpga_gpif_control(int video, int audio)
+{
+    /* Head lead 4, FLAGs inverted (active low), audio lead 8. */
+    fpga_csr_write(CSR_GPIF_CONTROL, (8UL << 20) | ((uint32_t)!!audio << 16) | (4 << 8) | 0x2 | !!video);
+}
+
+void fpga_audio_control(int enable, int test)
+{
+    fpga_csr_write(CSR_AUDIO_CONTROL, (!!test << 1) | !!enable);
 }

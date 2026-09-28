@@ -195,11 +195,19 @@ void dma_free_descriptor(uint16_t d)
     }
 }
 
+static void dma_socket_wait_disabled(uint32_t socket)
+{
+    /* Bounded: a socket that never disables must not hang the firmware. */
+    uint32_t timeout = DMA_TIMEOUT_US;
+    while (timeout-- && (reg_read(socket + FX3_SCK_STATUS) & FX3_SCK_STATUS_ENABLED))
+        delay_us(1);
+}
+
 void dma_abort_socket(uint32_t socket)
 {
     reg_clear(socket + FX3_SCK_STATUS, FX3_SCK_STATUS_GO_ENABLE | FX3_SCK_STATUS_WRAPUP);
     reg_write(socket + FX3_SCK_INTR, ~0UL);
-    while (reg_read(socket + FX3_SCK_STATUS) & FX3_SCK_STATUS_ENABLED);
+    dma_socket_wait_disabled(socket);
 }
 
 static void dma_fill_descriptor(uint16_t d, uint32_t buffer, uint32_t sync, uint32_t size,
@@ -221,7 +229,7 @@ static void dma_socket_start(uint32_t socket, uint16_t d, uint32_t status, uint3
     uint32_t count)
 {
     reg_write(socket + FX3_SCK_STATUS, DMA_SCK_STATUS_DEFAULT);
-    while (reg_read(socket + FX3_SCK_STATUS) & FX3_SCK_STATUS_ENABLED);
+    dma_socket_wait_disabled(socket);
     reg_write(socket + FX3_SCK_STATUS, status);
     reg_write(socket + FX3_SCK_INTR,   ~0UL);
     reg_write(socket + FX3_SCK_DSCR,   (uint32_t)d << FX3_SCK_DSCR_DSCR_NUMBER_SHIFT);

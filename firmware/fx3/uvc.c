@@ -4,7 +4,8 @@
  * Copyright (c) 2026 Florent Kermarrec <florent@enjoy-digital.fr>
  * SPDX-License-Identifier: BSD-2-Clause
  *
- * UVC Video Streaming: probe/commit negotiation, stream start/stop.
+ * UVC Video Streaming: probe/commit negotiation, stream start/stop, and UAC audio stream start/stop
+ * (video and audio share the GPIF: any change restarts it with the active streams).
  *
  * The video payloads (headers included) are produced by the FPGA and streamed through the GPIF
  * auto DMA channel: the FX3 only negotiates the format and configures the FPGA (through the FPGA
@@ -31,6 +32,11 @@ static struct uvc_probe commit;
 enum { STREAM_IDLE = 0, STREAM_START, STREAM_STOP };
 static volatile int stream_request;
 static int streaming;
+
+static volatile int     audio_request; /* Pending audio alternate setting + 1 (0: none). */
+static volatile uint8_t audio_alt;
+static volatile int     audio_test;
+static int              audio_on;
 
 /* Debug counters (read with camlink.py peek). */
 volatile uint32_t uvc_stats[4]; /* commits, halts, starts, stops. */
@@ -141,7 +147,7 @@ void uvc_stream_halt(void)
 
 /* Stream Control -------------------------------------------------------------------------------- */
 
-static void uvc_stream_start(void)
+static void video_start(void)
 {
     const struct uvc_frame *frame = &uvc_frames[commit.bFrameIndex - 1];
     const struct it6802_status *hdmi = it6802_get_status();
@@ -153,43 +159,71 @@ static void uvc_stream_start(void)
     int use_hdmi = hdmi->stable && (direct || half);
     int ddr      = 1; /* IT6802 always in 0.5x PCLK DDR output mode (see it6802.c). */
 
-    if (streaming)
-        fpga_stream_stop();
-    gpif_stream_start(GPIF_CLK_DIV_X2, GPIF_FLAG_OMEGA);
     fpga_stream_start(frame->width, frame->height, fps, use_hdmi, ddr, use_hdmi && half,
         hdmi->colorspace != 0);
-    streaming = 1;
 }
 
-static void uvc_stream_stop(void)
+/* (Re)start the GPIF with the active streams: FPGA sources and GPIF logic off (reset), FX3 GPIF
+ * restart, then FPGA sources and GPIF enables for the active streams. */
+static void streams_apply(void)
 {
-    if (!streaming)
-        return;
+    fpga_audio_control(0, 0);
     fpga_stream_stop();
-    gpif_stream_stop();
-    streaming = 0;
+    fpga_gpif_control(0, 0);
+    gpif_stream_start(streaming, audio_on);
+    if (streaming)
+        video_start();
+    if (audio_on)
+        fpga_audio_control(1, audio_test);
+    fpga_gpif_control(streaming, audio_on);
+}
+
+void uvc_audio_set_interface(uint8_t alt)
+{
+    audio_alt     = alt;
+    audio_request = alt + 1;
+}
+
+uint8_t uvc_audio_get_interface(void)
+{
+    return audio_alt;
+}
+
+void uvc_audio_set_test(int test)
+{
+    audio_test    = test;
+    audio_request = audio_alt + 1;
 }
 
 void uvc_service(void)
 {
     int request;
 
-    /* Take the pending request atomically (set from the USB interrupt). */
-    if (stream_request == STREAM_IDLE)
+    int audio;
+
+    /* Take the pending requests atomically (set from the USB interrupt). */
+    if (stream_request == STREAM_IDLE && !audio_request)
         return;
     irq_disable();
-    request = stream_request;
+    request        = stream_request;
     stream_request = STREAM_IDLE;
+    audio          = audio_request;
+    audio_request  = 0;
     irq_enable();
 
     if (request == STREAM_START) {
         uvc_stats[2]++;
-        uvc_stream_start();
+        streaming = 1;
     }
     if (request == STREAM_STOP) {
         uvc_stats[3]++;
-        uvc_stream_stop();
+        if (!streaming && !audio)
+            return;
+        streaming = 0;
     }
+    if (audio)
+        audio_on = (audio - 1) != 0;
+    streams_apply();
 }
 
 /* Init ------------------------------------------------------------------------------------------ */

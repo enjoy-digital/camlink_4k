@@ -120,6 +120,7 @@ VREQ_FLASH_ERASE   = 0x63
 VREQ_FLASH_STATUS  = 0x64
 VREQ_FLASH_RECOVER = 0x65
 VREQ_FPGA_BOOT     = 0x66
+VREQ_AUDIO_TEST    = 0x70
 
 FLASH_BLOCK_SIZE      = 0x10000
 FLASH_BITSTREAM_HDR   = 0x100000
@@ -200,8 +201,9 @@ class CamLink:
                 pass
         return found
 
-    def stream_start(self, clk_div_x2=16, flag_omega=GPIF_OMEGA_EMPTY_FULL_TH0):
-        self.vendor_out(VREQ_STREAM_START, clk_div_x2, flag_omega)
+    def stream_start(self, video=True, audio=False):
+        """Start the GPIF (96MHz PCLK) with the video (thread 0) and/or audio (thread 1) DMA."""
+        self.vendor_out(VREQ_STREAM_START, int(video) | (int(audio) << 1))
 
     def stream_stop(self):
         self.vendor_out(VREQ_STREAM_STOP)
@@ -287,6 +289,10 @@ class CamLink:
                 raise TimeoutError("FPGA boot timeout.")
             time.sleep(0.05)
 
+    def audio_test(self, enable):
+        """Audio source: FPGA test counter (True) or HDMI I2S (False)."""
+        self.vendor_out(VREQ_AUDIO_TEST, int(enable))
+
     def reboot(self):
         self.vendor_out(VREQ_REBOOT)
         usb.util.dispose_resources(self.dev)
@@ -323,7 +329,7 @@ def stream_test(cl, bus, size=64*1024*1024, clk_div_x2=16, flag_omega=GPIF_OMEGA
     bus.regs.gen_enable.write(0)
     bus.regs.gpif_control.write(0)
     bus.regs.main_source_sel.write(0)
-    cl.stream_start(clk_div_x2, flag_omega)
+    cl.stream_start()
     time.sleep(1.2) # FreqMeter period is 1s.
     print(f"FX3 PCLK: {bus.regs.fx3_clk_freq_value.read()/1e6:.2f} MHz, "
           f"FLAG: {bus.regs.gpif_status.read() & 1}")
@@ -377,7 +383,7 @@ def uvc_raw_test(cl, bus, width=1920, height=1080, fps=30, frames=60, clk_div_x2
     bus.regs.gpif_control.write(0)
     bus.regs.main_source_sel.write(1)
     uvc_pattern_config(bus, width, height, fps)
-    cl.stream_start(clk_div_x2)
+    cl.stream_start()
     bus.regs.gpif_control.write((4 << 8) | 1 | 2)
     bus.regs.pattern_enable.write(1)
 
@@ -565,6 +571,8 @@ def main():
     p.add_argument("image", nargs="?", default="firmware/fx3/build/fx3.img")
     sub.add_parser("flash-recover", help="Erase the FX3 image and reboot to the USB bootloader.")
     sub.add_parser("fpga-boot", help="Load the FPGA from the flash bitstream.")
+    p = sub.add_parser("audio-source", help="Select the audio source.")
+    p.add_argument("source", choices=["hdmi", "test"])
 
     sub.add_parser("list",   help="List Cam Link related USB devices.")
     sub.add_parser("ident",  help="Show LiteCamLink firmware identification.")
@@ -671,6 +679,9 @@ def main():
 
     if args.cmd == "flash-recover":
         CamLink().flash_recover()
+
+    if args.cmd == "audio-source":
+        CamLink().audio_test(args.source == "test")
 
     if args.cmd == "fpga-boot":
         print(f"FPGA status: 0x{CamLink().fpga_boot():08x}")

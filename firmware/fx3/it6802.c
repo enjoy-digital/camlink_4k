@@ -209,9 +209,12 @@ void it6802_service(void)
         it6802_write(0, 0x65, status.colorspace ? 0x10 : 0x12);
         it6802_write(0, 0x50, 0xb0); /* Output clock inverted, no delay (middle of the sampling window). */
         it6802_write(0, 0x53, 0x40);
+        it6802_write(0, 0x52, 0x20); /* Audio outputs on (I2S0, SCK, WS, MCLK) (stock value). */
     }
-    if (!(sys & SYS_SCDT) && status.stable)
+    if (!(sys & SYS_SCDT) && status.stable) {
         it6802_write(0, 0x53, 0x4f); /* Outputs tri-stated. */
+        it6802_write(0, 0x52, 0x3f);
+    }
     status.stable = !!(sys & SYS_SCDT);
     if (status.stable) {
         status.htotal  = it6802_read16(0x9c, 0x9d, 0x3f, 0);

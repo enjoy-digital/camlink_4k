@@ -15,5 +15,9 @@ int  fpga_csr_read(uint32_t addr, uint32_t *value);
 void fpga_stream_start(uint16_t width, uint16_t height, uint32_t fps, int hdmi, int ddr, int downscale,
     int c_swap);
 void fpga_stream_stop(void);
+/* GPIF streamer: video (thread 0) / audio (thread 1) enables (both off: GPIF logic in reset). */
+void fpga_gpif_control(int video, int audio);
+/* Audio source: enable, test counter instead of I2S. */
+void fpga_audio_control(int enable, int test);
 
 #endif /* FPGA_CTRL_H */

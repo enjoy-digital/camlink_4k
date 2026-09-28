@@ -34,6 +34,7 @@ from litecamlink.gateware.video      import VideoPatternGenerator
 from litecamlink.gateware.uvc        import UVCPacketizer
 from litecamlink.gateware.hdmi_in    import HDMIIn
 from litecamlink.gateware.ioscan     import IOScan
+from litecamlink.gateware.audio      import AudioSource
 
 from litex.build.generic_platform import Pins, IOStandard, Subsignal
 
@@ -112,7 +113,11 @@ class BaseSoC(SoCCore):
             self.fx3_clk_freq = FreqMeter(period=int(sys_clk_freq), clk=fx3.pclk)
 
             # GPIF Streamer ------------------------------------------------------------------------
-            self.gpif = GPIFStreamer(fx3)
+            self.gpif = GPIFStreamer(fx3, with_audio=True)
+
+            # Audio (IT6802 I2S) -> GPIF thread 1.
+            self.audio = AudioSource(platform.request("i2s"), sys_clk_freq)
+            self.comb += self.audio.source.connect(self.gpif.audio_sink)
 
             # Sources: Counter (raw) / Video Pattern -> UVC Packetizer.
             self.gen     = CounterGenerator()
@@ -156,6 +161,7 @@ def main():
     parser.add_argument("--with-cpu",     action="store_true",       help="Enable VexRiscv CPU + BIOS (console over UART crossover).")
     parser.add_argument("--with-sdram",   action="store_true",       help="Enable DDR3 SDRAM.")
     parser.add_argument("--with-ioscan",  action="store_true",       help="Enable IO scan debug core.")
+    parser.add_argument("--seed",         default=1, type=int,       help="Nextpnr seed.")
     args = parser.parse_args()
 
     soc     = BaseSoC(
@@ -166,7 +172,7 @@ def main():
         with_ioscan  = args.with_ioscan,
     )
     builder = Builder(soc, output_dir="build", csr_csv="build/csr.csv")
-    builder.build(build_name="litecamlink", run=args.build and not args.no_compile)
+    builder.build(build_name="litecamlink", run=args.build and not args.no_compile, seed=args.seed)
 
     if args.load:
         bitstream = os.path.join(builder.gateware_dir, "litecamlink.bit")

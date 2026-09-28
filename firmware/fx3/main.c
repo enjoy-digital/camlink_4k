@@ -34,7 +34,7 @@ enum {
     VREQ_I2C_WRITE = 0x30, /* OUT: I2C write, value = addr | prefix_len << 8, data = prefix + payload. */
     VREQ_I2C_READ  = 0x31, /* IN : I2C read,  value = addr | prefix_len << 8, index = prefix (LE).  */
     VREQ_I2C_STATUS= 0x32, /* IN : Status of the last I2C transfer (0 = OK).       */
-    VREQ_STREAM_START  = 0x40, /* OUT: Start GPIF streaming, value = PIB clk div x2, index = flag omega. */
+    VREQ_STREAM_START  = 0x40, /* OUT: Start GPIF streaming, value = bit0: video, bit1: audio (96MHz). */
     VREQ_STREAM_STOP   = 0x41, /* OUT: Stop GPIF streaming.                        */
     VREQ_STREAM_STATUS = 0x42, /* IN : GPIF/DMA status (8x32-bit).                 */
     VREQ_HDMI_STATUS   = 0x50, /* IN : IT6802 status (struct it6802_status).        */
@@ -45,6 +45,7 @@ enum {
     VREQ_FLASH_ERASE   = 0x63, /* OUT: Erase the 64KB block at (index << 16 | value) (deferred). */
     VREQ_FLASH_STATUS  = 0x64, /* IN : 1 while a deferred flash operation is pending. */
     VREQ_FLASH_RECOVER = 0x65, /* OUT: Erase block 0 (FX3 image) and reboot to the USB bootloader. */
+    VREQ_AUDIO_TEST    = 0x70, /* OUT: Audio source, value = 0: HDMI (I2S), 1: test counter. */
     VREQ_FPGA_BOOT     = 0x66, /* OUT: Load the FPGA from the flash bitstream (deferred, status via FLASH_STATUS). */
 };
 
@@ -184,7 +185,7 @@ static void vendor_request(const struct usb_setup *setup)
         return;
     case VREQ_STREAM_START:
         usb_ep0_ack();
-        gpif_stream_start(setup->value, setup->index);
+        gpif_stream_start(setup->value & 1, (setup->value >> 1) & 1);
         return;
     case VREQ_STREAM_STOP:
         usb_ep0_ack();
@@ -239,6 +240,10 @@ static void vendor_request(const struct usb_setup *setup)
         flash_recover_request = 1;
         usb_ep0_ack();
         return;
+    case VREQ_AUDIO_TEST:
+        uvc_audio_set_test(setup->value & 1);
+        usb_ep0_ack();
+        return;
     case VREQ_FPGA_BOOT:
         fpga_boot_request = 1;
         usb_ep0_ack();
@@ -274,10 +279,12 @@ static void standard_request(const struct usb_setup *setup, enum usb_speed speed
         if (setup->value > 1)
             break;
         configuration = setup->value;
-        if (configuration)
+        if (configuration) {
             usb_enable_in_ep(USB_DESC_EP_STREAM, USB_EP_BULK,
                 (speed == USB_SUPER_SPEED) ? 1024 : 512,
                 (speed == USB_SUPER_SPEED) ? USB_DESC_SS_BURST : 1);
+            usb_enable_in_ep(USB_DESC_EP_AUDIO, USB_EP_ISOCHRONOUS, UAC_PACKET_SIZE, 1);
+        }
         usb_ep0_ack();
         return;
     case USB_REQ_GET_CONFIGURATION:
@@ -290,7 +297,7 @@ static void standard_request(const struct usb_setup *setup, enum usb_speed speed
         usb_ep0_in(ep0_buf, 2);
         return;
     case USB_REQ_GET_INTERFACE:
-        ep0_buf[0] = 0;
+        ep0_buf[0] = ((setup->index & 0xff) == UAC_INTF_STREAMING) ? uvc_audio_get_interface() : 0;
         usb_ep0_in(ep0_buf, 1);
         return;
     case USB_REQ_SET_SEL:
@@ -306,6 +313,14 @@ static void standard_request(const struct usb_setup *setup, enum usb_speed speed
         usb_ep0_ack();
         return;
     case USB_REQ_SET_INTERFACE:
+        /* Audio streaming interface: alt 1 starts, alt 0 stops the audio stream. */
+        if ((setup->index & 0xff) == UAC_INTF_STREAMING) {
+            if (setup->value > 1)
+                break;
+            uvc_audio_set_interface(setup->value);
+        }
+        usb_ep0_ack();
+        return;
     case USB_REQ_SET_FEATURE:
     case USB_REQ_SET_ISOCH_DELAY:
         usb_ep0_ack();

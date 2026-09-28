@@ -90,5 +90,10 @@ int  uvc_class_request(const struct usb_setup *setup, uint8_t *buf);
 void uvc_stream_halt(void);
 /* Main loop service: applies pending stream start/stop (FPGA configuration over I2C). */
 void uvc_service(void);
+/* Audio streaming interface alternate setting (0: idle, 1: streaming). Called from interrupt context. */
+void uvc_audio_set_interface(uint8_t alt);
+uint8_t uvc_audio_get_interface(void);
+/* Audio source: 0 = HDMI (I2S), 1 = test counter. */
+void uvc_audio_set_test(int test);
 
 #endif /* UVC_H */

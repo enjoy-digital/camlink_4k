@@ -413,6 +413,7 @@ void usb_enable_in_ep(uint8_t ep, enum usb_ep_type type, uint16_t pktsize, uint8
     /* USB2. */
     reg_write(FX3_DEV_EPI_CS + (ep << 2),
         FX3_DEV_EPI_CS_VALID |
+        ((type == USB_EP_ISOCHRONOUS) ? (1UL << FX3_DEV_EPI_CS_ISOINPKS_SHIFT) : 0) |
         ((uint32_t)usb2_type[type & 3] << FX3_DEV_EPI_CS_TYPE_SHIFT) |
         ((pktsize << FX3_DEV_EPI_CS_PAYLOAD_SHIFT) & FX3_DEV_EPI_CS_PAYLOAD_MASK));
 

@@ -60,7 +60,7 @@ def capture(cl, bus, width, height, y_lane, c_lane, c_swap=0, ddr=0, ddr_swap=0,
     bus.regs.uvc_frame_words.write(width*height//2)
     bus.regs.hdmi_in_control.write(1 | (y_lane << 4) | (c_lane << 6) | (c_swap << 8) |
         (ddr << 12) | (ddr_swap << 13) | (downscale << 14))
-    cl.stream_start(8)
+    cl.stream_start()
     bus.regs.gpif_control.write((4 << 8) | 3)
     frame_size = width*height*2
     state = {"frame": bytearray(), "frames": []}

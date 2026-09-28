@@ -13,11 +13,17 @@
  * - CTL0 (GPIO17) : VALID, driven by the FPGA: a word is sampled/pushed on each VALID clock.
  * - CTL1 (GPIO18) : FLAG, driven by the FX3: thread 0 DMA flag (selectable omega signal).
  * - CTL2 (GPIO19) : EOP, driven by the FPGA: commit the current (partial) DMA buffer.
+ * - CTL3 (GPIO20) : ASEL, driven by the FPGA: audio (thread 1) selected.
+ * - CTL4 (GPIO21) : AFLAG, driven by the FX3: thread 1 DMA flag.
  *
- * Waveform: START -> IDLE -> DATA_A <-> DATA_B -> IDLE. Alphas (SAMPLE_DIN) only apply on state
- * entry, so DATA_A/DATA_B alternate on every VALID clock to sample and push each word.
- * IDLE -> COMMIT (on EOP) -> EOP_WAIT (until EOP low) -> IDLE commits short buffers.
- * DMA: PIB socket 0 -> ring of buffers -> UIB socket 1 (EP1 IN), no CPU intervention.
+ * Waveform: START -> IDLE -> DATA_A <-> DATA_B -> IDLE (thread 0). Alphas (SAMPLE_DIN) only apply
+ * on state entry, so DATA_A/DATA_B alternate on every VALID clock to sample and push each word.
+ * IDLE -> DECIDE (on EOP or ASEL):
+ * - DECIDE -> COMMIT (EOP) -> EOP_WAIT (until EOP low) -> IDLE commits short buffers.
+ * - DECIDE -> AIDLE (ASEL) -> ADATA_A <-> ADATA_B -> AIDLE -> IDLE (ASEL low): audio words on
+ *   thread 1 (full 192-byte buffers, no commit needed).
+ * DMA: PIB socket 0 -> ring of buffers -> UIB socket 1 (EP1 IN), PIB socket 1 -> UIB socket 2
+ * (EP2 IN, audio), no CPU intervention.
  * GPIF waveform descriptor format from fx3lafw (bsp/gpif.h).
  */
 
@@ -41,11 +47,13 @@
 
 #define ALPHA_SAMPLE_DIN (1UL << 2)
 #define BETA_THREAD_0    (0UL << 4)
+#define BETA_THREAD_1    (1UL << 4)
 #define BETA_WQ_PUSH     (1UL << 7)
 #define BETA_COMMIT      (1UL << 30)
 
 #define LAMBDA_CTL0      0
 #define LAMBDA_CTL2      2
+#define LAMBDA_CTL3      3
 
 enum {
     STATE_START    = 0,
@@ -54,21 +62,49 @@ enum {
     STATE_DATA_B   = 3,
     STATE_COMMIT   = 4,
     STATE_EOP_WAIT = 5,
+    STATE_DECIDE   = 6,
+    STATE_AIDLE    = 7,
+    STATE_ADATA_A  = 8,
+    STATE_ADATA_B  = 9,
 };
-enum { FUNC_ZERO = 0, FUNC_FA = 1, FUNC_NFA = 2, FUNC_FB = 3, FUNC_NFB = 4, FUNC_ONE = 5 };
+
+/* Functions of (Fa, Fb, Fc, Fd): bit (Fa | Fb << 1 | Fc << 2 | Fd << 3) of the truth table. */
+enum {
+    FUNC_ZERO = 0, FUNC_FA, FUNC_NFA, FUNC_FB, FUNC_NFB, FUNC_ONE,
+    FUNC_FA_NFC, FUNC_FB_OR_FC, FUNC_FC, FUNC_NFC, FUNC_NFA_NFC,
+};
 
 static const uint16_t functions[] = {
-    [FUNC_ZERO] = 0x0000,  /* Constant 0. */
-    [FUNC_FA]   = 0xaaaa,  /* Fa.         */
-    [FUNC_NFA]  = 0x5555,  /* !Fa.        */
-    [FUNC_FB]   = 0xcccc,  /* Fb.         */
-    [FUNC_NFB]  = 0x3333,  /* !Fb.        */
-    [FUNC_ONE]  = 0xffff,  /* Constant 1. */
+    [FUNC_ZERO]     = 0x0000, /* Constant 0.  */
+    [FUNC_FA]       = 0xaaaa, /* Fa.          */
+    [FUNC_NFA]      = 0x5555, /* !Fa.         */
+    [FUNC_FB]       = 0xcccc, /* Fb.          */
+    [FUNC_NFB]      = 0x3333, /* !Fb.         */
+    [FUNC_ONE]      = 0xffff, /* Constant 1.  */
+    [FUNC_FA_NFC]   = 0x0a0a, /* Fa & !Fc.    */
+    [FUNC_FB_OR_FC] = 0xfcfc, /* Fb | Fc.     */
+    [FUNC_FC]       = 0xf0f0, /* Fc.          */
+    [FUNC_NFC]      = 0x0f0f, /* !Fc.         */
+    [FUNC_NFA_NFC]  = 0x0505, /* !Fa & !Fc.   */
 };
 
-/* IDLE: left -> DATA_A on VALID, right -> COMMIT on EOP. */
-static const uint32_t state_idle[3] = GPIF_STATE(STATE_IDLE, LAMBDA_CTL0, LAMBDA_CTL2, 0, 0,
-    FUNC_FA, FUNC_FB, 0, 0, BETA_THREAD_0, 0, 0);
+/* IDLE: left -> DATA_A on VALID & !ASEL, right -> DECIDE on EOP | ASEL. */
+static const uint32_t state_idle[3] = GPIF_STATE(STATE_IDLE, LAMBDA_CTL0, LAMBDA_CTL2, LAMBDA_CTL3, 0,
+    FUNC_FA_NFC, FUNC_FB_OR_FC, 0, 0, BETA_THREAD_0, 0, 0);
+
+/* DECIDE: left -> AIDLE on ASEL, right -> COMMIT otherwise (EOP). */
+static const uint32_t state_decide[3] = GPIF_STATE(STATE_DECIDE, LAMBDA_CTL0, LAMBDA_CTL2, LAMBDA_CTL3, 0,
+    FUNC_FC, FUNC_NFC, 0, 0, BETA_THREAD_0, 0, 0);
+
+/* AIDLE (thread 1): left -> ADATA_A on VALID, right -> IDLE on !VALID & !ASEL. */
+static const uint32_t state_aidle[3] = GPIF_STATE(STATE_AIDLE, LAMBDA_CTL0, LAMBDA_CTL2, LAMBDA_CTL3, 0,
+    FUNC_FA, FUNC_NFA_NFC, 0, 0, BETA_THREAD_1, 0, 0);
+
+/* ADATA_A/ADATA_B (thread 1): sample + push, left -> AIDLE when !VALID, right -> other on VALID. */
+static const uint32_t state_adata_a[3] = GPIF_STATE(STATE_ADATA_A, LAMBDA_CTL0, 0, 0, 0,
+    FUNC_NFA, FUNC_FA, ALPHA_SAMPLE_DIN, ALPHA_SAMPLE_DIN, BETA_THREAD_1 | BETA_WQ_PUSH, 0, 0);
+static const uint32_t state_adata_b[3] = GPIF_STATE(STATE_ADATA_B, LAMBDA_CTL0, 0, 0, 0,
+    FUNC_NFA, FUNC_FA, ALPHA_SAMPLE_DIN, ALPHA_SAMPLE_DIN, BETA_THREAD_1 | BETA_WQ_PUSH, 0, 0);
 
 /* COMMIT: commit the current buffer, then wait for EOP low. */
 static const uint32_t state_commit[3] = GPIF_STATE(STATE_COMMIT, LAMBDA_CTL0, LAMBDA_CTL2, 0, 0,
@@ -103,7 +139,8 @@ static void pib_start(uint16_t clk_div_x2)
     reg_write(FX3_PIB_POWER, 0);
     delay_us(10);
     reg_set(FX3_PIB_POWER, FX3_PIB_POWER_RESETN);
-    while (!(reg_read(FX3_PIB_POWER) & FX3_PIB_POWER_ACTIVE));
+    for (uint32_t timeout = 10000; timeout && !(reg_read(FX3_PIB_POWER) & FX3_PIB_POWER_ACTIVE); timeout--)
+        delay_us(1);
 
     /* DLL disabled (default phases): with the DLL enabled, the PCLK output is unstable. */
     reg_write(FX3_PIB_DLL_CTRL, 0xf8f0);
@@ -125,24 +162,32 @@ static void pib_stop(void)
 
 static uint8_t  dma_buf[GPIF_DMA_BUF_COUNT][GPIF_DMA_BUF_SIZE] __attribute__((aligned(32)));
 static uint16_t dma_desc[GPIF_DMA_BUF_COUNT];
+static uint8_t  audio_buf[GPIF_AUDIO_BUF_COUNT][GPIF_AUDIO_BUF_SIZE] __attribute__((aligned(32)));
+static uint16_t audio_desc[GPIF_AUDIO_BUF_COUNT];
 
-static void dma_setup(void)
+static void dma_setup_ring(uint16_t *desc, uint8_t *buf, int count, uint32_t size,
+    uint32_t producer, uint32_t consumer)
 {
-    if (!dma_desc[0])
-        for (int i = 0; i < GPIF_DMA_BUF_COUNT; i++)
-            dma_desc[i] = dma_alloc_descriptor();
-    for (int i = 0; i < GPIF_DMA_BUF_COUNT; i++) {
-        uint16_t next = dma_desc[(i + 1) % GPIF_DMA_BUF_COUNT];
-        dma_fill_through(dma_desc[i], DMA_PIB_SCK(0), DMA_UIB_SCK(USB_DESC_EP_STREAM),
-            dma_buf[i], GPIF_DMA_BUF_SIZE, next, next);
+    if (!desc[0])
+        for (int i = 0; i < count; i++)
+            desc[i] = dma_alloc_descriptor();
+    for (int i = 0; i < count; i++) {
+        uint16_t next = desc[(i + 1) % count];
+        dma_fill_through(desc[i], producer, consumer, buf + i*size, size, next, next);
     }
+    dma_start_consumer(consumer, desc[0]);
+    dma_start_producer(producer, desc[0]);
 }
 
 /* Stream ---------------------------------------------------------------------------------------- */
 
+static int gpif_running;
+
 void gpif_stream_stop(void)
 {
-    /* Pause/disable the GPIF, abort sockets, flush the endpoint. */
+    /* Pause/disable the GPIF, abort sockets, flush the endpoints. */
+    if (!gpif_running)
+        return;
     reg_set(FX3_GPIF_WAVEFORM_CTRL_STAT, FX3_GPIF_WAVEFORM_CTRL_STAT_PAUSE);
     delay_us(10);
     reg_write(FX3_GPIF_WAVEFORM_CTRL_STAT, 0);
@@ -150,18 +195,24 @@ void gpif_stream_stop(void)
     dma_abort_socket(DMA_PIB_SCK(0));
     dma_abort_socket(DMA_UIB_SCK(USB_DESC_EP_STREAM));
     usb_flush_in_ep(USB_DESC_EP_STREAM);
+    dma_abort_socket(DMA_PIB_SCK(1));
+    dma_abort_socket(DMA_UIB_SCK(USB_DESC_EP_AUDIO));
+    usb_flush_in_ep(USB_DESC_EP_AUDIO);
     pib_stop();
+    gpif_running = 0;
 }
 
-void gpif_stream_start(uint16_t clk_div_x2, uint8_t flag_omega)
+void gpif_stream_start(int video, int audio)
 {
     gpif_stream_stop();
+    if (!video && !audio)
+        return;
 
     /* Give the GPIF pins back to the GPIF (remove simple GPIO overrides on GPIO0-49). */
     reg_write(FX3_GCTL_GPIO_SIMPLE + 0, 0);
     reg_clear(FX3_GCTL_GPIO_SIMPLE + 4, 0x3ffffUL);
 
-    pib_start(clk_div_x2);
+    pib_start(GPIF_CLK_DIV_X2);
 
     /* Waveform: invalidate all, then program transitions. */
     reg_write(FX3_GPIF_CONFIG, 0x220);
@@ -169,12 +220,16 @@ void gpif_stream_start(uint16_t clk_div_x2, uint8_t flag_omega)
         reg_write(FX3_GPIF_LEFT_WAVEFORM  + i*16 + 8, 0);
         reg_write(FX3_GPIF_RIGHT_WAVEFORM + i*16 + 8, 0);
     }
-    gpif_write_transition(STATE_START,  state_idle, 0);
-    gpif_write_transition(STATE_IDLE,   state_data_a, state_commit);
+    gpif_write_transition(STATE_START,    state_idle,    0);
+    gpif_write_transition(STATE_IDLE,     state_data_a,  state_decide);
+    gpif_write_transition(STATE_DECIDE,   state_aidle,   state_commit);
     gpif_write_transition(STATE_COMMIT,   state_eop_wait, 0);
-    gpif_write_transition(STATE_EOP_WAIT, state_idle, 0);
-    gpif_write_transition(STATE_DATA_A, state_idle, state_data_b);
-    gpif_write_transition(STATE_DATA_B, state_idle, state_data_a);
+    gpif_write_transition(STATE_EOP_WAIT, state_idle,    0);
+    gpif_write_transition(STATE_DATA_A,   state_idle,    state_data_b);
+    gpif_write_transition(STATE_DATA_B,   state_idle,    state_data_a);
+    gpif_write_transition(STATE_AIDLE,    state_adata_a, state_idle);
+    gpif_write_transition(STATE_ADATA_A,  state_aidle,   state_adata_b);
+    gpif_write_transition(STATE_ADATA_B,  state_aidle,   state_adata_a);
     for (unsigned i = 0; i < sizeof(functions)/sizeof(functions[0]); i++)
         reg_write(FX3_GPIF_FUNCTION + 4*i, functions[i]);
 
@@ -184,17 +239,19 @@ void gpif_stream_start(uint16_t clk_div_x2, uint8_t flag_omega)
     reg_write(FX3_GPIF_AD_CONFIG,
         (1UL << FX3_GPIF_AD_CONFIG_A_OEN_CFG_SHIFT) |
         (1UL << FX3_GPIF_AD_CONFIG_DQ_OEN_CFG_SHIFT));
-    reg_write(FX3_GPIF_CTRL_BUS_DIRECTION, 1UL << (2*1));
+    reg_write(FX3_GPIF_CTRL_BUS_DIRECTION, (1UL << (2*1)) | (1UL << (2*4))); /* CTL1/CTL4 outputs. */
     reg_write(FX3_GPIF_CTRL_BUS_DEFAULT,   0);
     reg_write(FX3_GPIF_CTRL_BUS_POLARITY,  0);
     reg_write(FX3_GPIF_CTRL_BUS_TOGGLE,    0);
     for (int i = 0; i < 16; i++)
-        reg_write(FX3_GPIF_CTRL_BUS_SELECT + 4*i, (i == 1) ? flag_omega : 31);
-    reg_write(FX3_GPIF_THREAD_CONFIG + 0,
-        FX3_GPIF_THREAD_CONFIG_ENABLE |
-        (16UL << FX3_GPIF_THREAD_CONFIG_WATERMARK_SHIFT) |
-        (4UL  << FX3_GPIF_THREAD_CONFIG_BURST_SIZE_SHIFT) |
-        (0UL  << FX3_GPIF_THREAD_CONFIG_THREAD_SOCK_SHIFT));
+        reg_write(FX3_GPIF_CTRL_BUS_SELECT + 4*i,
+            (i == 1) ? GPIF_FLAG_OMEGA : (i == 4) ? GPIF_AFLAG_OMEGA : 31);
+    for (int i = 0; i < 2; i++)
+        reg_write(FX3_GPIF_THREAD_CONFIG + 4*i,
+            FX3_GPIF_THREAD_CONFIG_ENABLE |
+            (16UL << FX3_GPIF_THREAD_CONFIG_WATERMARK_SHIFT) |
+            (4UL  << FX3_GPIF_THREAD_CONFIG_BURST_SIZE_SHIFT) |
+            ((uint32_t)i << FX3_GPIF_THREAD_CONFIG_THREAD_SOCK_SHIFT));
     reg_write(FX3_GPIF_INTR, ~0UL);
     reg_write(FX3_GPIF_INTR_MASK, 0);
     reg_write(FX3_GPIF_CONFIG,
@@ -207,9 +264,13 @@ void gpif_stream_start(uint16_t clk_div_x2, uint8_t flag_omega)
         FX3_GPIF_CONFIG_CLK_SOURCE);
 
     /* DMA. */
-    dma_setup();
-    dma_start_consumer(DMA_UIB_SCK(USB_DESC_EP_STREAM), dma_desc[0]);
-    dma_start_producer(DMA_PIB_SCK(0), dma_desc[0]);
+    if (video)
+        dma_setup_ring(dma_desc, &dma_buf[0][0], GPIF_DMA_BUF_COUNT, GPIF_DMA_BUF_SIZE,
+            DMA_PIB_SCK(0), DMA_UIB_SCK(USB_DESC_EP_STREAM));
+    if (audio)
+        dma_setup_ring(audio_desc, &audio_buf[0][0], GPIF_AUDIO_BUF_COUNT, GPIF_AUDIO_BUF_SIZE,
+            DMA_PIB_SCK(1), DMA_UIB_SCK(USB_DESC_EP_AUDIO));
+    gpif_running = 1;
 
     /* Start the waveform at START. */
     reg_set(FX3_GPIF_WAVEFORM_CTRL_STAT, FX3_GPIF_WAVEFORM_CTRL_STAT_WAVEFORM_VALID);
