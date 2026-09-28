@@ -359,6 +359,16 @@ static void video_start(void)
     fpga_stream_start(&v);
 }
 
+/* Audio packets per GPIF thread switch: 4K video needs ~all the GPIF bandwidth (each thread switch
+ * costs 2 x switch_guard idle cycles, see software/throughput_model.py): batch >= 4 (+3ms audio
+ * latency). */
+static int streams_audio_batch(void)
+{
+    if (streaming && uvc_frame(&commit)->width >= 3840 && audio_batch < 4)
+        return 4;
+    return audio_batch;
+}
+
 /* (Re)start the GPIF with the active streams: FPGA sources and GPIF logic off (reset), FX3 GPIF
  * restart, then FPGA sources and GPIF enables for the active streams. */
 static void streams_apply(void)
@@ -371,7 +381,7 @@ static void streams_apply(void)
         video_start();
     if (audio_on)
         fpga_audio_control(1, audio_test);
-    fpga_gpif_control(streaming, audio_on, audio_batch);
+    fpga_gpif_control(streaming, audio_on, streams_audio_batch());
 }
 
 void uvc_audio_set_interface(uint8_t alt)

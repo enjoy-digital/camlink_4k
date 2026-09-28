@@ -304,3 +304,15 @@ def test_settings_apply_while_streaming(fx3):
     fx3.lib.uvc_set_crop(0, 0, 0)
     fx3.lib.uvc_service()
     assert (fx3.video.crop, fx3.video.downscale) == (0, 1)
+
+def test_audio_batch_4k(fx3):
+    fx3.lib.uvc_audio_set_interface(1)
+    fx3.set_input(1920, 1080)
+    fx3.commit(1, 1, 60)
+    assert fx3.var("stub_gpif_batch", ctypes.c_int32).value == 1
+    fx3.set_input(3840, 2160)
+    fx3.commit(2, 1, 30)  # 4K M420: at least 4 packets per switch.
+    assert fx3.var("stub_gpif_batch", ctypes.c_int32).value == 4
+    fx3.lib.uvc_audio_set_batch(6)
+    fx3.lib.uvc_service()
+    assert fx3.var("stub_gpif_batch", ctypes.c_int32).value == 6
