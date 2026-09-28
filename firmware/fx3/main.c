@@ -16,6 +16,7 @@
 #include "gpif.h"
 #include "uvc.h"
 #include "it6802.h"
+#include "spi_flash.h"
 
 /* Vendor Requests ------------------------------------------------------------------------------- */
 
@@ -38,6 +39,13 @@ enum {
     VREQ_STREAM_STATUS = 0x42, /* IN : GPIF/DMA status (8x32-bit).                 */
     VREQ_HDMI_STATUS   = 0x50, /* IN : IT6802 status (struct it6802_status).        */
     VREQ_HDMI_INIT     = 0x51, /* OUT: (Re)initialize the IT6802.                   */
+    VREQ_FLASH_ID      = 0x60, /* IN : SPI flash JEDEC ID.                          */
+    VREQ_FLASH_READ    = 0x61, /* IN : Read flash at (index << 16 | value).         */
+    VREQ_FLASH_PROGRAM = 0x62, /* OUT: Program flash at (index << 16 | value).      */
+    VREQ_FLASH_ERASE   = 0x63, /* OUT: Erase the 64KB block at (index << 16 | value) (deferred). */
+    VREQ_FLASH_STATUS  = 0x64, /* IN : 1 while a deferred flash operation is pending. */
+    VREQ_FLASH_RECOVER = 0x65, /* OUT: Erase block 0 (FX3 image) and reboot to the USB bootloader. */
+    VREQ_FPGA_BOOT     = 0x66, /* OUT: Load the FPGA from the flash bitstream (deferred, status via FLASH_STATUS). */
 };
 
 #define EP0_BUF_SIZE 4096
@@ -47,6 +55,35 @@ static volatile int reboot_request;
 static int i2c_status;
 volatile uint32_t main_loops;
 static volatile int hdmi_init_request;
+
+/* Flash / FPGA Boot ------------------------------------------------------------------------------ */
+
+#define FLASH_BITSTREAM_MAGIC 0x4b4c434cUL /* "LCLK": LiteCamLink bitstream (stock ones not autoloaded). */
+
+static volatile uint32_t flash_erase_addr;
+static volatile int      flash_erase_request;
+static volatile int      flash_recover_request;
+static volatile int      fpga_boot_request;
+static volatile uint32_t fpga_boot_status;
+static uint8_t           flash_buf[4096] __attribute__((aligned(32)));
+
+static uint32_t fpga_boot_from_flash(void)
+{
+    uint32_t hdr[3];
+    uint32_t size;
+
+    spi_flash_read(FLASH_BITSTREAM_HDR, (uint8_t *)hdr, sizeof(hdr));
+    size = hdr[0];
+    if (hdr[1] != ~size || hdr[2] != FLASH_BITSTREAM_MAGIC || size == 0 || size > 0x2f0000)
+        return 0;
+    fpga_config_start();
+    for (uint32_t off = 0; off < size; off += sizeof(flash_buf)) {
+        uint32_t n = (size - off) < sizeof(flash_buf) ? (size - off) : sizeof(flash_buf);
+        spi_flash_read(FLASH_BITSTREAM + off, flash_buf, n);
+        fpga_config_data(flash_buf, n);
+    }
+    return fpga_config_finish();
+}
 
 static const char ident[] = "LiteCamLink FX3 firmware " GIT_VERSION;
 
@@ -165,6 +202,47 @@ static void vendor_request(const struct usb_setup *setup)
         usb_ep0_ack();
         hdmi_init_request = 1;
         return;
+    case VREQ_FLASH_ID:
+        ((uint32_t *)ep0_buf)[0] = spi_flash_read_id();
+        usb_ep0_in(ep0_buf, 4);
+        return;
+    case VREQ_FLASH_READ:
+        if (setup->length > EP0_BUF_SIZE)
+            break;
+        spi_flash_read(addr, ep0_buf, setup->length);
+        usb_ep0_in(ep0_buf, setup->length);
+        return;
+    case VREQ_FLASH_PROGRAM:
+        if (setup->length > EP0_BUF_SIZE || (addr & 0xff) || flash_erase_request)
+            break;
+        if (usb_ep0_out(ep0_buf, setup->length) < 0)
+            return;
+        for (uint32_t off = 0; off < setup->length; off += SPI_FLASH_PAGE_SIZE) {
+            uint32_t n = setup->length - off;
+            spi_flash_program_page(addr + off, ep0_buf + off, n > SPI_FLASH_PAGE_SIZE ? SPI_FLASH_PAGE_SIZE : n);
+        }
+        return;
+    case VREQ_FLASH_ERASE:
+        if (flash_erase_request)
+            break;
+        flash_erase_addr    = addr;
+        flash_erase_request = 1;
+        usb_ep0_ack();
+        return;
+    case VREQ_FLASH_STATUS:
+        /* [0]: operation pending, [4:8]: last FPGA boot status. */
+        ep0_buf[0] = flash_erase_request || flash_recover_request || fpga_boot_request;
+        ((uint32_t *)ep0_buf)[1] = fpga_boot_status;
+        usb_ep0_in(ep0_buf, setup->length < 8 ? setup->length : 8);
+        return;
+    case VREQ_FLASH_RECOVER:
+        flash_recover_request = 1;
+        usb_ep0_ack();
+        return;
+    case VREQ_FPGA_BOOT:
+        fpga_boot_request = 1;
+        usb_ep0_ack();
+        return;
     case VREQ_REBOOT:
         usb_ep0_ack();
         reboot_request = 1;
@@ -263,7 +341,12 @@ int main(void)
     gctl_init_iomatrix(IOMATRIX_GPIF32BIT_UART_I2S);
     gpio_init_clock();
     fpga_init();
+    spi_flash_init();
     i2c_init(400000);
+    /* Standalone boot: LiteCamLink bitstream from flash (if present), then HDMI receiver init. */
+    fpga_boot_status = fpga_boot_from_flash();
+    if ((fpga_boot_status & FPGA_STATUS_DONE) && !(fpga_boot_status & FPGA_STATUS_FAIL))
+        hdmi_init_request = 1;
     irq_enable();
 
     uvc_init();
@@ -274,6 +357,20 @@ int main(void)
         main_loops++;
         uvc_service();
         it6802_service();
+        if (flash_erase_request) {
+            spi_flash_erase_block(flash_erase_addr);
+            flash_erase_request = 0;
+        }
+        if (fpga_boot_request) {
+            fpga_boot_status  = fpga_boot_from_flash();
+            fpga_boot_request = 0;
+        }
+        if (flash_recover_request) {
+            /* Invalidate the FX3 image: the boot ROM falls back to USB boot. */
+            spi_flash_erase_block(FLASH_FX3_IMAGE);
+            delay_us(10000);
+            gctl_hard_reset();
+        }
         if (hdmi_init_request) {
             hdmi_init_request = 0;
             it6802_init();

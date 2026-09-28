@@ -113,6 +113,18 @@ VREQ_STREAM_STOP   = 0x41
 VREQ_STREAM_STATUS = 0x42
 VREQ_HDMI_STATUS   = 0x50
 VREQ_HDMI_INIT     = 0x51
+VREQ_FLASH_ID      = 0x60
+VREQ_FLASH_READ    = 0x61
+VREQ_FLASH_PROGRAM = 0x62
+VREQ_FLASH_ERASE   = 0x63
+VREQ_FLASH_STATUS  = 0x64
+VREQ_FLASH_RECOVER = 0x65
+VREQ_FPGA_BOOT     = 0x66
+
+FLASH_BLOCK_SIZE      = 0x10000
+FLASH_BITSTREAM_HDR   = 0x100000
+FLASH_BITSTREAM       = 0x100100
+FLASH_BITSTREAM_MAGIC = 0x4b4c434c # "LCLK".
 
 GPIF_OMEGA_EMPTY_FULL_TH0 = 16
 
@@ -214,6 +226,66 @@ class CamLink:
         st["5v"]  = st["sys_status"] & 1
         st["pclk_mhz"] = (124*255/st["pclk_reg"])/10 if st["pclk_reg"] else 0
         return st
+
+    # SPI Flash.
+    def flash_id(self):
+        return struct.unpack("<I", self.vendor_in(VREQ_FLASH_ID, length=4))[0]
+
+    def flash_read(self, addr, length, chunk=4096):
+        data = bytearray()
+        while len(data) < length:
+            n = min(chunk, length - len(data))
+            a = addr + len(data)
+            data += self.dev.ctrl_transfer(0xc0, VREQ_FLASH_READ, a & 0xffff, a >> 16, n, timeout=5000)
+        return bytes(data)
+
+    def flash_erase(self, addr):
+        self.vendor_out(VREQ_FLASH_ERASE, addr & 0xffff, addr >> 16)
+        deadline = time.time() + 5
+        while self.vendor_in(VREQ_FLASH_STATUS, length=1)[0]:
+            if time.time() > deadline:
+                raise TimeoutError("Flash erase timeout.")
+            time.sleep(0.05)
+
+    def flash_write(self, addr, data, verify=True, progress=True):
+        """Erase the covered 64KB blocks, program and verify."""
+        assert addr % 256 == 0
+        first = addr & ~(FLASH_BLOCK_SIZE - 1)
+        last  = (addr + len(data) - 1) & ~(FLASH_BLOCK_SIZE - 1)
+        for block in range(first, last + 1, FLASH_BLOCK_SIZE):
+            self.flash_erase(block)
+        for off in range(0, len(data), 4096):
+            chunk = data[off:off + 4096]
+            self.dev.ctrl_transfer(0x40, VREQ_FLASH_PROGRAM, (addr + off) & 0xffff, (addr + off) >> 16, chunk, timeout=5000)
+            if progress:
+                print(f"\r  programmed {off + len(chunk)}/{len(data)}", end="", flush=True)
+        if progress:
+            print()
+        if verify and self.flash_read(addr, len(data)) != bytes(data):
+            raise IOError("Flash verify failed.")
+
+    def flash_bitstream(self, filename):
+        bitstream = open(filename, "rb").read()
+        size   = len(bitstream)
+        header = struct.pack("<III", size, ~size & 0xffffffff, FLASH_BITSTREAM_MAGIC).ljust(256, b"\xff")
+        self.flash_write(FLASH_BITSTREAM_HDR, header + bitstream)
+
+    def flash_recover(self):
+        """Erase the FX3 image (block 0) and reboot to the USB bootloader."""
+        self.vendor_out(VREQ_FLASH_RECOVER)
+        usb.util.dispose_resources(self.dev)
+
+    def fpga_boot(self):
+        """Load the FPGA from the flash bitstream, return the configuration status (0: none)."""
+        self.vendor_out(VREQ_FPGA_BOOT)
+        deadline = time.time() + 10
+        while True:
+            status = self.vendor_in(VREQ_FLASH_STATUS, length=8)
+            if not status[0]:
+                return struct.unpack_from("<I", status, 4)[0]
+            if time.time() > deadline:
+                raise TimeoutError("FPGA boot timeout.")
+            time.sleep(0.05)
 
     def reboot(self):
         self.vendor_out(VREQ_REBOOT)
@@ -481,6 +553,19 @@ def main():
 
     sub.add_parser("hdmi-status", help="Show HDMI receiver (IT6802) status.")
 
+    sub.add_parser("flash-id", help="Show the SPI flash JEDEC ID.")
+    p = sub.add_parser("flash-dump", help="Dump the SPI flash to a file.")
+    p.add_argument("filename")
+    p = sub.add_parser("flash-write", help="Write a file to the SPI flash (erase/program/verify).")
+    p.add_argument("filename")
+    p.add_argument("--offset", default=0, type=lambda x: int(x, 0))
+    p = sub.add_parser("flash-bitstream", help="Write a LiteCamLink bitstream (header + data at 0x100000).")
+    p.add_argument("bitstream", nargs="?", default="build/gateware/litecamlink.bit")
+    p = sub.add_parser("flash-fx3", help="Write a FX3 image at offset 0 (standalone boot).")
+    p.add_argument("image", nargs="?", default="firmware/fx3/build/fx3.img")
+    sub.add_parser("flash-recover", help="Erase the FX3 image and reboot to the USB bootloader.")
+    sub.add_parser("fpga-boot", help="Load the FPGA from the flash bitstream.")
+
     sub.add_parser("list",   help="List Cam Link related USB devices.")
     sub.add_parser("ident",  help="Show LiteCamLink firmware identification.")
     sub.add_parser("reboot", help="Reboot the FX3 (back to the USB bootloader).")
@@ -564,6 +649,31 @@ def main():
     if args.cmd == "hdmi-status":
         for k, v in CamLink().hdmi_status().items():
             print(f"{k:12s}: {v}")
+
+    if args.cmd == "flash-id":
+        print(f"JEDEC ID: 0x{CamLink().flash_id():06x}")
+
+    if args.cmd == "flash-dump":
+        data = CamLink().flash_read(0, 0x400000)
+        open(args.filename, "wb").write(data)
+        print(f"Dumped {len(data)} bytes to {args.filename}.")
+
+    if args.cmd == "flash-write":
+        CamLink().flash_write(args.offset, open(args.filename, "rb").read())
+
+    if args.cmd == "flash-bitstream":
+        CamLink().flash_bitstream(args.bitstream)
+
+    if args.cmd == "flash-fx3":
+        image = open(args.image, "rb").read()
+        parse_fx3_image(image) # Check signature/checksum.
+        CamLink().flash_write(0, image)
+
+    if args.cmd == "flash-recover":
+        CamLink().flash_recover()
+
+    if args.cmd == "fpga-boot":
+        print(f"FPGA status: 0x{CamLink().fpga_boot():08x}")
 
     if args.cmd == "ident":
         cl  = CamLink()
