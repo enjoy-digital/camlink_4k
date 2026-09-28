@@ -42,12 +42,15 @@ DDR3-800 = 1.6 GB/s peak. The stock gateware (Lattice DDR3 IP) runs its controll
 
 ## Builds (timing, default seed)
 
-| Build dir | Config | sys | PHY (sys2x) | DRAM | Timing |
+| Build dir | Config | sys | PHY (sys2x) | DRAM | Timing (MHz) |
 |---|---|---|---|---|---|
-| `build_dram12_cpu` | 1:2 + VexRiscv/BIOS | 75.6 MHz | - | DDR3-302 | sys 87.9 |
-| `build_dram14_cpu` | 1:4 + VexRiscv/BIOS | 74.25 MHz | 148.5 MHz | DDR3-594 | sys 85.6, sys2x 266 |
-| `build_dram12` | 1:2, no CPU | 99.0 MHz | - | DDR3-396 | sys 105 |
-| `build_dram14` | 1:4, no CPU | 99.56 MHz | 199.1 MHz | DDR3-796 | sys 114.7, sys2x 297 |
+| `build_dram12_cpu` | 1:2 + VexRiscv/BIOS | 75.6 MHz | - | DDR3-302 | sys 91.3 |
+| `build_dram14_cpu` | 1:4 + VexRiscv/BIOS | 74.25 MHz | 148.5 MHz | DDR3-594 | sys 87.2, sys2x 280.7 |
+| `build_dram12` | 1:2, no CPU | 99.0 MHz | - | DDR3-396 | sys 102.8 |
+| `build_dram14` | 1:4, no CPU | 99.56 MHz | 199.1 MHz | DDR3-796 | sys 109.9, sys2x 282.9 |
+
+(All with hdmi >= 150 MHz and fx3 >= 100.8 MHz. Rebuilt after the review fix of the 1:4 sys2x
+reset: before it, sys2x never left reset.)
 
 (VexRiscv limits CPU builds to ~85 MHz, hence the 75 MHz bring-up variants.)
 
