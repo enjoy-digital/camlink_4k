@@ -214,3 +214,35 @@ def test_gpif_video_audio_slow_usb():
 def test_gpif_video_audio_switch_lag():
     # FX3 DMA buffer switch lagging the last GPIF word (queue drain under load).
     run_video_audio(video_gap=0, switch_delay=(2, 100), switch_guard=128)
+
+def test_gpif_video_drain():
+    # Words written while the video is disabled are drained (not sent at the next start).
+    dut = DUT()
+    fx3 = FX3Model(dut)
+    def gen():
+        ctrl = dut.gpif._control
+        yield ctrl.fields.flag_invert.eq(1)
+        yield ctrl.fields.head_lead.eq(0)
+        yield dut.gpif._burst.storage.eq(64)
+        for i in range(32):
+            yield dut.gpif.sink.valid.eq(1)
+            yield dut.gpif.sink.data.eq(0xdead0000 + i)
+            yield
+        yield dut.gpif.sink.valid.eq(0)
+        for _ in range(200):
+            yield
+        yield ctrl.fields.enable.eq(1)
+        for i in range(64):
+            yield dut.gpif.sink.valid.eq(1)
+            yield dut.gpif.sink.data.eq(0x1000 + i)
+            yield
+            while not (yield dut.gpif.sink.ready):
+                yield
+        yield dut.gpif.sink.valid.eq(0)
+        for _ in range(400):
+            yield
+    run_simulation(dut, {"sys": [gen()], "gpif": [fx3.run()]},
+        clocks={"sys": 10, "gpif": 10, "gpif_cdc": 10})
+    words = fx3.words(0)
+    assert not any((w >> 16) == 0xdead for w in words)
+    assert words[1:64] == [0x1000 + i for i in range(1, 64)]

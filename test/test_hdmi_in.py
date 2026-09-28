@@ -55,9 +55,9 @@ def ddr_source(pads, frames):
                 yield pads.qe_fall.eq(pixel(f, 2*x + 1, y) if active else 0)
                 yield
 
-def run(ready_pattern, frames=6, ddr=False, downscale=False, crop=None):
+def run(ready_pattern, frames=6, ddr=False, downscale=False, crop=None, source=None):
     pads = Pads()
-    dut  = HDMIIn(pads, fifo_depth=64, sim=True)
+    dut  = HDMIIn(pads, fifo_depth=64, idle_timeout=64, sim=True)
     out  = []
 
     def config():
@@ -90,7 +90,7 @@ def run(ready_pattern, frames=6, ddr=False, downscale=False, crop=None):
             cycle += 1
 
     run_simulation(dut, {
-        "hdmi": [(ddr_source if ddr else video_source)(pads, frames)],
+        "hdmi": [(source or (ddr_source if ddr else video_source))(pads, frames)],
         "sys":  [config(), sink()],
     }, clocks={"hdmi": 10, "sys": 7})
     return dut, out
@@ -158,3 +158,28 @@ def test_hdmi_in_ddr_crop():
         full = expected_frame(f)
         words = [full[y*(HACT//2) + x] for y in range(y0, y0 + h) for x in range(x0, x0 + w)]
         assert frame == words
+
+def test_hdmi_in_signal_loss():
+    # Frame 3 is cut after 2 lines (input lost for a while): it is closed by the idle timeout and
+    # the following frames are complete.
+    def source(pads, frames):
+        for f in range(frames):
+            for y in range(VACT + VBLANK):
+                for x in range(HACT + HBLANK):
+                    cut    = (f == 3) and (y >= 2)
+                    active = (y < VACT) and (x < HACT) and not cut
+                    yield pads.de.eq(active)
+                    yield pads.vsync.eq((y == VACT + 1) and not cut)
+                    yield pads.qe.eq(pixel(f, x, y) if active else 0)
+                    yield
+            if f == 3:
+                for _ in range(200):
+                    yield
+    dut, frames = run(lambda cycle: 1, frames=8, source=source)
+    sizes = [len(frame) for frame in frames]
+    full  = HACT*VACT//2
+    assert any(size < full for size in sizes)  # The cut frame, closed.
+    assert sizes[-2:] == [full, full]          # Recovery.
+    for frame in frames[-2:]:
+        f = ((frame[0] & 0xff) - 0xa0) % 256 // 16
+        assert frame == expected_frame(f)

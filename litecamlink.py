@@ -24,6 +24,8 @@ from litex.soc.interconnect.csr     import CSRStorage
 from litedram.modules import MT41K64M16
 from litedram.phy     import ECP5DDRPHY
 
+from litex.soc.interconnect import stream
+
 from litecamlink_platform import Platform
 
 from litecamlink.gateware.crg     import CRG
@@ -122,22 +124,28 @@ class BaseSoC(SoCCore):
             # Sources: Counter (raw) / Video Pattern -> UVC Packetizer.
             self.gen     = CounterGenerator()
             self.pattern = VideoPatternGenerator(sys_clk_freq)
-            self.uvc     = UVCPacketizer()
+            self.uvc     = ResetInserter()(UVCPacketizer())
 
             # Timestamp (sys clock) for UVC PTS/SCR.
             timestamp = Signal(32)
             self.sync += timestamp.eq(timestamp + 1)
             self.comb += self.uvc.timestamp.eq(timestamp)
             self.comb += self.gpif.eop_data.eq(self.uvc.next_header0)
+            # UVC packetizer held in reset while no video source is enabled (restarts on a frame
+            # boundary).
+            self.comb += self.uvc.reset.eq(~self.pattern._enable.storage & ~self.hdmi_in.control.fields.enable)
 
             self.source_sel = CSRStorage(2, description="Stream source: 0 = Counter, 1 = UVC Pattern, 2 = Raw Pattern, 3 = UVC HDMI.")
+            # Source mux -> register stage (timing: FIFO BRAM -> mux -> CDC BRAM) -> GPIF.
+            self.gpif_buf = gpif_buf = stream.Buffer([("data", 32)])
             self.comb += [
                 Case(self.source_sel.storage, {
-                    0: self.gen.source.connect(self.gpif.sink),
-                    1: [self.pattern.source.connect(self.uvc.sink), self.uvc.source.connect(self.gpif.sink)],
-                    2: self.pattern.source.connect(self.gpif.sink, omit={"last"}),
-                    3: [self.hdmi_in.source.connect(self.uvc.sink), self.uvc.source.connect(self.gpif.sink)],
-                })
+                    0: self.gen.source.connect(gpif_buf.sink),
+                    1: [self.pattern.source.connect(self.uvc.sink), self.uvc.source.connect(gpif_buf.sink)],
+                    2: self.pattern.source.connect(gpif_buf.sink, omit={"last"}),
+                    3: [self.hdmi_in.source.connect(self.uvc.sink), self.uvc.source.connect(gpif_buf.sink)],
+                }),
+                gpif_buf.source.connect(self.gpif.sink),
             ]
             platform.add_period_constraint(fx3.pclk, 1e9/100e6)
             platform.add_false_path_constraints(self.crg.cd_sys.clk, self.gpif.cd_gpif.clk)

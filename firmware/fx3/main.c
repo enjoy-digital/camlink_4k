@@ -17,6 +17,9 @@
 #include "uvc.h"
 #include "it6802.h"
 #include "spi_flash.h"
+#include "fpga_ctrl.h"
+
+#include "generated/fpga_csr.h"
 
 /* Vendor Requests ------------------------------------------------------------------------------- */
 
@@ -200,9 +203,14 @@ static void vendor_request(const struct usb_setup *setup)
         usb_ep0_in(ep0_buf, 32);
         return;
     case VREQ_HDMI_STATUS:
-        memcpy(ep0_buf, it6802_get_status(), sizeof(struct it6802_status));
-        usb_ep0_in(ep0_buf, sizeof(struct it6802_status));
+    {
+        struct it6802_status *st = (struct it6802_status *)ep0_buf;
+        uint16_t len = sizeof(*st) < setup->length ? sizeof(*st) : setup->length;
+        memcpy(st, it6802_get_status(), sizeof(*st));
+        fpga_csr_read(CSR_HDMI_IN_FRAME_PERIOD, &st->frame_period);
+        usb_ep0_in(ep0_buf, len);
         return;
+    }
     case VREQ_HDMI_INIT:
         usb_ep0_ack();
         hdmi_init_request = 1;

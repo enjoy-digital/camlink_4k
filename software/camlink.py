@@ -130,6 +130,7 @@ FLASH_BLOCK_SIZE      = 0x10000
 FLASH_BITSTREAM_HDR   = 0x100000
 FLASH_BITSTREAM       = 0x100100
 FLASH_BITSTREAM_MAGIC = 0x4b4c434c # "LCLK".
+SYS_CLK_FREQ          = 100e6      # FPGA sys clock (default build).
 
 GPIF_OMEGA_EMPTY_FULL_TH0 = 16
 
@@ -225,12 +226,15 @@ class CamLink:
 
     def hdmi_status(self):
         names = ["present", "sys_status", "hpd", "stable"]
-        d = self.vendor_in(VREQ_HDMI_STATUS, length=16)
+        d = self.vendor_in(VREQ_HDMI_STATUS, length=24)
         st = dict(zip(names, d[:4]))
         st.update(zip(["htotal", "hactive", "vtotal", "vactive"], struct.unpack("<4H", d[4:12])))
         st["pclk_reg"], st["video_mode"], st["colorspace"] = d[12], d[13], ["RGB", "YCbCr422", "YCbCr444", "?"][d[14] & 3]
         st["5v"]  = st["sys_status"] & 1
         st["pclk_mhz"] = (124*255/st["pclk_reg"])/10 if st["pclk_reg"] else 0
+        if len(d) >= 24:
+            st["generation"], period = struct.unpack("<II", d[16:24])
+            st["fps"] = round(SYS_CLK_FREQ/period, 3) if period else 0
         return st
 
     # SPI Flash.

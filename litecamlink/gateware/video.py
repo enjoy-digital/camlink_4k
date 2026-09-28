@@ -12,7 +12,9 @@ downstream accepts them; a frame starts on each period tick (skipped if the prev
 being sent).
 
 Pattern: 8 colour bars (BT.601 limited range), a moving white bar and a bottom luma ramp, plus the
-frame number encoded in the first 32 words of the first line (for host-side checks).
+frame number encoded in the first 32 words of the first line (for host-side checks). The "no
+signal" mode replaces the bars and ramp with a flat dark blue background (moving bar and frame
+number kept, so the stream is visibly alive).
 """
 
 from migen import *
@@ -49,6 +51,7 @@ class VideoPatternGenerator(LiteXModule):
         self._vres         = CSRStorage(16, reset=1080,    description="Lines per frame.")
         self._bar_words    = CSRStorage(16, reset=1920//16, description="Colour bar width (words).")
         self._frame_period = CSRStorage(32, reset=int(sys_clk_freq/30), description="Frame period (sys cycles).")
+        self._mode         = CSRStorage(1, description="Pattern: 0 = colour bars, 1 = no signal.")
         self._frames       = CSRStatus(32, description="Generated frames.")
         self._skipped      = CSRStatus(32, description="Skipped frame ticks (frame still being sent).")
 
@@ -149,10 +152,12 @@ class VideoPatternGenerator(LiteXModule):
                 ).Else(
                     data.eq(yuy2_word(16, 128, 16, 128)),
                 )
-            ).Elif(ramp,
-                data.eq(yuy2_word(x[:8], 128, x[:8], 128)),
             ).Elif(moving,
                 data.eq(yuy2_word(235, 128, 235, 128)),
+            ).Elif(self._mode.storage,
+                data.eq(yuy2_word(40, 170, 40, 118)), # Dark blue.
+            ).Elif(ramp,
+                data.eq(yuy2_word(x[:8], 128, x[:8], 128)),
             ).Else(
                 data.eq(bar_word),
             ),

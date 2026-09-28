@@ -98,6 +98,9 @@ class GPIFStreamer(LiteXModule):
         self.fifo = fifo = stream.ClockDomainCrossing([("data", 32)], cd_from="sys", cd_to="gpif_cdc",
             depth=fifo_depth)
         self.comb += sink.connect(fifo.sink)
+        # Video disabled: the CDC FIFO is drained in WAIT (no stale words at the next start).
+        video_drain = Signal()
+        self.specials += MultiReg(~self._control.fields.enable, video_drain, "gpif_cdc")
 
         enable      = Signal()
         flag_invert = Signal()
@@ -187,6 +190,7 @@ class GPIFStreamer(LiteXModule):
         switch_ok   = Signal()   # Thread switch allowed (previous thread buffer switch done).
         self.comb += audio_ready.eq(audio_enable & (audio_packets != 0) & audio_next & audio_flag)
         fsm.act("WAIT",
+            fifo.source.ready.eq(video_drain),
             NextValue(count, 0),
             NextValue(gcount, 0),
             If(audio_ready & (flag | ~enable) & (last_audio | switch_ok),

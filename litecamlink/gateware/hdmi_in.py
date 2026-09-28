@@ -33,7 +33,7 @@ from litex.soc.interconnect     import stream
 # HDMI In ------------------------------------------------------------------------------------------
 
 class HDMIIn(LiteXModule):
-    def __init__(self, pads, fifo_depth=2048, max_line_words=1024, sim=False):
+    def __init__(self, pads, fifo_depth=2048, max_line_words=1024, idle_timeout=2**20, sim=False):
         self.source = source = stream.Endpoint([("data", 32)])
 
         self.control = CSRStorage(fields=[
@@ -56,6 +56,8 @@ class HDMIIn(LiteXModule):
         self.frames   = CSRStatus(32, description="Captured frames.")
         self.dropped  = CSRStatus(32, description="Dropped frames (not admitted).")
         self.overflow = CSRStatus(32, description="Words lost on FIFO overflow.")
+        self.aborted  = CSRStatus(32, description="Frames closed on input loss (idle timeout).")
+        self.frame_period = CSRStatus(32, description="Input frame period (sys clock cycles, VSYNC to VSYNC).")
 
         # # #
 
@@ -185,8 +187,20 @@ class HDMIIn(LiteXModule):
         # - DDR: the pixel pair of each clock is a word.
         # - Downscale (2x, DDR): pairs of words are averaged into one word; even lines are stored in
         #   a line buffer and averaged with the following odd line, which is emitted.
+        # Line-based conditions are registered (constant during a line, the line counter changes in
+        # the horizontal blanking).
         last_line = Signal(16)
-        self.comb += last_line.eq(vres - 1 - (downscale & vres[0]))
+        is_last_line    = Signal()
+        crop_line       = Signal()
+        crop_first_line = Signal()
+        crop_last_line  = Signal()
+        self.sync.hdmi += [
+            last_line.eq(vres - 1 - (downscale & vres[0])),
+            is_last_line.eq(line == last_line),
+            crop_line.eq((line >= crop_y0) & (line <= crop_y1)),
+            crop_first_line.eq(line == crop_y0),
+            crop_last_line.eq(line == crop_y1),
+        ]
         active    = Signal()
         self.comb += active.eq(de & enable & (vres != 0))
         odd_line  = Signal()
@@ -197,7 +211,7 @@ class HDMIIn(LiteXModule):
         w_first = Signal()
         w_last  = Signal()
         end_of_frame = Signal()
-        self.comb += end_of_frame.eq((line == last_line) & ~de_next)
+        self.comb += end_of_frame.eq(is_last_line & ~de_next)
 
         y0   = Signal(8)
         c0   = Signal(8)
@@ -269,11 +283,11 @@ class HDMIIn(LiteXModule):
                 If(ddr,
                     If(crop,
                         # Crop window: native pixels inside [x0, x1] x [y0, y1].
-                        If((x >= crop_x0) & (x <= crop_x1) & (line >= crop_y0) & (line <= crop_y1),
+                        If((x >= crop_x0) & (x <= crop_x1) & crop_line,
                             w_valid.eq(1),
                             w_data.eq(Mux(c_swap, Cat(ya, cb, yb, ca), Cat(ya, ca, yb, cb))),
-                            w_first.eq((line == crop_y0) & (x == crop_x0)),
-                            w_last.eq((line == crop_y1) & (x == crop_x1)),
+                            w_first.eq(crop_first_line & (x == crop_x0)),
+                            w_last.eq(crop_last_line & (x == crop_x1)),
                         )
                     ).Elif(~downscale,
                         w_valid.eq(1),
@@ -321,7 +335,13 @@ class HDMIIn(LiteXModule):
         self.comb += cdc.connect(cdc_fifo.sink)
 
         # Frame admission / drop (sys) + frame FIFO.
-        self.fifo = fifo = stream.SyncFIFO([("data", 32)], fifo_depth, buffered=True)
+        # The FIFO is flushed while the capture is disabled; a frame without input for
+        # `idle_timeout` cycles (signal loss) is closed with an end marker.
+        self.fifo = fifo = ResetInserter()(stream.SyncFIFO([("data", 32)], fifo_depth, buffered=True))
+        enable_sys   = self.control.fields.enable
+        idle         = Signal(max=idle_timeout + 1)
+        aborted      = Signal(32)
+        self.comb += fifo.reset.eq(~enable_sys)
         in_frame     = Signal()
         pending_last = Signal()
         frames       = Signal(32)
@@ -363,9 +383,43 @@ class HDMIIn(LiteXModule):
                 If(sink.last, in_frame.eq(0)),
             ),
             If(pending_last & fifo.sink.ready, pending_last.eq(0)),
+            # Input loss: close the current frame.
+            If(~in_frame | sink.valid,
+                idle.eq(0),
+            ).Elif(idle == idle_timeout,
+                idle.eq(0),
+                in_frame.eq(0),
+                pending_last.eq(1),
+                aborted.eq(aborted + 1),
+            ).Else(
+                idle.eq(idle + 1),
+            ),
+            # Capture disabled: flush.
+            If(~enable_sys,
+                in_frame.eq(0),
+                pending_last.eq(0),
+            ),
         ]
         self.comb += [
             self.frames.status.eq(frames),
             self.dropped.status.eq(dropped),
             self.overflow.status.eq(overflow),
+            self.aborted.status.eq(aborted),
+        ]
+
+        # Input frame period (sys clock cycles between VSYNC rising edges, 0 when no input).
+        vs_sys    = Signal()
+        vs_sys_d  = Signal()
+        vs_count  = Signal(32)
+        self.specials += MultiReg(pads.vsync, vs_sys)
+        self.sync += [
+            vs_sys_d.eq(vs_sys),
+            If(vs_sys & ~vs_sys_d,
+                self.frame_period.status.eq(vs_count),
+                vs_count.eq(0),
+            ).Elif(vs_count == (2**31),
+                self.frame_period.status.eq(0),
+            ).Else(
+                vs_count.eq(vs_count + 1),
+            )
         ]

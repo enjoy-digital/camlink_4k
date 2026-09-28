@@ -40,7 +40,7 @@ int fpga_csr_read(uint32_t addr, uint32_t *value)
 /* Stream ---------------------------------------------------------------------------------------- */
 
 void fpga_stream_start(uint16_t width, uint16_t height, uint32_t fps, int hdmi, int ddr, int downscale,
-    int c_swap, int crop, uint16_t crop_x, uint16_t crop_y)
+    int c_swap, int crop, uint16_t crop_x, uint16_t crop_y, int no_signal)
 {
     fpga_stream_stop();
     fpga_csr_write(CSR_HDMI_IN_CROP_X, crop_x/2);
@@ -59,6 +59,7 @@ void fpga_stream_start(uint16_t width, uint16_t height, uint32_t fps, int hdmi, 
     fpga_csr_write(CSR_PATTERN_FRAME_PERIOD,  UVC_CLOCK_FREQ/fps);
     fpga_csr_write(CSR_UVC_PAYLOAD_WORDS,     (UVC_PAYLOAD_SIZE - 12)/4);
     fpga_csr_write(CSR_UVC_FRAME_WORDS,       (uint32_t)width*height/2);
+    fpga_csr_write(CSR_PATTERN_MODE,          no_signal);
     fpga_csr_write(CSR_PATTERN_ENABLE,        !hdmi);
 }
 

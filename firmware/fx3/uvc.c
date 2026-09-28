@@ -36,6 +36,7 @@ static int streaming;
 static volatile int      crop_mode;     /* 0: downscale, 1: crop (inputs larger than the frame). */
 static volatile uint16_t crop_x, crop_y; /* Crop window position (pixels, lines). */
 static volatile int      video_request; /* Video settings changed: restart if streaming. */
+static uint32_t          input_generation;
 
 static volatile int     audio_request; /* Pending audio alternate setting + 1 (0: none). */
 static volatile uint8_t audio_alt;
@@ -173,7 +174,7 @@ static void video_start(void)
         x &= ~1;
     }
     fpga_stream_start(frame->width, frame->height, fps, use_hdmi, ddr,
-        use_hdmi && half && !crop, hdmi->colorspace != 0, use_hdmi && crop, x, y);
+        use_hdmi && half && !crop, hdmi->colorspace != 0, use_hdmi && crop, x, y, !hdmi->stable);
 }
 
 /* (Re)start the GPIF with the active streams: FPGA sources and GPIF logic off (reset), FX3 GPIF
@@ -225,6 +226,12 @@ void uvc_service(void)
     /* Take the pending requests atomically (set from the USB interrupt). */
     int video;
 
+    /* Settled input change (mode, color space, loss): re-evaluate the video source. */
+    if (it6802_get_status()->generation != input_generation) {
+        input_generation = it6802_get_status()->generation;
+        if (streaming)
+            video_request = 1;
+    }
     if (stream_request == STREAM_IDLE && !audio_request && !video_request)
         return;
     irq_disable();

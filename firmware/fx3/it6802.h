@@ -23,6 +23,8 @@ struct it6802_status {
     uint8_t  video_mode;   /* Reg 0x99.                            */
     uint8_t  colorspace;   /* AVI InfoFrame Y: 0 = RGB, 1 = YCbCr 4:2:2, 2 = YCbCr 4:4:4. */
     uint8_t  reserved;
+    uint32_t generation;   /* Incremented on each settled input change (mode, colorspace, loss). */
+    uint32_t frame_period; /* Input frame period (FPGA sys clock cycles, filled on request). */
 };
 
 int  it6802_init(void);

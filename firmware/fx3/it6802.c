@@ -169,6 +169,41 @@ static uint16_t it6802_read16(uint8_t lo, uint8_t hi, uint8_t hi_mask, uint8_t h
     return (uint16_t)(((h >> hi_shift) & hi_mask) << 8) | l;
 }
 
+/* Input color space from the AVI InfoFrame (bank 2 0x15 = PB1, Y[6:5]: 0 = RGB, 1 = YCbCr 4:2:2,
+ * 2 = YCbCr 4:4:4): RGB -> YUV CSC for RGB sources, bypass for YCbCr sources. */
+static void it6802_update_colorspace(void)
+{
+    uint8_t avi_pb1;
+    uint8_t colorspace;
+
+    if (it6802_read(2, 0x15, &avi_pb1))
+        return;
+    colorspace = (avi_pb1 >> 5) & 0x3;
+    if (colorspace == status.colorspace)
+        return;
+    status.colorspace = colorspace;
+    it6802_write(0, 0x65, colorspace ? 0x10 : 0x12);
+}
+
+/* Input change tracking: a change of (stable, size, color space) settled for 4 polls (~200ms)
+ * increments the generation (active streams are then re-evaluated). */
+static void it6802_track_changes(void)
+{
+    static uint32_t last_signature;
+    static uint8_t  settle;
+    uint32_t signature = ((uint32_t)status.stable << 31) | ((uint32_t)status.colorspace << 28) |
+        ((uint32_t)(status.hactive & 0x3fff) << 14) | (status.vactive & 0x3fff);
+
+    if (!status.stable)
+        signature = 0;
+    if (signature != last_signature) {
+        last_signature = signature;
+        settle         = 4;
+    } else if (settle && --settle == 0) {
+        status.generation++;
+    }
+}
+
 void it6802_service(void)
 {
     static uint32_t last;
@@ -200,13 +235,9 @@ void it6802_service(void)
         it6802_hpd(0);
 
     if ((sys & SYS_SCDT) && !status.stable) {
-        /* Video became stable: YUV 4:2:2 8-bit output (16-bit bus), outputs on. The input color
-         * space comes from the AVI InfoFrame (bank 2 0x15 = PB1, Y[6:5]: 0 = RGB, 1 = YCbCr 4:2:2,
-         * 2 = YCbCr 4:4:4): RGB -> YUV CSC for RGB sources, bypass for YCbCr sources. */
-        uint8_t avi_pb1 = 0;
-        it6802_read(2, 0x15, &avi_pb1);
-        status.colorspace = (avi_pb1 >> 5) & 0x3;
-        it6802_write(0, 0x65, status.colorspace ? 0x10 : 0x12);
+        /* Video became stable: YUV 4:2:2 8-bit output (16-bit bus), outputs on. */
+        status.colorspace = 0xff;
+        it6802_update_colorspace();
         it6802_write(0, 0x50, 0xb0); /* Output clock inverted, no delay (middle of the sampling window). */
         it6802_write(0, 0x53, 0x40);
         it6802_write(0, 0x52, 0x20); /* Audio outputs on (I2S0, SCK, WS, MCLK) (stock value). */
@@ -223,7 +254,9 @@ void it6802_service(void)
         status.vactive = it6802_read16(0xa5, 0xa4, 0x0f, 4);
         it6802_read(0, REG_PCLK,     &status.pclk_reg);
         it6802_read(0, REG_VID_MODE, &status.video_mode);
+        it6802_update_colorspace();
     }
+    it6802_track_changes();
 }
 
 const struct it6802_status *it6802_get_status(void)
