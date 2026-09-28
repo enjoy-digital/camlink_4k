@@ -12,9 +12,11 @@
  * - DQ[31:0]      : Data, driven by the FPGA.
  * - CTL0 (GPIO17) : VALID, driven by the FPGA: a word is sampled/pushed on each VALID clock.
  * - CTL1 (GPIO18) : FLAG, driven by the FX3: thread 0 DMA flag (selectable omega signal).
+ * - CTL2 (GPIO19) : EOP, driven by the FPGA: commit the current (partial) DMA buffer.
  *
  * Waveform: START -> IDLE -> DATA_A <-> DATA_B -> IDLE. Alphas (SAMPLE_DIN) only apply on state
  * entry, so DATA_A/DATA_B alternate on every VALID clock to sample and push each word.
+ * IDLE -> COMMIT (on EOP) -> EOP_WAIT (until EOP low) -> IDLE commits short buffers.
  * DMA: PIB socket 0 -> ring of buffers -> UIB socket 1 (EP1 IN), no CPU intervention.
  * GPIF waveform descriptor format from fx3lafw (bsp/gpif.h).
  */
@@ -40,21 +42,39 @@
 #define ALPHA_SAMPLE_DIN (1UL << 2)
 #define BETA_THREAD_0    (0UL << 4)
 #define BETA_WQ_PUSH     (1UL << 7)
+#define BETA_COMMIT      (1UL << 30)
 
 #define LAMBDA_CTL0      0
+#define LAMBDA_CTL2      2
 
-enum { STATE_START = 0, STATE_IDLE = 1, STATE_DATA_A = 2, STATE_DATA_B = 3 };
-enum { FUNC_ZERO = 0, FUNC_FA = 1, FUNC_NFA = 2 };
+enum {
+    STATE_START    = 0,
+    STATE_IDLE     = 1,
+    STATE_DATA_A   = 2,
+    STATE_DATA_B   = 3,
+    STATE_COMMIT   = 4,
+    STATE_EOP_WAIT = 5,
+};
+enum { FUNC_ZERO = 0, FUNC_FA = 1, FUNC_NFA = 2, FUNC_FB = 3, FUNC_NFB = 4, FUNC_ONE = 5 };
 
 static const uint16_t functions[] = {
     [FUNC_ZERO] = 0x0000,  /* Constant 0. */
     [FUNC_FA]   = 0xaaaa,  /* Fa.         */
     [FUNC_NFA]  = 0x5555,  /* !Fa.        */
+    [FUNC_FB]   = 0xcccc,  /* Fb.         */
+    [FUNC_NFB]  = 0x3333,  /* !Fb.        */
+    [FUNC_ONE]  = 0xffff,  /* Constant 1. */
 };
 
-/* IDLE: wait for VALID (left -> DATA_A). */
-static const uint32_t state_idle[3] = GPIF_STATE(STATE_IDLE, LAMBDA_CTL0, 0, 0, 0,
-    FUNC_FA, FUNC_ZERO, 0, 0, BETA_THREAD_0, 0, 0);
+/* IDLE: left -> DATA_A on VALID, right -> COMMIT on EOP. */
+static const uint32_t state_idle[3] = GPIF_STATE(STATE_IDLE, LAMBDA_CTL0, LAMBDA_CTL2, 0, 0,
+    FUNC_FA, FUNC_FB, 0, 0, BETA_THREAD_0, 0, 0);
+
+/* COMMIT: commit the current buffer, then wait for EOP low. */
+static const uint32_t state_commit[3] = GPIF_STATE(STATE_COMMIT, LAMBDA_CTL0, LAMBDA_CTL2, 0, 0,
+    FUNC_ONE, FUNC_ZERO, 0, 0, BETA_THREAD_0 | BETA_COMMIT, 0, 0);
+static const uint32_t state_eop_wait[3] = GPIF_STATE(STATE_EOP_WAIT, LAMBDA_CTL0, LAMBDA_CTL2, 0, 0,
+    FUNC_NFB, FUNC_ZERO, 0, 0, BETA_THREAD_0, 0, 0);
 
 /* DATA_A/DATA_B: sample + push, left -> IDLE when !VALID, right -> other DATA state when VALID. */
 static const uint32_t state_data_a[3] = GPIF_STATE(STATE_DATA_A, LAMBDA_CTL0, 0, 0, 0,
@@ -150,7 +170,9 @@ void gpif_stream_start(uint16_t clk_div_x2, uint8_t flag_omega)
         reg_write(FX3_GPIF_RIGHT_WAVEFORM + i*16 + 8, 0);
     }
     gpif_write_transition(STATE_START,  state_idle, 0);
-    gpif_write_transition(STATE_IDLE,   state_data_a, 0);
+    gpif_write_transition(STATE_IDLE,   state_data_a, state_commit);
+    gpif_write_transition(STATE_COMMIT,   state_eop_wait, 0);
+    gpif_write_transition(STATE_EOP_WAIT, state_idle, 0);
     gpif_write_transition(STATE_DATA_A, state_idle, state_data_b);
     gpif_write_transition(STATE_DATA_B, state_idle, state_data_a);
     for (unsigned i = 0; i < sizeof(functions)/sizeof(functions[0]); i++)

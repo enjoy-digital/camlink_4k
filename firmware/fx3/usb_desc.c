@@ -4,100 +4,123 @@
  * Copyright (c) 2026 Florent Kermarrec <florent@enjoy-digital.fr>
  * SPDX-License-Identifier: BSD-2-Clause
  *
- * USB descriptors (High-Speed and SuperSpeed).
+ * USB descriptors (High-Speed and SuperSpeed): UVC 1.1 camera, bulk streaming on EP1 IN.
+ *
+ * Interface 0: Video Control   (Camera Terminal -> Output Terminal).
+ * Interface 1: Video Streaming (YUY2, frames from uvc_frames[], bulk EP1 IN).
  */
 
 #include "usb_desc.h"
+#include "uvc.h"
 
-#define LO(x) ((x) & 0xff)
-#define HI(x) (((x) >> 8) & 0xff)
+#define LO(x)  ((x) & 0xff)
+#define HI(x)  (((x) >> 8) & 0xff)
+#define W16(x) LO(x), HI(x)
+#define W32(x) ((x) & 0xff), (((x) >> 8) & 0xff), (((x) >> 16) & 0xff), (((x) >> 24) & 0xff)
 
 /* Device ---------------------------------------------------------------------------------------- */
 
 static const uint8_t device_hs[] = {
     18, USB_DT_DEVICE,
-    0x10, 0x02,                          /* bcdUSB 2.10.        */
-    0x00, 0x00, 0x00,                    /* Class in interface. */
-    64,                                  /* bMaxPacketSize0.    */
-    LO(USB_DESC_VID), HI(USB_DESC_VID),
-    LO(USB_DESC_PID), HI(USB_DESC_PID),
-    0x00, 0x01,                          /* bcdDevice 1.00.     */
-    1, 2, 3,                             /* Strings.            */
-    1,                                   /* Configurations.     */
+    W16(0x0210),                         /* bcdUSB 2.10.                          */
+    0xef, 0x02, 0x01,                    /* Misc/Common/IAD.                      */
+    64,                                  /* bMaxPacketSize0.                      */
+    W16(USB_DESC_VID), W16(USB_DESC_PID),
+    W16(0x0100),                         /* bcdDevice 1.00.                       */
+    1, 2, 3,                             /* Strings.                              */
+    1,                                   /* Configurations.                       */
 };
 
 static const uint8_t device_ss[] = {
     18, USB_DT_DEVICE,
-    0x20, 0x03,                          /* bcdUSB 3.20.        */
-    0x00, 0x00, 0x00,
-    9,                                   /* 2^9 = 512 bytes.    */
-    LO(USB_DESC_VID), HI(USB_DESC_VID),
-    LO(USB_DESC_PID), HI(USB_DESC_PID),
-    0x00, 0x01,
+    W16(0x0320),                         /* bcdUSB 3.20.                          */
+    0xef, 0x02, 0x01,
+    9,                                   /* 2^9 = 512 bytes.                      */
+    W16(USB_DESC_VID), W16(USB_DESC_PID),
+    W16(0x0100),
     1, 2, 3,
     1,
 };
 
 static const uint8_t device_qualifier[] = {
-    10, USB_DT_DEVICE_QUALIFIER,
-    0x00, 0x02,
-    0x00, 0x00, 0x00,
-    64,
-    1,
-    0,
+    10, USB_DT_DEVICE_QUALIFIER, W16(0x0200), 0xef, 0x02, 0x01, 64, 1, 0,
 };
 
 /* BOS ------------------------------------------------------------------------------------------- */
 
 static const uint8_t bos[] = {
-    5, USB_DT_BOS, 22, 0, 2,
+    5, USB_DT_BOS, W16(22), 2,
     /* USB 2.0 extension (LPM). */
-    7, 0x10, 0x02, 0x02, 0x00, 0x00, 0x00,
+    7, 0x10, 0x02, W32(0x00000002),
     /* SuperSpeed device capability. */
-    10, 0x10, 0x03,
-    0x00,                                /* bmAttributes.                   */
-    0x0e, 0x00,                          /* Speeds: FS, HS, SS.             */
-    0x03,                                /* Lowest full functionality: SS.  */
-    0x0a,                                /* U1 exit latency.                */
-    0xff, 0x07,                          /* U2 exit latency.                */
+    10, 0x10, 0x03, 0x00, W16(0x000e), 0x03, 0x0a, W16(0x07ff),
 };
 
 /* Configuration --------------------------------------------------------------------------------- */
 
-#define CONFIG_HS_LEN (9 + 9 + 7)
-#define CONFIG_SS_LEN (9 + 9 + 7 + 6)
+#define VC_TOTAL      (13 + 18 + 9)
+#define FRAME_LEN     (26 + 4*UVC_FRAME_INTERVALS)
+#define VS_TOTAL      (14 + 27 + UVC_FRAME_COUNT*FRAME_LEN + 6)
+#define CONFIG_HS_LEN (9 + 8 + 9 + VC_TOTAL + 9 + VS_TOTAL + 7)
+#define CONFIG_SS_LEN (CONFIG_HS_LEN + 6)
+
+#define FRAME_DESC(index, w, h)                                                                     \
+    FRAME_LEN, UVC_CS_INTERFACE, UVC_VS_FRAME_UNCOMPRESSED, index, 0x00,                            \
+    W16(w), W16(h),                                                                                 \
+    W32((w)*(h)*16*UVC_FPS_MIN), W32((w)*(h)*16*UVC_FPS_MAX), W32((w)*(h)*2),                       \
+    W32(UVC_INTERVAL(UVC_FPS_MIN)), UVC_FRAME_INTERVALS,                                            \
+    W32(UVC_INTERVAL(UVC_FPS_MAX)), W32(UVC_INTERVAL(UVC_FPS_MIN))
+
+#define CONFIG_BODY(total, max_power)                                                               \
+    /* Configuration. */                                                                            \
+    9, USB_DT_CONFIG, W16(total), 2, 1, 0, 0x80, max_power,                                         \
+    /* Interface Association. */                                                                   \
+    8, 0x0b, 0, 2, UVC_CC_VIDEO, UVC_SC_VIDEO_INTERFACE_COLLECTION, 0, 2,                           \
+    /* VC Interface. */                                                                             \
+    9, USB_DT_INTERFACE, UVC_INTF_CONTROL, 0, 0, UVC_CC_VIDEO, UVC_SC_VIDEOCONTROL, 0, 2,           \
+    /* VC Header. */                                                                                \
+    13, UVC_CS_INTERFACE, UVC_VC_HEADER, W16(0x0110), W16(VC_TOTAL), W32(UVC_CLOCK_FREQ),           \
+    1, UVC_INTF_STREAMING,                                                                          \
+    /* Camera Terminal (ID 1). */                                                                   \
+    18, UVC_CS_INTERFACE, UVC_VC_INPUT_TERMINAL, 1, W16(0x0201), 0, 0, W16(0), W16(0), W16(0),      \
+    3, 0, 0, 0,                                                                                     \
+    /* Output Terminal (ID 2). */                                                                   \
+    9, UVC_CS_INTERFACE, UVC_VC_OUTPUT_TERMINAL, 2, W16(0x0101), 0, 1, 0,                           \
+    /* VS Interface. */                                                                             \
+    9, USB_DT_INTERFACE, UVC_INTF_STREAMING, 0, 1, UVC_CC_VIDEO, UVC_SC_VIDEOSTREAMING, 0, 0,       \
+    /* VS Input Header. */                                                                          \
+    14, UVC_CS_INTERFACE, UVC_VS_INPUT_HEADER, 1, W16(VS_TOTAL), 0x80 | USB_DESC_EP_STREAM,         \
+    0, 2, 0, 0, 0, 1, 0,                                                                            \
+    /* Format: Uncompressed YUY2. */                                                                \
+    27, UVC_CS_INTERFACE, UVC_VS_FORMAT_UNCOMPRESSED, 1, UVC_FRAME_COUNT,                           \
+    'Y', 'U', 'Y', '2', 0x00, 0x00, 0x10, 0x00, 0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71,     \
+    16, 1, 0, 0, 0, 0,                                                                              \
+    /* Frames. */                                                                                   \
+    FRAME_DESC(1, 1920, 1080),                                                                      \
+    FRAME_DESC(2, 1280,  720),                                                                      \
+    FRAME_DESC(3,  640,  480),                                                                      \
+    /* Color Matching (BT.709 primaries/transfer, BT.601 matrix). */                                \
+    6, UVC_CS_INTERFACE, UVC_VS_COLORFORMAT, 1, 1, 4
 
 static const uint8_t config_hs[] = {
-    9, USB_DT_CONFIG, LO(CONFIG_HS_LEN), HI(CONFIG_HS_LEN),
-    1,                                   /* Interfaces.         */
-    1,                                   /* Configuration.      */
-    0,
-    0x80,                                /* Bus powered.        */
-    250,                                 /* 500mA.              */
-    /* Interface 0: Vendor. */
-    9, USB_DT_INTERFACE, 0, 0, 1, 0xff, 0x00, 0x00, 0,
+    CONFIG_BODY(CONFIG_HS_LEN, 250),
     /* EP1 IN: Bulk 512. */
-    7, USB_DT_ENDPOINT, 0x80 | USB_DESC_EP_STREAM, 0x02, LO(512), HI(512), 0,
+    7, USB_DT_ENDPOINT, 0x80 | USB_DESC_EP_STREAM, 0x02, W16(512), 0,
 };
 
 static const uint8_t config_ss[] = {
-    9, USB_DT_CONFIG, LO(CONFIG_SS_LEN), HI(CONFIG_SS_LEN),
-    1,
-    1,
-    0,
-    0x80,
-    112,                                 /* 896mA (8mA units).  */
-    /* Interface 0: Vendor. */
-    9, USB_DT_INTERFACE, 0, 0, 1, 0xff, 0x00, 0x00, 0,
-    /* EP1 IN: Bulk 1024. */
-    7, USB_DT_ENDPOINT, 0x80 | USB_DESC_EP_STREAM, 0x02, LO(1024), HI(1024), 0,
-    /* SuperSpeed endpoint companion. */
+    CONFIG_BODY(CONFIG_SS_LEN, 112),
+    /* EP1 IN: Bulk 1024 + SuperSpeed companion. */
+    7, USB_DT_ENDPOINT, 0x80 | USB_DESC_EP_STREAM, 0x02, W16(1024), 0,
     6, 0x30, USB_DESC_SS_BURST - 1, 0, 0, 0,
 };
 
+_Static_assert(sizeof(config_hs) == CONFIG_HS_LEN, "HS configuration length mismatch");
+_Static_assert(sizeof(config_ss) == CONFIG_SS_LEN, "SS configuration length mismatch");
+
 /* Strings --------------------------------------------------------------------------------------- */
 
-static const uint8_t string_lang[] = {4, USB_DT_STRING, 0x09, 0x04};
+static const uint8_t string_lang[] = {4, USB_DT_STRING, W16(0x0409)};
 
 static const uint8_t string_manufacturer[] = {
     28, USB_DT_STRING,

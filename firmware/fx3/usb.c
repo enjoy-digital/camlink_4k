@@ -316,8 +316,11 @@ static void usb_dev_ctl_isr(void)
     }
 }
 
+volatile uint32_t usb_isr_count;
+
 static void __attribute__((isr("IRQ"))) usb_core_isr(void)
 {
+    usb_isr_count++;
     uint32_t req = reg_read(FX3_UIB_INTR) & reg_read(FX3_UIB_INTR_MASK);
     reg_write(FX3_UIB_INTR, req);
 
@@ -416,6 +419,31 @@ void usb_enable_in_ep(uint8_t ep, enum usb_ep_type type, uint16_t pktsize, uint8
     /* Endpoint manager. */
     reg_write(FX3_EEPM_ENDPOINT + (ep << 2),
         (pktsize << FX3_EEPM_ENDPOINT_PACKET_SIZE_SHIFT) & FX3_EEPM_ENDPOINT_PACKET_SIZE_MASK);
+}
+
+void usb_reset_in_ep(uint8_t ep)
+{
+    /* Endpoint halt cleared: reset the USB3 sequence number / USB2 data toggle, flush. */
+    if (usb_speed == USB_SUPER_SPEED) {
+        reg_clear(FX3_PROT_EPI_CS1 + (ep << 2), FX3_PROT_EPI_CS1_STALL);
+        reg_set(FX3_PROT_EPI_CS1 + (ep << 2), FX3_PROT_EPI_CS1_EP_RESET);
+        delay_us(2);
+        /* Sequence number = 0 (IN endpoint). */
+        reg_write(FX3_PROT_SEQ_NUM,
+            FX3_PROT_SEQ_NUM_COMMAND | FX3_PROT_SEQ_NUM_DIR |
+            (0UL << FX3_PROT_SEQ_NUM_SEQUENCE_NUMBER_SHIFT) | ep);
+        delay_us(2);
+        reg_clear(FX3_PROT_EPI_CS1 + (ep << 2), FX3_PROT_EPI_CS1_EP_RESET);
+        /* Clear status bits (OOSERR, ...). */
+        reg_write(FX3_PROT_EPI_CS1 + (ep << 2), reg_read(FX3_PROT_EPI_CS1 + (ep << 2)));
+    } else {
+        uint32_t timeout = 1000;
+        reg_clear(FX3_DEV_EPI_CS + (ep << 2), FX3_DEV_EPI_CS_STALL);
+        reg_write(FX3_DEV_TOGGLE, ep | FX3_DEV_TOGGLE_IO | FX3_DEV_TOGGLE_R);
+        while (timeout-- && !(reg_read(FX3_DEV_TOGGLE) & FX3_DEV_TOGGLE_TOGGLE_VALID))
+            delay_us(1);
+    }
+    usb_flush_in_ep(ep);
 }
 
 void usb_flush_in_ep(uint8_t ep)

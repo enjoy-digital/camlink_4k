@@ -13,6 +13,9 @@
 #define GPIF_DMA_BUF_SIZE  16384
 #define GPIF_DMA_BUF_COUNT 8
 
+#define GPIF_CLK_DIV_X2    8   /* PIB clock = SYS_CLK*2/8 = 96MHz. */
+#define GPIF_FLAG_OMEGA    16  /* EMPTY_FULL_TH0 (active low in the FPGA). */
+
 void gpif_stream_start(uint16_t clk_div_x2, uint8_t flag_omega);
 void gpif_stream_stop(void);
 void gpif_stream_status(uint32_t *status);

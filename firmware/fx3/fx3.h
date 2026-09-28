@@ -216,6 +216,7 @@ int  usb_ep0_in(const volatile void *buffer, uint16_t length);
 int  usb_ep0_out(volatile void *buffer, uint16_t length);
 void usb_enable_in_ep(uint8_t ep, enum usb_ep_type type, uint16_t pktsize, uint8_t burst);
 void usb_flush_in_ep(uint8_t ep);
+void usb_reset_in_ep(uint8_t ep);
 enum usb_speed usb_get_speed(void);
 
 #endif /* FX3_H */

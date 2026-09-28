@@ -14,7 +14,7 @@ CFLAGS += -Wall -Wextra -Werror -ffunction-sections -fdata-sections -fno-stack-p
 CFLAGS += -I. -MMD -MP -DGIT_VERSION=\"$(VERSION)\"
 LDFLAGS = -nostartfiles -static -T fx3.ld -Wl,--gc-sections -Wl,-Map,$(BUILD)/fx3.map
 
-OBJS = start.o fx3.o usb.o usb_desc.o fpga.o i2c.o gpif.o main.o
+OBJS = start.o fx3.o usb.o usb_desc.o fpga.o i2c.o gpif.o fpga_ctrl.o uvc.o main.o
 OBJS := $(addprefix $(BUILD)/,$(OBJS))
 
 all: $(BUILD)/fx3.img
@@ -26,6 +26,14 @@ $(BUILD)/fx3.img: $(BUILD)/fx3.elf elf2img.py
 $(BUILD)/fx3.elf: $(OBJS) fx3.ld
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(OBJS)
 
+CSR_CSV ?= ../../build/csr.csv
+
+generated/fpga_csr.h: $(CSR_CSV) csr2h.py
+	mkdir -p generated
+	python3 csr2h.py $< $@
+
+$(BUILD)/fpga_ctrl.o: generated/fpga_csr.h
+
 $(BUILD)/%.o: %.c | $(BUILD)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
@@ -36,7 +44,7 @@ $(BUILD):
 	mkdir -p $@
 
 clean:
-	rm -rf $(BUILD)
+	rm -rf $(BUILD) generated
 
 -include $(OBJS:.o=.d)
 

@@ -14,6 +14,7 @@
 #include "fpga.h"
 #include "i2c.h"
 #include "gpif.h"
+#include "uvc.h"
 
 /* Vendor Requests ------------------------------------------------------------------------------- */
 
@@ -41,6 +42,7 @@ enum {
 static uint8_t ep0_buf[EP0_BUF_SIZE] __attribute__((aligned(32)));
 static volatile int reboot_request;
 static int i2c_status;
+volatile uint32_t main_loops;
 
 static const char ident[] = "LiteCamLink FX3 firmware " GIT_VERSION;
 
@@ -204,9 +206,17 @@ static void standard_request(const struct usb_setup *setup, enum usb_speed speed
     case USB_REQ_SET_SEL:
         usb_ep0_out(ep0_buf, 6);
         return;
+    case USB_REQ_CLEAR_FEATURE:
+        /* ENDPOINT_HALT on the streaming endpoint: stream off. */
+        if ((setup->request_type & USB_RECIP_MASK) == USB_RECIP_EP &&
+            (setup->index & 0x7f) == USB_DESC_EP_STREAM) {
+            uvc_stream_halt();
+            usb_reset_in_ep(USB_DESC_EP_STREAM);
+        }
+        usb_ep0_ack();
+        return;
     case USB_REQ_SET_INTERFACE:
     case USB_REQ_SET_FEATURE:
-    case USB_REQ_CLEAR_FEATURE:
     case USB_REQ_SET_ISOCH_DELAY:
         usb_ep0_ack();
         return;
@@ -223,6 +233,10 @@ static void setup_request(const struct usb_setup *setup, enum usb_speed speed)
     case USB_TYPE_VENDOR:
         vendor_request(setup);
         return;
+    case USB_TYPE_CLASS:
+        if (uvc_class_request(setup, ep0_buf) == 0)
+            return;
+        break;
     }
     usb_ep0_stall();
 }
@@ -240,10 +254,13 @@ int main(void)
     i2c_init(100000);
     irq_enable();
 
+    uvc_init();
     usb_init(setup_request);
     usb_connect();
 
     for (;;) {
+        main_loops++;
+        uvc_service();
         if (reboot_request) {
             delay_us(10000);
             gctl_hard_reset();

@@ -6,3 +6,4 @@ __pycache__
 *.csv
 /firmware/fx3/build
 !/doc/*.csv
+generated/

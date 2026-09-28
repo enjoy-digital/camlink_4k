@@ -224,6 +224,7 @@ def stream_test(cl, bus, size=64*1024*1024, clk_div_x2=16, flag_omega=GPIF_OMEGA
     flag_invert=0, data_delay=0, chunk=4*1024*1024):
     bus.regs.gen_enable.write(0)
     bus.regs.gpif_control.write(0)
+    bus.regs.main_source_sel.write(0)
     cl.stream_start(clk_div_x2, flag_omega)
     time.sleep(1.2) # FreqMeter period is 1s.
     print(f"FX3 PCLK: {bus.regs.fx3_clk_freq_value.read()/1e6:.2f} MHz, "
@@ -259,6 +260,73 @@ def stream_test(cl, bus, size=64*1024*1024, clk_div_x2=16, flag_omega=GPIF_OMEGA
     bus.regs.gen_enable.write(0)
     cl.stream_stop()
     return errors == 0 and received >= size
+
+# UVC Raw Test -------------------------------------------------------------------------------------
+
+def uvc_pattern_config(bus, width=1920, height=1080, fps=30, sys_clk_freq=75e6):
+    bus.regs.pattern_enable.write(0)
+    bus.regs.pattern_hwords.write(width//2)
+    bus.regs.pattern_vres.write(height)
+    bus.regs.pattern_bar_words.write(width//16)
+    bus.regs.pattern_frame_period.write(int(sys_clk_freq/fps))
+    bus.regs.uvc_frame_words.write(width*height//2)
+
+def uvc_raw_test(cl, bus, width=1920, height=1080, fps=30, frames=60, clk_div_x2=8):
+    """Stream the UVC pattern over raw USB and check payload headers/frames."""
+    from usb_stream import USBStreamReader
+    bus.regs.gpif_control.write(0)
+    bus.regs.main_source_sel.write(1)
+    uvc_pattern_config(bus, width, height, fps)
+    cl.stream_start(clk_div_x2)
+    bus.regs.gpif_control.write((4 << 8) | 1 | 2)
+    bus.regs.pattern_enable.write(1)
+
+    frame_size = width*height*2
+    state = {"frame": bytearray(), "frames": [], "fid": None, "errors": 0, "pts": []}
+    def on_transfer(chunk):
+        # Payloads are 16KB (header + data) except the last one of a frame (short packet).
+        for off in range(0, len(chunk), 16384):
+            payload = chunk[off:off + 16384]
+            hlen, info = payload[0], payload[1]
+            if hlen != 12 or not (info & 0x80):
+                state["errors"] += 1
+                continue
+            fid = info & 1
+            if state["fid"] is not None and fid != state["fid"] and len(state["frame"]):
+                state["errors"] += 1 # FID change without EOF.
+                state["frame"] = bytearray()
+            state["fid"] = fid
+            state["frame"] += payload[12:]
+            if info & 0x02:
+                state["frames"].append(len(state["frame"]))
+                state["pts"].append(struct.unpack("<I", payload[2:6])[0])
+                if len(state["frames"]) == 2:
+                    state["sample"] = bytes(state["frame"])
+                state["frame"] = bytearray()
+                state["fid"] = None
+
+    usb.util.dispose_resources(cl.dev)
+    reader = USBStreamReader()
+    received, duration, error = reader.read(frames*frame_size*1.01, on_transfer, timeout=5.0)
+    reader.close()
+    bus.regs.pattern_enable.write(0)
+    bus.regs.gpif_control.write(0)
+    cl.stream_stop()
+
+    sizes  = state["frames"]
+    good   = sum(1 for s in sizes if s == frame_size)
+    pts    = np.diff(np.array(state["pts"], dtype=np.int64)) % (1 << 32) / 75e6
+    print(f"Received {received/1e6:.1f} MB in {duration:.2f}s ({received/duration/1e6:.1f} MB/s), "
+          f"{len(sizes)} frames, {good} with size {frame_size}, {state['errors']} header errors.")
+    if len(pts):
+        print(f"PTS intervals: mean {np.mean(pts)*1e3:.2f} ms, min {np.min(pts)*1e3:.2f}, max {np.max(pts)*1e3:.2f}")
+    if "sample" in state:
+        f = np.frombuffer(state["sample"], dtype=np.uint32)
+        number = sum(((int(f[i]) & 0xff) > 128) << i for i in range(32))
+        print(f"Sample frame number: {number}, bars: " +
+              " ".join(f"{int(f[width + i*(width//16) + 8]):08x}" for i in range(8)))
+        np.save("build/uvc_frame.npy", f)
+    return good >= frames - 2 and state["errors"] == 0
 
 # Pin Test -----------------------------------------------------------------------------------------
 
@@ -331,6 +399,11 @@ def main():
     p.add_argument("--flag-invert", default=0,  type=int, help="Invert FLAG in the FPGA.")
     p.add_argument("--data-delay",  default=0,  type=int, help="DQ delay relative to VALID (0-3).")
     sub.add_parser("stream-status", help="Show GPIF/DMA status.")
+    p = sub.add_parser("uvc-raw-test", help="UVC pattern stream over raw USB (payload/frame checks).")
+    p.add_argument("--width",  default=1920, type=int)
+    p.add_argument("--height", default=1080, type=int)
+    p.add_argument("--fps",    default=30,   type=int)
+    p.add_argument("--frames", default=60,   type=int)
 
     sub.add_parser("list",   help="List Cam Link related USB devices.")
     sub.add_parser("ident",  help="Show LiteCamLink firmware identification.")
@@ -350,8 +423,14 @@ def main():
     if args.cmd == "boot":
         if find_device(FX3_BOOT_VID, FX3_BOOT_PID) is not None:
             fx3_load(args.fx3)
+            time.sleep(1.0) # Let the host (uvcvideo) finish enumeration/probing.
         cl = CamLink()
-        print(cl.ident())
+        for retry in range(5):
+            try:
+                print(cl.ident())
+                break
+            except usb.core.USBError:
+                time.sleep(0.5)
         cl.fpga_load(args.bit)
 
     if args.cmd == "fpga-load":
@@ -391,6 +470,11 @@ def main():
         cl = CamLink()
         ok = stream_test(cl, CamLinkBus(cl), size=args.size*1024*1024, clk_div_x2=args.clk_div_x2,
             flag_omega=args.flag_omega, flag_invert=args.flag_invert, data_delay=args.data_delay)
+        sys.exit(0 if ok else 1)
+
+    if args.cmd == "uvc-raw-test":
+        cl = CamLink()
+        ok = uvc_raw_test(cl, CamLinkBus(cl), args.width, args.height, args.fps, args.frames)
         sys.exit(0 if ok else 1)
 
     if args.cmd == "stream-status":

@@ -19,6 +19,7 @@ from litex.soc.integration.soc_core import *
 from litex.soc.integration.builder  import *
 from litex.soc.cores.led            import LedChaser
 from litex.soc.cores.freqmeter      import FreqMeter
+from litex.soc.interconnect.csr     import CSRStorage
 
 from litecamlink_platform import Platform
 
@@ -26,6 +27,8 @@ from litecamlink.gateware.crg     import CRG
 from litecamlink.gateware.pintest    import PinTest
 from litecamlink.gateware.i2c_bridge import I2CBridge
 from litecamlink.gateware.gpif       import GPIFStreamer, CounterGenerator
+from litecamlink.gateware.video      import VideoPatternGenerator
+from litecamlink.gateware.uvc        import UVCPacketizer
 
 # BaseSoC ------------------------------------------------------------------------------------------
 
@@ -59,10 +62,28 @@ class BaseSoC(SoCMini):
         if not with_pintest:
             self.fx3_clk_freq = FreqMeter(period=int(sys_clk_freq), clk=fx3.pclk)
 
-            # GPIF Streamer + Counter Generator ----------------------------------------------------
+            # GPIF Streamer ------------------------------------------------------------------------
             self.gpif = GPIFStreamer(fx3)
-            self.gen  = CounterGenerator()
-            self.comb += self.gen.source.connect(self.gpif.sink)
+
+            # Sources: Counter (raw) / Video Pattern -> UVC Packetizer.
+            self.gen     = CounterGenerator()
+            self.pattern = VideoPatternGenerator(sys_clk_freq)
+            self.uvc     = UVCPacketizer()
+
+            # Timestamp (sys clock) for UVC PTS/SCR.
+            timestamp = Signal(32)
+            self.sync += timestamp.eq(timestamp + 1)
+            self.comb += self.uvc.timestamp.eq(timestamp)
+            self.comb += self.gpif.eop_data.eq(self.uvc.next_header0)
+
+            self.source_sel = CSRStorage(2, description="Stream source: 0 = Counter, 1 = UVC Pattern, 2 = Raw Pattern.")
+            self.comb += [
+                Case(self.source_sel.storage, {
+                    0: self.gen.source.connect(self.gpif.sink),
+                    1: [self.pattern.source.connect(self.uvc.sink), self.uvc.source.connect(self.gpif.sink)],
+                    2: self.pattern.source.connect(self.gpif.sink, omit={"last"}),
+                })
+            ]
             platform.add_period_constraint(fx3.pclk, 1e9/100e6)
             platform.add_false_path_constraints(self.crg.cd_sys.clk, self.gpif.cd_gpif.clk)
         if with_pintest:
