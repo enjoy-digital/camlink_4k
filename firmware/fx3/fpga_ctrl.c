@@ -39,11 +39,14 @@ int fpga_csr_read(uint32_t addr, uint32_t *value)
 
 /* Stream ---------------------------------------------------------------------------------------- */
 
-void fpga_stream_start(uint16_t width, uint16_t height, uint32_t fps, int hdmi)
+void fpga_stream_start(uint16_t width, uint16_t height, uint32_t fps, int hdmi, int ddr, int downscale)
 {
     fpga_stream_stop();
     fpga_csr_write(CSR_MAIN_SOURCE_SEL,       hdmi ? 3 : 1); /* UVC HDMI / UVC pattern. */
-    fpga_csr_write(CSR_HDMI_IN_CONTROL,       hdmi ? (1 | (1 << 4) | (0 << 6)) : 0); /* Y: lane 1, C: lane 0. */
+    /* HDMI: enable, Y lane 1 (QE[23:16]), C lane 2 (QE[35:28]), Cb/Cr swap, DDR/downscale
+     * (validated on hardware with a MacBook Pro 4K30 source). */
+    fpga_csr_write(CSR_HDMI_IN_CONTROL, hdmi ?
+        (1 | (1 << 4) | (2 << 6) | (1 << 8) | (ddr << 12) | (downscale << 14)) : 0);
     fpga_csr_write(CSR_PATTERN_HWORDS,        width/2);
     fpga_csr_write(CSR_PATTERN_VRES,          height);
     fpga_csr_write(CSR_PATTERN_BAR_WORDS,     width/16);

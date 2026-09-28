@@ -19,7 +19,8 @@ VACT, VBLANK = 4, 3
 class Pads:
     def __init__(self):
         self.pclk  = Signal()
-        self.qe    = Signal(24)
+        self.qe      = Signal(24)
+        self.qe_fall = Signal(24) # Simulation model of the falling edge sample (DDR).
         self.de    = Signal()
         self.hsync = Signal()
         self.vsync = Signal()
@@ -42,9 +43,21 @@ def video_source(pads, frames):
 
 # Test ---------------------------------------------------------------------------------------------
 
-def run(ready_pattern, frames=6):
+def ddr_source(pads, frames):
+    # DDR: pixel pair per clock (rising = even pixel, falling = odd pixel).
+    for f in range(frames):
+        for y in range(VACT + VBLANK):
+            for x in range(HACT//2 + HBLANK):
+                active = (y < VACT) and (x < HACT//2)
+                yield pads.de.eq(active)
+                yield pads.vsync.eq(y == VACT + 1)
+                yield pads.qe.eq(pixel(f, 2*x, y) if active else 0)
+                yield pads.qe_fall.eq(pixel(f, 2*x + 1, y) if active else 0)
+                yield
+
+def run(ready_pattern, frames=6, ddr=False, downscale=False):
     pads = Pads()
-    dut  = HDMIIn(pads, fifo_depth=64)
+    dut  = HDMIIn(pads, fifo_depth=64, sim=True)
     out  = []
 
     def config():
@@ -52,6 +65,8 @@ def run(ready_pattern, frames=6):
         yield dut.control.fields.enable.eq(1)
         yield dut.control.fields.y_lane.eq(1)
         yield dut.control.fields.c_lane.eq(0)
+        yield dut.control.fields.ddr.eq(ddr)
+        yield dut.control.fields.downscale.eq(downscale)
         yield dut.admit_level.storage.eq(40)
         yield
 
@@ -71,7 +86,7 @@ def run(ready_pattern, frames=6):
             cycle += 1
 
     run_simulation(dut, {
-        "hdmi": [video_source(pads, frames)],
+        "hdmi": [(ddr_source if ddr else video_source)(pads, frames)],
         "sys":  [config(), sink()],
     }, clocks={"hdmi": 10, "sys": 7})
     return dut, out
@@ -101,3 +116,25 @@ def test_hdmi_in_drop():
     assert len(frames) >= 1
     for frame in frames:
         assert len(frame) == HACT*VACT//2
+
+def test_hdmi_in_ddr():
+    dut, frames = run(lambda cycle: 1, ddr=True)
+    assert len(frames) >= 3
+    for frame in frames:
+        f = (frame[0] & 0xff) // 16
+        assert frame == expected_frame(f)
+
+def test_hdmi_in_ddr_downscale():
+    dut, frames = run(lambda cycle: 1, ddr=True, downscale=True)
+    assert len(frames) >= 3
+    for frame in frames:
+        assert len(frame) == (HACT//2)*(VACT//2)//2
+        f = (frame[0] & 0xff) // 16
+        words = []
+        for y in range(0, VACT, 2):
+            for x in range(0, HACT, 4):
+                p = [pixel(f, x + i, y) for i in range(4)]
+                ya = ((p[0] >> 8) + (p[1] >> 8)) >> 1
+                yb = ((p[2] >> 8) + (p[3] >> 8)) >> 1
+                words.append(ya | ((p[0] & 0xff) << 8) | (yb << 16) | ((p[3] & 0xff) << 24))
+        assert frame == words

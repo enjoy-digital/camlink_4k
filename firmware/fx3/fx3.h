@@ -90,6 +90,19 @@ static inline void irq_disable(void)
     __asm__ __volatile__("msr cpsr_c, %0" : : "r"(cpsr | 0xc0));
 }
 
+static inline uint32_t irq_save(void)
+{
+    uint32_t cpsr;
+    __asm__ __volatile__("mrs %0, cpsr" : "=r"(cpsr));
+    __asm__ __volatile__("msr cpsr_c, %0" : : "r"(cpsr | 0xc0));
+    return cpsr;
+}
+
+static inline void irq_restore(uint32_t cpsr)
+{
+    __asm__ __volatile__("msr cpsr_c, %0" : : "r"(cpsr));
+}
+
 void irq_init(void);
 
 /* Global Control -------------------------------------------------------------------------------- */

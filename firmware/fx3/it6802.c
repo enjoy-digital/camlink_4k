@@ -94,7 +94,7 @@ static int it6802_load_edid(void)
     /* EDID RAM on the PC bus, DDC access disabled while writing. */
     ret |= it6802_write(0, 0x87, (IT6802_EDID << 1) | 1);
     ret |= it6802_read(0, 0xc0, &c0);
-    ret |= it6802_write(0, 0xc0, c0 | 0x43);
+    ret |= it6802_write(0, 0xc0, c0 & ~0x03);
     for (int off = 0; off < 256 && !ret; off += 8) {
         uint8_t o = off;
         ret |= i2c_write(IT6802_EDID, &o, 1, &edid_data[off], 8);
@@ -112,8 +112,10 @@ static int it6802_load_edid(void)
     ret |= it6802_write(0, 0xc8, edid_data[127]);
     ret |= it6802_write(0, 0xc9, (uint8_t)(edid_data[255] + 0x10 - 0x20));
 
-    /* Enable DDC access to the EDID RAM. */
-    ret |= it6802_write(0, 0xc0, (c0 | 0x40) & ~0x03);
+    /* Enable DDC access to the EDID RAM (0xC0 = 0x07, as observed on the stock firmware with a
+     * working source) and remove the EDID RAM from the PC bus (as the stock firmware does). */
+    ret |= it6802_write(0, 0xc0, 0x07);
+    ret |= it6802_write(0, 0x87, 0x00);
     return ret;
 }
 
@@ -185,6 +187,7 @@ void it6802_service(void)
     if ((sys & SYS_SCDT) && !status.stable) {
         /* Video became stable: YUV 4:2:2 8-bit output (16-bit bus), RGB -> YUV CSC, outputs on. */
         it6802_write(0, 0x65, 0x12);
+        it6802_write(0, 0x50, 0xb0); /* Output clock inverted, no delay (middle of the sampling window). */
         it6802_write(0, 0x53, 0x40);
     }
     if (!(sys & SYS_SCDT) && status.stable)

@@ -4,11 +4,15 @@
 # Copyright (c) 2026 Florent Kermarrec <florent@enjoy-digital.fr>
 # SPDX-License-Identifier: BSD-2-Clause
 
-"""HDMI In: IT6802 parallel video capture (YUV 4:2:2 16-bit SDR) to a YUY2 frame stream.
+"""HDMI In: IT6802 parallel video capture (YUV 4:2:2 16-bit, SDR or DDR) to a YUY2 frame stream.
 
 The IT6802 is configured to output YUV 4:2:2 8-bit (16-bit bus): each pixel carries Y and one
 chroma sample (Cb on even pixels, Cr on odd ones). Two pixels are packed into a 32-bit YUY2 word
 (Y0 Cb Y1 Cr, little endian). The Y/C byte lanes (QE[11:4], QE[23:16], QE[35:28]) are selectable.
+
+QE/DE are captured with DDR input registers: SDR modes (up to 1080p60) use the rising edge sample,
+the 0.5x PCLK DDR modes (4K) provide a pixel pair per clock. An optional 2x downscaler (horizontal
+luma averaging, odd lines skipped) turns 3840x2160 into 1920x1080.
 
 The active area (DE) is measured on each frame (`hres`/`vres` CSRs). Output frames are marked with
 `first`/`last`; `last` is set on the last word of the last line using the previous frame's height.
@@ -36,6 +40,9 @@ class HDMIIn(LiteXModule):
             CSRField("y_lane",  size=2, offset=4, reset=1, description="Y byte lane (0: QE[11:4], 1: QE[23:16], 2: QE[35:28])."),
             CSRField("c_lane",  size=2, offset=6, reset=0, description="C byte lane."),
             CSRField("c_swap",  size=1, offset=8, description="Swap Cb/Cr order."),
+            CSRField("ddr",       size=1, offset=12, description="DDR input (2 pixels per clock, IT6802 0.5x PCLK modes, 4K)."),
+            CSRField("ddr_swap",  size=1, offset=13, description="DDR: falling edge carries the first pixel."),
+            CSRField("downscale", size=1, offset=14, description="2x downscale (horizontal luma averaging, odd lines skipped)."),
         ])
         self.admit_level = CSRStorage(16, reset=fifo_depth//2, description="Minimum free FIFO words to admit a frame.")
         self.hres     = CSRStatus(16, description="Measured active width (pixels).")
@@ -51,39 +58,75 @@ class HDMIIn(LiteXModule):
         self.comb += self.cd_hdmi.clk.eq(pads.pclk)
 
         # Control (CDC).
-        enable = Signal()
-        y_lane = Signal(2)
-        c_lane = Signal(2)
-        c_swap = Signal()
+        enable    = Signal()
+        y_lane    = Signal(2)
+        c_lane    = Signal(2)
+        c_swap    = Signal()
+        ddr       = Signal()
+        ddr_swap  = Signal()
+        downscale = Signal()
         self.specials += [
-            MultiReg(self.control.fields.enable, enable, "hdmi"),
-            MultiReg(self.control.fields.y_lane, y_lane, "hdmi"),
-            MultiReg(self.control.fields.c_lane, c_lane, "hdmi"),
-            MultiReg(self.control.fields.c_swap, c_swap, "hdmi"),
+            MultiReg(self.control.fields.enable,    enable,    "hdmi"),
+            MultiReg(self.control.fields.y_lane,    y_lane,    "hdmi"),
+            MultiReg(self.control.fields.c_lane,    c_lane,    "hdmi"),
+            MultiReg(self.control.fields.c_swap,    c_swap,    "hdmi"),
+            MultiReg(self.control.fields.ddr,       ddr,       "hdmi"),
+            MultiReg(self.control.fields.ddr_swap,  ddr_swap,  "hdmi"),
+            MultiReg(self.control.fields.downscale, downscale, "hdmi"),
         ]
 
-        # Input registers.
-        qe = Signal(24)
-        de = Signal()
-        vs = Signal()
+        # Inputs: DDR input registers on QE/DE (Q0: rising edge, Q1: falling edge), VS registered.
+        qe_r  = Signal(24) # Rising edge sample.
+        qe_f  = Signal(24) # Falling edge sample.
+        de_r  = Signal()
+        vs    = Signal()
+        if sim:
+            self.sync.hdmi += [qe_r.eq(pads.qe), qe_f.eq(pads.qe_fall), de_r.eq(pads.de)]
+        else:
+            for i in range(24):
+                self.specials += Instance("IDDRX1F",
+                    i_D    = pads.qe[i],
+                    i_SCLK = ClockSignal("hdmi"),
+                    i_RST  = 0,
+                    o_Q0   = qe_r[i],
+                    o_Q1   = qe_f[i],
+                )
+            self.specials += Instance("IDDRX1F",
+                i_D    = pads.de,
+                i_SCLK = ClockSignal("hdmi"),
+                i_RST  = 0,
+                o_Q0   = de_r,
+            )
+        self.sync.hdmi += vs.eq(pads.vsync)
+
+        # Pipeline alignment (sample stage): pixel data/DE of the current clock.
+        qe0 = Signal(24) # First pixel (SDR: the pixel, DDR: first of the pair).
+        qe1 = Signal(24) # Second pixel (DDR only).
+        de  = Signal()
+        de_next = Signal()
         self.sync.hdmi += [
-            qe.eq(pads.qe),
-            de.eq(pads.de),
-            vs.eq(pads.vsync),
+            qe0.eq(Mux(ddr_swap, qe_f, qe_r)),
+            qe1.eq(Mux(ddr_swap, qe_r, qe_f)),
+            de.eq(de_r),
         ]
+        self.comb += de_next.eq(de_r)
 
         # Lanes.
-        y = Signal(8)
-        c = Signal(8)
-        self.comb += [
-            Case(y_lane, {0: y.eq(qe[0:8]), 1: y.eq(qe[8:16]), "default": y.eq(qe[16:24])}),
-            Case(c_lane, {0: c.eq(qe[0:8]), 1: c.eq(qe[8:16]), "default": c.eq(qe[16:24])}),
-        ]
+        def lanes(qe):
+            y = Signal(8)
+            c = Signal(8)
+            self.comb += [
+                Case(y_lane, {0: y.eq(qe[0:8]), 1: y.eq(qe[8:16]), "default": y.eq(qe[16:24])}),
+                Case(c_lane, {0: c.eq(qe[0:8]), 1: c.eq(qe[8:16]), "default": c.eq(qe[16:24])}),
+            ]
+            return y, c
+        ya, ca = lanes(qe0)
+        yb, cb = lanes(qe1)
 
-        # Timing measurement (DE/VS).
+        # Timing measurement (DE/VS): hres in DE clocks (pixels in SDR, pixel pairs in DDR).
         de_d     = Signal()
         vs_d     = Signal()
-        x        = Signal(16) # Pixel in line.
+        x        = Signal(16) # DE clock in line.
         line     = Signal(16) # Active line in frame.
         hres     = Signal(16)
         vres     = Signal(16)
@@ -111,27 +154,73 @@ class HDMIIn(LiteXModule):
             MultiReg(vres, self.vres.status),
         ]
 
-        # Pixel pairing: YUY2 word = Y0 | C0 << 8 | Y1 << 16 | C1 << 24.
-        y0     = Signal(8)
-        c0     = Signal(8)
-        odd    = Signal()
-        cdc    = stream.Endpoint([("data", 32)])
+        # Word generation: YUY2 word = Y0 | C0 << 8 | Y1 << 16 | C1 << 24.
+        # - SDR: two consecutive pixels per word.
+        # - DDR: the pixel pair of each clock is a word.
+        # - Downscale (2x): pairs of words are averaged (luma) into one word, odd lines are skipped.
+        last_line = Signal(16)
+        self.comb += last_line.eq(vres - 1 - (downscale & ~vres[0]))
+        keep_line = Signal()
+        self.comb += keep_line.eq(~downscale | ~line[0])
+        active    = Signal()
+        self.comb += active.eq(de & enable & (vres != 0) & keep_line)
+
+        w_valid = Signal()
+        w_data  = Signal(32)
+        w_first = Signal()
+        w_last  = Signal()
+        end_of_frame = Signal()
+        self.comb += end_of_frame.eq((line == last_line) & ~de_next)
+
+        y0   = Signal(8)
+        c0   = Signal(8)
+        odd  = Signal()
+        yavg = Signal(8) # Averaged luma of the current pixel pair (8-bit for Cat()).
+        self.comb += yavg.eq((ya + yb) >> 1)
         self.sync.hdmi += [
-            cdc.valid.eq(0),
-            If(de & enable & (vres != 0), # Wait for a measured frame height.
+            w_valid.eq(0),
+            If(active,
                 odd.eq(~odd),
-                If(~odd,
-                    y0.eq(y),
-                    c0.eq(c),
+                If(ddr,
+                    If(~downscale,
+                        w_valid.eq(1),
+                        w_data.eq(Mux(c_swap, Cat(ya, cb, yb, ca), Cat(ya, ca, yb, cb))),
+                        w_first.eq((line == 0) & (x == 0)),
+                        w_last.eq(end_of_frame),
+                    ).Elif(~odd,
+                        # First pair: averaged luma + first chroma (Cb).
+                        y0.eq(yavg),
+                        c0.eq(ca),
+                    ).Else(
+                        # Second pair: averaged luma + second chroma (Cr).
+                        w_valid.eq(1),
+                        w_data.eq(Mux(c_swap,
+                            Cat(y0, cb, yavg, c0),
+                            Cat(y0, c0, yavg, cb))),
+                        w_first.eq((line == 0) & (x == 1)),
+                        w_last.eq(end_of_frame),
+                    )
                 ).Else(
-                    cdc.valid.eq(1),
-                    cdc.data.eq(Mux(c_swap, Cat(y0, c, y, c0), Cat(y0, c0, y, c))),
-                    cdc.first.eq((line == 0) & (x == 1)),
-                    cdc.last.eq((line == (vres - 1)) & ~pads.de), # Last pixel of the last line.
+                    If(~odd,
+                        y0.eq(ya),
+                        c0.eq(ca),
+                    ).Else(
+                        w_valid.eq(1),
+                        w_data.eq(Mux(c_swap, Cat(y0, ca, ya, c0), Cat(y0, c0, ya, ca))),
+                        w_first.eq((line == 0) & (x == 1)),
+                        w_last.eq(end_of_frame),
+                    )
                 )
             ).Else(
                 odd.eq(0),
             )
+        ]
+        cdc = stream.Endpoint([("data", 32)])
+        self.comb += [
+            cdc.valid.eq(w_valid),
+            cdc.data.eq(w_data),
+            cdc.first.eq(w_first),
+            cdc.last.eq(w_last),
         ]
 
         # CDC (hdmi -> sys): the sys side always drains faster than the input rate.

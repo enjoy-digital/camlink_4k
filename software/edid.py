@@ -48,13 +48,14 @@ def _text(text):
 DTD_1080P60 = _dtd(148500, 1920, 280, 88, 44, 1080, 45, 4, 5, 480, 270)
 DTD_2160P30 = _dtd(297000, 3840, 560, 176, 88, 2160, 90, 8, 10, 480, 270)
 
-# CEA VICs (native first): 1080p60, 4K30/25/24, 1080p50/30/25/24, 720p60/50, 480p60, 576p50.
-VICS = [16 | 0x80, 95, 94, 93, 31, 34, 33, 32, 4, 19, 3, 18]
+# CEA VICs (native first): 1080p60, 1080p50/30/25/24, 720p60/50, 480p60, 576p50 (+ 4K30/25/24).
+VICS    = [16 | 0x80, 31, 34, 33, 32, 4, 19, 3, 18]
+VICS_4K = [95, 94, 93]
 
 # EDID ---------------------------------------------------------------------------------------------
 
 def generate_edid(name="LiteCamLink", manufacturer="LCL", product=0x0001, serial=1,
-    max_tmds_mhz=300):
+    max_tmds_mhz=300, with_4k=False):
     # Base block.
     base  = b"\x00\xff\xff\xff\xff\xff\xff\x00"
     base += _manufacturer_id(manufacturer)
@@ -67,18 +68,20 @@ def generate_edid(name="LiteCamLink", manufacturer="LCL", product=0x0001, serial
     base += bytes([0xd1, 0xc0, 0x81, 0xc0, 0x81, 0x00, 0x01, 0x01,  # Standard: 1920x1080@60, 1280x720@60, 1280x800@60.
                    0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01])
     base += DTD_1080P60
-    base += DTD_2160P30
+    base += DTD_2160P30 if with_4k else _descriptor(0x10, bytes(13)) # Dummy descriptor.
     base += _descriptor(0xfc, _text(name))              # Monitor name.
-    base += _descriptor(0xfd, bytes([24, 61, 15, 136, max_tmds_mhz//10, 0, 0x0a]) + b" "*6) # Range limits.
+    base += _descriptor(0xfd, bytes([24, 61, 15, 136, (max_tmds_mhz if with_4k else 170)//10, 0, 0x0a]) + b" "*6) # Range limits.
     base += bytes([1])                                  # 1 extension.
     base += bytes([_checksum(base)])
     assert len(base) == 128
 
     # CEA-861 extension.
-    video = bytes([0x40 | len(VICS)]) + bytes(VICS)
+    vics  = VICS + (VICS_4K if with_4k else [])
+    video = bytes([0x40 | len(vics)]) + bytes(vics)
     audio = bytes([0x20 | 3, 0x09, 0x04, 0x07])         # LPCM, 2ch, 48/44.1/32kHz, 16/20/24-bit.
     spk   = bytes([0x80 | 3, 0x01, 0x00, 0x00])         # Speakers: FL/FR.
-    vsdb  = bytes([0x60 | 7, 0x03, 0x0c, 0x00, 0x10, 0x00, 0x00, max_tmds_mhz//5]) # HDMI, phys 1.0.0.0.
+    tmds  = max_tmds_mhz if with_4k else 165
+    vsdb  = bytes([0x60 | 7, 0x03, 0x0c, 0x00, 0x10, 0x00, 0x00, tmds//5]) # HDMI, phys 1.0.0.0.
     dbc   = video + audio + spk + vsdb
     ext   = bytes([0x02, 0x03, 4 + len(dbc), 0x70])      # CEA v3, underscan/audio/YCbCr444/422.
     ext  += dbc

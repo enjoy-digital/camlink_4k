@@ -111,8 +111,32 @@ static int i2c_finish(void)
     return ret;
 }
 
+/* Transfers are atomic (main loop and USB interrupt share the bus). */
+static int i2c_write_raw(uint8_t addr, const uint8_t *prefix, uint8_t prefix_len,
+                         const uint8_t *data, uint16_t len);
+static int i2c_read_raw(uint8_t addr, const uint8_t *prefix, uint8_t prefix_len,
+                        uint8_t *data, uint16_t len);
+
 int i2c_write(uint8_t addr, const uint8_t *prefix, uint8_t prefix_len,
               const uint8_t *data, uint16_t len)
+{
+    uint32_t irq = irq_save();
+    int ret = i2c_write_raw(addr, prefix, prefix_len, data, len);
+    irq_restore(irq);
+    return ret;
+}
+
+int i2c_read(uint8_t addr, const uint8_t *prefix, uint8_t prefix_len,
+             uint8_t *data, uint16_t len)
+{
+    uint32_t irq = irq_save();
+    int ret = i2c_read_raw(addr, prefix, prefix_len, data, len);
+    irq_restore(irq);
+    return ret;
+}
+
+static int i2c_write_raw(uint8_t addr, const uint8_t *prefix, uint8_t prefix_len,
+                         const uint8_t *data, uint16_t len)
 {
     uint8_t preamble[8];
     int ret = 0;
@@ -141,8 +165,8 @@ int i2c_write(uint8_t addr, const uint8_t *prefix, uint8_t prefix_len,
     return i2c_finish() ? -1 : ret;
 }
 
-int i2c_read(uint8_t addr, const uint8_t *prefix, uint8_t prefix_len,
-             uint8_t *data, uint16_t len)
+static int i2c_read_raw(uint8_t addr, const uint8_t *prefix, uint8_t prefix_len,
+                        uint8_t *data, uint16_t len)
 {
     uint8_t preamble[8];
     uint8_t n = 0;

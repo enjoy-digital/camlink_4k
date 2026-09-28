@@ -146,13 +146,17 @@ static void uvc_stream_start(void)
     const struct uvc_frame *frame = &uvc_frames[commit.bFrameIndex - 1];
     const struct it6802_status *hdmi = it6802_get_status();
     uint32_t fps = 10000000UL/commit.dwFrameInterval;
-    /* HDMI input when stable and matching the requested frame size, test pattern otherwise. */
-    int use_hdmi = hdmi->stable && hdmi->hactive == frame->width && hdmi->vactive == frame->height;
+    /* HDMI input when stable and matching the requested frame size (directly or 2x downscaled),
+     * test pattern otherwise. */
+    int direct   = hdmi->hactive == frame->width   && hdmi->vactive == frame->height;
+    int half     = hdmi->hactive == 2*frame->width && hdmi->vactive == 2*frame->height;
+    int use_hdmi = hdmi->stable && (direct || half);
+    int ddr      = hdmi->hactive > 1920; /* IT6802 0.5x PCLK DDR output above 1080p. */
 
     if (streaming)
         fpga_stream_stop();
     gpif_stream_start(GPIF_CLK_DIV_X2, GPIF_FLAG_OMEGA);
-    fpga_stream_start(frame->width, frame->height, fps, use_hdmi);
+    fpga_stream_start(frame->width, frame->height, fps, use_hdmi, ddr, use_hdmi && half);
     streaming = 1;
 }
 
