@@ -360,7 +360,10 @@ class GPIFStreamer(LiteXModule):
             MultiReg(self._force.fields.enable, force,       "gpif"),
             MultiReg(self._force_value.storage, force_value, "gpif"),
         ]
-        self.sync.gpif += [
+        # DQ output register without reset: while the streaming logic is held in reset (GPIF
+        # restart), DQ already presents the next video word (next UVC header word), which the FX3
+        # captures as the first word of its first DMA buffer.
+        self.sync.gpif_cdc += [
             If(force,
                 pads.dq.eq(force_value),
             ).Elif(fsm.ongoing("EOP"),
@@ -371,6 +374,8 @@ class GPIFStreamer(LiteXModule):
             ).Else(
                 pads.dq.eq(data_o),
             ),
+        ]
+        self.sync.gpif += [
             ctl.o[0].eq(valid),
             ctl.o[2].eq(eop),
             ctl.o[3].eq(asel),

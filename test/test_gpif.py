@@ -30,7 +30,9 @@ class FX3Model:
     (immediately after a buffer is filled/committed if one is free, later otherwise), DQ is captured
     as its first word and the first word pushed into it is dropped. FLAGs = current buffer available.
     """
-    def __init__(self, dut, buf_words=(64, 48), buf_count=(4, 4), drain=(80, 150), switch_delay=(2, 2)):
+    def __init__(self, dut, buf_words=(64, 48), buf_count=(4, 4), drain=(80, 150), switch_delay=(2, 2),
+        dma_start=1):
+        self.dma_start    = dma_start
         self.dut          = dut
         self.buf_words    = buf_words
         self.buf_count    = buf_count
@@ -53,9 +55,7 @@ class FX3Model:
         filled  = [0, 0]                # Completed buffers not yet drained.
         switch  = [None, None]          # Cycle at which a pending switch happens.
         dq_hist = []
-        # Initial buffers (captured at start).
-        for t in range(2):
-            cur[t] = {"words": [0], "skip": True}
+        started = False # DMA start: DQ captured as the first word of the first buffers.
 
         def complete(t):
             self.buffers[t].append(cur[t]["words"])
@@ -75,7 +75,7 @@ class FX3Model:
 
         while True:
             # FLAGs (active low in the FPGA: flag_invert=1).
-            yield ctl.i.eq(((cur[0] is None) << 1) | ((cur[1] is None) << 4))
+            yield ctl.i.eq((((cur[0] is None) << 1) | ((cur[1] is None) << 4)) if started else 0b10010)
             yield
             cycle += 1
             valid = (yield ctl.o[0])
@@ -83,6 +83,12 @@ class FX3Model:
             asel  = (yield ctl.o[3])
             dq    = (yield self.dut.pads_dq)
             dq_hist.append(dq)
+            if not started:
+                if cycle < self.dma_start:
+                    continue
+                started = True
+                for t in range(2):
+                    cur[t] = {"words": [dq], "skip": True}
 
             # USB drain.
             for t in range(2):
@@ -246,3 +252,31 @@ def test_gpif_video_drain():
     words = fx3.words(0)
     assert not any((w >> 16) == 0xdead for w in words)
     assert words[1:64] == [0x1000 + i for i in range(1, 64)]
+
+def test_gpif_first_word():
+    # Streaming logic in reset (video disabled) at the FX3 DMA start: the captured first word is
+    # the next video word (next UVC header word), so the first payload is intact.
+    dut     = DUT()
+    fx3     = FX3Model(dut, dma_start=40)
+    payload = [0x0000880c] + [0x1000 + i for i in range(1, 64)]
+    def gen():
+        ctrl = dut.gpif._control
+        yield ctrl.fields.flag_invert.eq(1)
+        yield ctrl.fields.head_lead.eq(0)
+        yield dut.gpif._burst.storage.eq(64)
+        yield dut.gpif.eop_data.eq(payload[0])
+        for _ in range(100):
+            yield
+        yield ctrl.fields.enable.eq(1)
+        for w in payload:
+            yield dut.gpif.sink.valid.eq(1)
+            yield dut.gpif.sink.data.eq(w)
+            yield
+            while not (yield dut.gpif.sink.ready):
+                yield
+        yield dut.gpif.sink.valid.eq(0)
+        for _ in range(300):
+            yield
+    run_simulation(dut, {"sys": [gen()], "gpif": [fx3.run()]},
+        clocks={"sys": 10, "gpif": 10, "gpif_cdc": 10})
+    assert fx3.words(0)[:64] == payload
