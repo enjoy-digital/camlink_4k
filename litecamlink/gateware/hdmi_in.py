@@ -86,7 +86,7 @@ class M420Packer(LiteXModule):
         px     = Signal(max=max_pairs)
         cbuf   = Memory(16, max_pairs)
         cbuf_w = cbuf.get_port(write_capable=True)
-        cbuf_r = cbuf.get_port()
+        cbuf_r = cbuf.get_port(mode=READ_FIRST)
         self.specials += cbuf, cbuf_w, cbuf_r
         self.comb += [
             cbuf_w.adr.eq(px),
@@ -130,7 +130,7 @@ class M420Packer(LiteXModule):
         bank_words = 2**bits_for(max_words - 1)
         uvbuf   = Memory(32, 2*bank_words)
         uvbuf_w = uvbuf.get_port(write_capable=True)
-        uvbuf_r = uvbuf.get_port(has_re=True)
+        uvbuf_r = uvbuf.get_port(has_re=True, mode=READ_FIRST)
         self.specials += uvbuf, uvbuf_w, uvbuf_r
         uv_half  = Signal()
         uv_first = Signal(16)
@@ -194,7 +194,9 @@ class M420Packer(LiteXModule):
         fsm.act("UV_WAIT",
             If(uv_ready[rbank], NextState("UV"))
         )
-        # UV read pipeline: BRAM (read enable = advance) -> output register (timing).
+        # UV read pipeline: BRAM (read enable = advance) -> output register (timing: plain enabled
+        # register on the BRAM output).
+        uv_q_en = Signal()
         uv_valid0 = Signal() # Word on dat_r.
         uv_idx0   = Signal(max=max_words + 1)
         uv_q      = Signal(32)
@@ -202,14 +204,15 @@ class M420Packer(LiteXModule):
             advance.eq(~uv_valid | source.ready),
             uvbuf_r.adr.eq(Cat(rd_i[:len(uv_x)], rbank)),
             uvbuf_r.re.eq(advance & fsm.ongoing("UV")),
+            uv_q_en.eq(advance & fsm.ongoing("UV")),
         ]
+        self.sync += If(uv_q_en, uv_q.eq(uvbuf_r.dat_r))
         fsm.act("UV",
             source.valid.eq(uv_valid),
             source.data.eq(uv_q),
             source.last.eq(uv_last[rbank] & (rd_idx == (uv_len[rbank] - 1))),
             If(advance,
                 NextValue(uv_valid, uv_valid0),
-                NextValue(uv_q,     uvbuf_r.dat_r),
                 NextValue(rd_idx,   uv_idx0),
                 If(rd_i < uv_len[rbank],
                     NextValue(uv_valid0, 1),
@@ -446,7 +449,7 @@ class HDMIIn(LiteXModule):
         wx     = Signal(max=max_line_words)
         lbuf   = Memory(32, max_line_words)
         lbuf_w = lbuf.get_port(write_capable=True, clock_domain="hdmi")
-        lbuf_r = lbuf.get_port(clock_domain="hdmi")
+        lbuf_r = lbuf.get_port(clock_domain="hdmi", mode=READ_FIRST) # No write bypass (timing).
         self.specials += lbuf, lbuf_w, lbuf_r
         # Stage H (second pair): registered horizontal word, line buffer read issued.
         h_valid    = Signal()
@@ -590,7 +593,7 @@ class HDMIIn(LiteXModule):
         admit_ok     = Signal()
         self.comb += [
             sink.ready.eq(1),
-            admit_ok.eq((fifo_depth - fifo.level) >= self.admit_level.storage),
+
             If(pending_last,
                 # Frame end lost on overflow: push an end marker word as soon as possible.
                 fifo.sink.valid.eq(1),
@@ -605,6 +608,8 @@ class HDMIIn(LiteXModule):
             fifo.source.connect(source),
         ]
         self.sync += [
+            # Registered (timing): one cycle old level, conservative for admission.
+            admit_ok.eq((fifo_depth - fifo.level) >= self.admit_level.storage),
             If(sink.valid & sink.first,
                 If(admit_ok,
                     in_frame.eq(1),

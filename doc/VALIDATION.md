@@ -72,13 +72,18 @@ level/sign looks wrong: left-justified vs I2S framing (I2SReceiver MSB position)
    DMA_BUF_SIZE=32768 PLL_FBDIV=21` (FX3 bss 272KB), compare `stream-test` and 4K30 drops.
 6. If stable: make `PLL_FBDIV=21` the default, add 2160p30 M420 to `bench.py` (stock: NV12).
 
-## 6. EDID (not implemented: needs hardware investigation)
+## 6. DDR3 1:4 (DDR3-800 class bandwidth for 4K30 NV12)
+
+See `doc/DRAM.md`: bring-up with the 4 prebuilt bitstreams (`build_dram12_cpu`, `build_dram14_cpu`,
+`build_dram12`, `build_dram14`), BIOS then `software/dram.py` (init/leveling/BIST bandwidth).
+
+## 7. EDID (not implemented: needs hardware investigation)
 
 The EDID seen by sources comes from a separate DDC EEPROM ("Cam Link 4K"). `camlink.py i2c-scan`
 to see whether the FX3 I2C bus reaches it (0x50); otherwise look for an IT6802 DDC pass-through or
 EEPROM write-protect path. Keep 0xC0=0x07 / 0x87=0 until then.
 
-## 7. End of session
+## 8. End of session
 
 Re-flash the final images (`camlink.py flash-bitstream`, `flash-fx3`), cold boot, `flash-recover`
 test, re-run `bench.py` for both firmwares with the screen unlocked, update `doc/BENCHMARK.md`.

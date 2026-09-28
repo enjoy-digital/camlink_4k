@@ -22,7 +22,8 @@ from litex.soc.cores.freqmeter      import FreqMeter
 from litex.soc.interconnect.csr     import CSRStorage
 
 from litedram.modules import MT41K64M16
-from litedram.phy     import ECP5DDRPHY
+from litedram.frontend.bist import LiteDRAMBISTGenerator, LiteDRAMBISTChecker
+from litedram.core.controller import ControllerSettings
 
 from litex.soc.interconnect import stream
 
@@ -39,6 +40,8 @@ from litecamlink.gateware.ioscan     import IOScan
 from litecamlink.gateware.audio      import AudioSource
 from litecamlink.gateware.color      import ColorAdjust
 from litecamlink.gateware.canvas     import Canvas
+from litecamlink.gateware.ecp5ddrphy import ECP5DDRPHY, ecp5ddrphy_with_ratio
+from litecamlink.gateware.dram       import LiteDRAMNativePortBuffer, MT41K64M16_4Banks
 
 from litex.build.generic_platform import Pins, IOStandard, Subsignal
 
@@ -48,13 +51,22 @@ class BaseSoC(SoCCore):
     def __init__(self, sys_clk_freq=100e6, toolchain="trellis",
         with_cpu     = False,
         with_sdram   = False,
+        sdram_rate   = "1:2",
+        sdram_sys_clk_src = "clkdivf",
+        sdram_sys_phase   = 0,
+        with_sdram_bist   = False,
+        sdram_banks       = 8,
         with_pintest = False,
         with_ioscan  = False,
         ):
         platform = Platform(toolchain=toolchain)
 
         # CRG --------------------------------------------------------------------------------------
-        self.crg = CRG(platform, sys_clk_freq, with_sdram=with_sdram)
+        self.crg = CRG(platform, sys_clk_freq,
+            sdram_rate  = sdram_rate if with_sdram else None,
+            sys_clk_src = sdram_sys_clk_src,
+            sys_phase   = sdram_sys_phase,
+        )
 
         # SoCCore ----------------------------------------------------------------------------------
         # Optional VexRiscv + BIOS (DRAM init/debug); console on a UART crossover (CSRs, host access
@@ -63,7 +75,7 @@ class BaseSoC(SoCCore):
             ident                = "LiteCamLink SoC on Cam Link 4K.",
             cpu_type             = "vexriscv" if with_cpu else None,
             cpu_variant          = "minimal",
-            integrated_rom_size  = 0x8000 if with_cpu else 0,
+            integrated_rom_size  = 0xa000 if with_cpu else 0, # BIOS with DRAM init/leveling.
             integrated_sram_size = 0x1000 if with_cpu else 0,
             uart_name            = "crossover" if with_cpu else "stub",
             with_uart            = with_cpu,
@@ -71,14 +83,30 @@ class BaseSoC(SoCCore):
         )
 
         # DDR3 SDRAM -------------------------------------------------------------------------------
+        # - 1:2: ECP5DDRPHY at sys (DRAM clock = 2 x sys).
+        # - 1:4: ECP5DDRPHY at sys2x behind a DFI rate converter (DRAM clock = 4 x sys, e.g. 100MHz
+        #   sys -> DDR3-800, stock-like bandwidth).
         if with_sdram:
-            self.ddrphy = ECP5DDRPHY(platform.request("ddram"), sys_clk_freq=sys_clk_freq)
-            self.comb += self.crg.stop.eq(self.ddrphy.init.stop)
+            phy_cls = ECP5DDRPHY if sdram_rate == "1:2" else ecp5ddrphy_with_ratio(2)
+            self.ddrphy = phy_cls(platform.request("ddram"), sys_clk_freq=sys_clk_freq)
+            self.comb += [
+                self.crg.stop.eq(self.ddrphy.init.stop),
+                self.crg.reset.eq(self.ddrphy.init.reset),
+            ]
             self.add_sdram("sdram",
                 phy           = self.ddrphy,
-                module        = MT41K64M16(sys_clk_freq, "1:2"),
+                module        = (MT41K64M16_4Banks if sdram_banks == 4 else MT41K64M16)(sys_clk_freq, sdram_rate),
                 l2_cache_size = 0,
+                # Timing: registered bank machine command buffers (streaming traffic).
+                controller_settings = ControllerSettings(cmd_buffer_depth=4, cmd_buffer_buffered=True),
             )
+            # BIST (bandwidth/integrity tests from the host, no CPU needed): generator (writes) and
+            # checker (reads) on separate ports (concurrent read/write = frame buffer traffic).
+            if with_sdram_bist:
+                self.sdram_generator_port = LiteDRAMNativePortBuffer(self.sdram.crossbar.get_port())
+                self.sdram_checker_port   = LiteDRAMNativePortBuffer(self.sdram.crossbar.get_port())
+                self.sdram_generator = LiteDRAMBISTGenerator(self.sdram_generator_port.port)
+                self.sdram_checker   = LiteDRAMBISTChecker(self.sdram_checker_port.port)
 
         # Leds -------------------------------------------------------------------------------------
         self.leds = LedChaser(
@@ -129,6 +157,8 @@ class BaseSoC(SoCCore):
             self.uvc     = ResetInserter()(UVCPacketizer())
             self.color   = ColorAdjust() # HDMI: brightness/contrast/saturation (UVC Processing Unit).
             self.canvas  = Canvas()      # HDMI: smaller inputs centered in the UVC frame.
+            # Register stage (timing: HDMI frame FIFO BRAM -> canvas -> FIFO read).
+            self.hdmi_buf = stream.Buffer([("data", 32)], pipe_valid=True, pipe_ready=True)
 
             # Timestamp (sys clock) for UVC PTS/SCR.
             timestamp = Signal(32)
@@ -148,7 +178,8 @@ class BaseSoC(SoCCore):
                     1: [self.pattern.source.connect(self.uvc.sink), self.uvc.source.connect(gpif_buf.sink)],
                     2: self.pattern.source.connect(gpif_buf.sink, omit={"last"}),
                     3: [
-                        self.hdmi_in.source.connect(self.canvas.sink),
+                        self.hdmi_in.source.connect(self.hdmi_buf.sink),
+                        self.hdmi_buf.source.connect(self.canvas.sink),
                         self.canvas.source.connect(self.color.sink),
                         self.color.source.connect(self.uvc.sink),
                         self.uvc.source.connect(gpif_buf.sink),
@@ -177,7 +208,13 @@ def main():
     parser.add_argument("--with-pintest", action="store_true",       help="Enable FX3 <-> FPGA pin test.")
     parser.add_argument("--with-cpu",     action="store_true",       help="Enable VexRiscv CPU + BIOS (console over UART crossover).")
     parser.add_argument("--with-sdram",   action="store_true",       help="Enable DDR3 SDRAM.")
+    parser.add_argument("--sdram-rate",   default="1:2", choices=["1:2", "1:4"], help="Controller:DRAM clock ratio.")
+    parser.add_argument("--sdram-sys-clk-src", default="clkdivf", choices=["clkdivf", "pll"], help="1:4 sys clock source.")
+    parser.add_argument("--sdram-sys-phase",   default=0, type=float, help="1:4 sys clock phase (degrees, pll source).")
+    parser.add_argument("--with-sdram-bist",   action="store_true",   help="Add DRAM BIST generator/checker.")
+    parser.add_argument("--sdram-banks",       default=8, type=int, choices=[4, 8], help="DRAM banks used (4: BA2=0, 64MB, timing).")
     parser.add_argument("--with-ioscan",  action="store_true",       help="Enable IO scan debug core.")
+    parser.add_argument("--output-dir",   default="build",              help="Build directory.")
     parser.add_argument("--seed",         default=1, type=int,       help="Nextpnr seed.")
     args = parser.parse_args()
 
@@ -185,10 +222,15 @@ def main():
         sys_clk_freq = args.sys_clk_freq,
         with_cpu     = args.with_cpu,
         with_sdram   = args.with_sdram,
+        sdram_rate   = args.sdram_rate,
+        sdram_sys_clk_src = args.sdram_sys_clk_src,
+        sdram_sys_phase   = args.sdram_sys_phase,
+        with_sdram_bist   = args.with_sdram_bist,
+        sdram_banks       = args.sdram_banks,
         with_pintest = args.with_pintest,
         with_ioscan  = args.with_ioscan,
     )
-    builder = Builder(soc, output_dir="build", csr_csv="build/csr.csv")
+    builder = Builder(soc, output_dir=args.output_dir, csr_csv=os.path.join(args.output_dir, "csr.csv"))
     builder.build(build_name="litecamlink", run=args.build and not args.no_compile, seed=args.seed)
 
     if args.load:

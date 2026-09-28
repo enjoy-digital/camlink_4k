@@ -548,6 +548,7 @@ def pintest(cl, id_bits=8):
 
 def main():
     parser = argparse.ArgumentParser(description="LiteCamLink host tool.")
+    parser.add_argument("--csr-csv", default="build/csr.csv", help="FPGA CSR map (build directory csr.csv).")
     sub    = parser.add_subparsers(dest="cmd", required=True)
 
     p = sub.add_parser("fx3-load", help="Load a FX3 image to RAM (device in FX3 bootloader).")
@@ -667,7 +668,7 @@ def main():
         CamLink().i2c_write(args.addr, bytes([args.reg]), bytes([args.value]))
 
     if args.cmd == "csr":
-        bus = CamLinkBus()
+        bus = CamLinkBus(csr_csv=args.csr_csv)
         names = [args.name] if args.name else list(bus.regs.d.keys())
         for name in names:
             reg = getattr(bus.regs, name)
@@ -678,13 +679,13 @@ def main():
 
     if args.cmd == "stream-test":
         cl = CamLink()
-        ok = stream_test(cl, CamLinkBus(cl), size=args.size*1024*1024, clk_div_x2=args.clk_div_x2,
+        ok = stream_test(cl, CamLinkBus(cl, csr_csv=args.csr_csv), size=args.size*1024*1024, clk_div_x2=args.clk_div_x2,
             flag_omega=args.flag_omega, flag_invert=args.flag_invert, data_delay=args.data_delay)
         sys.exit(0 if ok else 1)
 
     if args.cmd == "uvc-raw-test":
         cl = CamLink()
-        ok = uvc_raw_test(cl, CamLinkBus(cl), args.width, args.height, args.fps, args.frames)
+        ok = uvc_raw_test(cl, CamLinkBus(cl, csr_csv=args.csr_csv), args.width, args.height, args.fps, args.frames)
         sys.exit(0 if ok else 1)
 
     if args.cmd == "stream-status":
@@ -692,7 +693,7 @@ def main():
             print(f"{k:16s}: 0x{v:08x}")
 
     if args.cmd == "term":
-        term(CamLinkBus(), cmds=args.commands, duration=args.time)
+        term(CamLinkBus(csr_csv=args.csr_csv), cmds=args.commands, duration=args.time)
 
     if args.cmd == "hdmi-status":
         for k, v in CamLink().hdmi_status().items():
