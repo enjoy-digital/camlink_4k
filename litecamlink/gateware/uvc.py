@@ -17,9 +17,11 @@ Splits a frame stream (32-bit words, `last` = end of frame) into UVC payloads of
 `source.last` marks the end of each payload (used by the GPIF to commit short payloads).
 
 The first header word of the first payload of a frame is kept predictable (no PTS, PTS field = 0)
-and exported on `next_header0`: the GPIF places it on the bus while committing the previous short
-payload (the FX3 latches the bus at commit time and uses it as the first word of its next buffer).
-PTS is carried from the second payload of each frame.
+and exported on `next_header0` (first word of a stream). The last word of each payload carries, on
+the `next` field, the exact first header word of the following payload: the GPIF presents it on the
+bus between payloads when the next word is not available yet (the FX3 captures the bus as the first
+word of its next DMA buffer when switching buffers). PTS is carried from the second payload of
+each frame.
 """
 
 from migen import *
@@ -42,7 +44,7 @@ UVC_HEADER_EOH = (1 << 7)
 class UVCPacketizer(LiteXModule):
     def __init__(self, payload_words=(16384 - 12)//4):
         self.sink      = sink   = stream.Endpoint([("data", 32)])
-        self.source    = source = stream.Endpoint([("data", 32)])
+        self.source    = source = stream.Endpoint([("data", 32), ("next", 32)])
         self.timestamp    = timestamp = Signal(32)
         self.next_header0 = next_header0 = Signal(32)
 
@@ -69,6 +71,22 @@ class UVCPacketizer(LiteXModule):
             info.eq(UVC_HEADER_EOH | UVC_HEADER_SCR | UVC_HEADER_PTS | (eof << 1) | fid),
             first_info.eq(UVC_HEADER_EOH | UVC_HEADER_SCR | (first_eof << 1) | fid),
             next_header0.eq(Cat(Constant(12, 8), first_info, Constant(0, 16))),
+        ]
+
+        # Header word 0 of the payload following the current one (on the payload last word).
+        next_frame_header0   = Signal(32) # End of frame: first payload of the next frame (FID toggled).
+        next_payload_header0 = Signal(32) # Mid-frame: next payload of this frame.
+        next_frame_info      = Signal(8)
+        next_payload_info    = Signal(8)
+        eof_next             = Signal()
+        fid_next             = Signal() # 1-bit (Verilog would size ~fid to the expression width).
+        self.comb += [
+            fid_next.eq(~fid),
+            next_frame_info.eq(UVC_HEADER_EOH | UVC_HEADER_SCR | (first_eof << 1) | fid_next),
+            next_frame_header0.eq(Cat(Constant(12, 8), next_frame_info, Constant(0, 16))),
+            eof_next.eq((remaining - 1) <= self._payload_words.storage),
+            next_payload_info.eq(UVC_HEADER_EOH | UVC_HEADER_SCR | UVC_HEADER_PTS | (eof_next << 1) | fid),
+            next_payload_header0.eq(Cat(Constant(12, 8), next_payload_info, pts[:16])),
         ]
 
         self.fsm = fsm = FSM(reset_state="HEADER0")
@@ -111,11 +129,13 @@ class UVCPacketizer(LiteXModule):
                 If(sink.last | (remaining == 1),
                     # End of frame: toggle FID, end payload.
                     source.last.eq(1),
+                    source.next.eq(next_frame_header0),
                     NextValue(fid, ~fid),
                     NextValue(in_frame, 0),
                     NextState("HEADER0"),
                 ).Elif(count == (self._payload_words.storage - 1),
                     source.last.eq(1),
+                    source.next.eq(next_payload_header0),
                     NextState("HEADER0"),
                 )
             )

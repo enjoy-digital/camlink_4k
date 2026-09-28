@@ -29,6 +29,8 @@ class FX3Model:
     `drain` cycles. Buffer switch quirk seen on hardware: when a thread's next buffer becomes current
     (immediately after a buffer is filled/committed if one is free, later otherwise), DQ is captured
     as its first word and the first word pushed into it is dropped. FLAGs = current buffer available.
+    Early sampling quirk (why the FPGA presents a word `head_lead` cycles before VALID): the first
+    word after a gap (VALID low) is sampled one cycle early (previous cycle's DQ).
     """
     def __init__(self, dut, buf_words=(64, 48), buf_count=(4, 4), drain=(80, 150), switch_delay=(2, 2),
         dma_start=1):
@@ -56,6 +58,8 @@ class FX3Model:
         filled  = [0, 0]                # Completed buffers not yet drained.
         switch  = [None, None]          # Cycle at which a pending switch happens.
         dq_hist = []
+        valid_d = 0
+        dq_d    = 0
         started = False # DMA start: DQ captured as the first word of the first buffers.
 
         def complete(t):
@@ -84,6 +88,9 @@ class FX3Model:
             asel  = (yield ctl.o[3])
             dq    = (yield self.dut.pads_dq)
             dq_hist.append(dq)
+            # First word after a gap: sampled one cycle early.
+            dq_push = dq_d if (valid and not valid_d) else dq
+            valid_d, dq_d = valid, dq
             if not started:
                 if cycle < self.dma_start:
                     continue
@@ -100,7 +107,7 @@ class FX3Model:
             # Waveform.
             if state == "IDLE":
                 if valid and not asel:
-                    push(0, dq)
+                    push(0, dq_push)
                 elif eop or asel:
                     state = "DECIDE"
             elif state == "DECIDE":
@@ -116,7 +123,7 @@ class FX3Model:
                     state = "IDLE"
             elif state == "AIDLE":
                 if valid:
-                    push(1, dq)
+                    push(1, dq_push)
                 elif not asel:
                     state = "IDLE"
 
@@ -157,7 +164,7 @@ def run_video_audio(video_gap, drain=(80, 150), switch_delay=(2, 2), switch_guar
         ctrl = dut.gpif._control
         yield ctrl.fields.enable.eq(1)
         yield ctrl.fields.flag_invert.eq(1)
-        yield ctrl.fields.head_lead.eq(0)
+        yield ctrl.fields.head_lead.eq(4)
         yield ctrl.fields.audio_enable.eq(1)
         yield ctrl.fields.audio_lead.eq(8)
         yield ctrl.fields.audio_batch.eq(audio_batch)
@@ -167,13 +174,15 @@ def run_video_audio(video_gap, drain=(80, 150), switch_delay=(2, 2), switch_guar
 
     def video_gen():
         yield from csr_setup()
+        # First word of the stream (UVCPacketizer.next_header0), payload last words tagged with
+        # the first word of the following payload (UVCPacketizer `next`).
+        yield dut.gpif.eop_data.eq(payloads[0][0])
         for k, payload in enumerate(payloads):
-            # Next payload first word (as UVCPacketizer.next_header0).
-            yield dut.gpif.eop_data.eq(payloads[k + 1][0] if k + 1 < len(payloads) else 0)
             for i, v in enumerate(payload):
                 yield dut.gpif.sink.valid.eq(1)
                 yield dut.gpif.sink.data.eq(v)
                 yield dut.gpif.sink.last.eq(i == len(payload) - 1)
+                yield dut.gpif.sink.next.eq(payloads[k + 1][0] if k + 1 < len(payloads) else 0)
                 yield
                 while not (yield dut.gpif.sink.ready):
                     yield
@@ -233,7 +242,7 @@ def test_gpif_video_drain():
     def gen():
         ctrl = dut.gpif._control
         yield ctrl.fields.flag_invert.eq(1)
-        yield ctrl.fields.head_lead.eq(0)
+        yield ctrl.fields.head_lead.eq(4)
         yield dut.gpif._burst.storage.eq(64)
         for i in range(32):
             yield dut.gpif.sink.valid.eq(1)
@@ -267,7 +276,7 @@ def test_gpif_first_word():
     def gen():
         ctrl = dut.gpif._control
         yield ctrl.fields.flag_invert.eq(1)
-        yield ctrl.fields.head_lead.eq(0)
+        yield ctrl.fields.head_lead.eq(4)
         yield dut.gpif._burst.storage.eq(64)
         yield dut.gpif.eop_data.eq(payload[0])
         for _ in range(100):

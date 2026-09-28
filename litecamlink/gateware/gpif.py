@@ -42,8 +42,9 @@ from litex.soc.interconnect     import stream
 
 class GPIFStreamer(LiteXModule):
     def __init__(self, pads, clk_freq=100e6, fifo_depth=512, max_delay=4,
-        with_audio=False, audio_packet_words=48, audio_fifo_depth=256, sim=False):
-        self.sink       = sink = stream.Endpoint([("data", 32)])
+        with_audio=False, audio_packet_words=48, audio_fifo_depth=512, sim=False):
+        # `next` (on payload last words): first word of the following payload (UVCPacketizer).
+        self.sink       = sink = stream.Endpoint([("data", 32), ("next", 32)])
         self.audio_sink = audio_sink = stream.Endpoint([("data", 32)]) # Audio samples (sys domain).
         self.eop_data   = Signal(32) # Word presented on DQ during EOP (first word of the next buffer).
 
@@ -98,7 +99,7 @@ class GPIFStreamer(LiteXModule):
         self.comb += self.cd_gpif.rst.eq(gpif_rst)
 
         # CDC.
-        self.fifo = fifo = stream.ClockDomainCrossing([("data", 32)], cd_from="sys", cd_to="gpif_cdc",
+        self.fifo = fifo = stream.ClockDomainCrossing([("data", 32), ("next", 32)], cd_from="sys", cd_to="gpif_cdc",
             depth=fifo_depth)
         self.comb += sink.connect(fifo.sink)
         # Video disabled: the CDC FIFO is drained in WAIT (no stale words at the next start).
@@ -226,6 +227,12 @@ class GPIFStreamer(LiteXModule):
         # last GPIF word under load). The head count restarts when the source changes.
         eop_data    = Signal(32)
         self.specials += MultiReg(self.eop_data, eop_data, "gpif")
+        have_next   = Signal()
+        last_next   = Signal(32)
+        self.sync.gpif += If(fifo.source.valid & fifo.source.ready & fifo.source.last,
+            have_next.eq(1),
+            last_next.eq(fifo.source.next),
+        )
         video_next  = Signal(32) # Next video word: FIFO head, or next UVC header word if empty.
         src_valid   = Signal()
         audio_sel   = Signal()
@@ -239,8 +246,12 @@ class GPIFStreamer(LiteXModule):
                 data.eq(Mux(fsm.ongoing("BURST"), fifo.source.data, video_next)),
                 src_valid.eq(fifo.source.valid),
             ),
-            video_next.eq(Mux(fifo.source.valid, fifo.source.data, eop_data)),
-            head_valid.eq(src_valid & (head_count >= head_lead)),
+            # Next video word: FIFO head, else the `next` tag of the last payload word sent (exact
+            # first word of the following payload, even mid-frame or while it is in flight), else
+            # (stream start) the first UVC header word.
+            video_next.eq(Mux(fifo.source.valid, fifo.source.data, Mux(have_next, last_next, eop_data))),
+            # Source switch: the head count restarts one cycle later, gate on a stable source.
+            head_valid.eq(src_valid & (head_count >= head_lead) & (audio_sel == audio_sel_d)),
         ]
         self.comb += switch_ok.eq(idle >= switch_guard)
         self.sync.gpif += [
@@ -272,7 +283,7 @@ class GPIFStreamer(LiteXModule):
                 )
             )
         )
-        # EOP: DQ presents `eop_data` around the EOP strobe (the FX3 latches DQ at commit time,
+        # EOP: DQ presents the next video word around the EOP strobe (the FX3 latches DQ at commit time,
         # which happens 1-2 cycles after the strobe with the audio-capable waveform).
         fsm.act("EOP",
             eop.eq(gcount == 4),

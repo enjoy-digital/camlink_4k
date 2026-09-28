@@ -36,11 +36,11 @@ class System(LiteXModule):
         self.fx3_pads  = FX3Pads()
 
         self.hdmi_in = hdmi_in = HDMIIn(self.hdmi_pads, fifo_depth=256, idle_timeout=256, sim=True)
-        self.hdmi_buf = hdmi_buf = stream.Buffer([("data", 32)], pipe_valid=True, pipe_ready=True)
-        self.canvas  = canvas = Canvas()
-        self.color   = color  = ColorAdjust()
+        self.hdmi_buf = hdmi_buf = ResetInserter()(stream.Buffer([("data", 32)], pipe_valid=True, pipe_ready=True))
+        self.canvas  = canvas = ResetInserter()(Canvas())
+        self.color   = color  = ResetInserter()(ColorAdjust())
         self.uvc     = uvc    = ResetInserter()(UVCPacketizer(payload_words=PAYLOAD_WORDS))
-        self.gpif_buf = gpif_buf = stream.Buffer([("data", 32)])
+        self.gpif_buf = gpif_buf = stream.Buffer([("data", 32), ("next", 32)])
         self.gpif    = gpif   = GPIFStreamer(self.fx3_pads, sim=True)
         self.ctl     = gpif.ctl
         self.pads_dq = self.fx3_pads.dq
@@ -50,6 +50,9 @@ class System(LiteXModule):
         self.comb += [
             uvc.timestamp.eq(timestamp),
             uvc.reset.eq(~hdmi_in.control.fields.enable),
+            hdmi_buf.reset.eq(~hdmi_in.control.fields.enable),
+            canvas.reset.eq(~hdmi_in.control.fields.enable),
+            color.reset.eq(~hdmi_in.control.fields.enable),
             gpif.eop_data.eq(uvc.next_header0),
             hdmi_in.source.connect(hdmi_buf.sink),
             hdmi_buf.source.connect(canvas.sink),
@@ -117,7 +120,7 @@ def run(frame_words, frames=8, downscale=False, m420=False, canvas=None, drain=(
         yield dut.uvc._frame_words.storage.eq(frame_words)
         g = dut.gpif._control.fields
         yield g.flag_invert.eq(1)
-        yield g.head_lead.eq(0)
+        yield g.head_lead.eq(4)
         yield dut.gpif._burst.storage.eq(BURST_WORDS)
         yield dut.gpif._guard.storage.eq(8)
         for _ in range(40):

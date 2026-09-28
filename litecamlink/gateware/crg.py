@@ -115,7 +115,7 @@ class CRG(LiteXModule):
                 pll.create_clkout(self.cd_sys, sys_clk_freq, phase=sys_phase)
             # Resets: sys released first, sys2x released from sys (deterministic phase of the DFI
             # rate converter serializers relative to sys edges).
-            sys_rst_2x = Signal(reset=1)
+            sys_rst_2x = Signal(reset=1, reset_less=True) # Drives cd_sys2x.rst: must not reset itself.
             self.specials += AsyncResetSynchronizer(self.cd_sys, ~pll.locked | self.reset)
             self.sync.sys2x += sys_rst_2x.eq(ResetSignal("sys"))
             self.comb += self.cd_sys2x.rst.eq(sys_rst_2x)

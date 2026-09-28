@@ -155,10 +155,11 @@ class BaseSoC(SoCCore):
             self.gen     = CounterGenerator()
             self.pattern = VideoPatternGenerator(sys_clk_freq)
             self.uvc     = ResetInserter()(UVCPacketizer())
-            self.color   = ColorAdjust() # HDMI: brightness/contrast/saturation (UVC Processing Unit).
-            self.canvas  = Canvas()      # HDMI: smaller inputs centered in the UVC frame.
-            # Register stage (timing: HDMI frame FIFO BRAM -> canvas -> FIFO read).
-            self.hdmi_buf = stream.Buffer([("data", 32)], pipe_valid=True, pipe_ready=True)
+            # HDMI: brightness/contrast/saturation (UVC Processing Unit), window centered in the UVC
+            # frame, register stage (timing: HDMI frame FIFO BRAM -> canvas -> FIFO read).
+            self.color    = ResetInserter()(ColorAdjust())
+            self.canvas   = ResetInserter()(Canvas())
+            self.hdmi_buf = ResetInserter()(stream.Buffer([("data", 32)], pipe_valid=True, pipe_ready=True))
 
             # Timestamp (sys clock) for UVC PTS/SCR.
             timestamp = Signal(32)
@@ -167,11 +168,19 @@ class BaseSoC(SoCCore):
             self.comb += self.gpif.eop_data.eq(self.uvc.next_header0)
             # UVC packetizer held in reset while no video source is enabled (restarts on a frame
             # boundary).
-            self.comb += self.uvc.reset.eq(~self.pattern._enable.storage & ~self.hdmi_in.control.fields.enable)
+            video_off = Signal()
+            self.comb += [
+                video_off.eq(~self.pattern._enable.storage & ~self.hdmi_in.control.fields.enable),
+                self.uvc.reset.eq(video_off),
+                # No stale words across restarts (HDMI path stages).
+                self.hdmi_buf.reset.eq(video_off),
+                self.canvas.reset.eq(video_off),
+                self.color.reset.eq(video_off),
+            ]
 
             self.source_sel = CSRStorage(2, description="Stream source: 0 = Counter, 1 = UVC Pattern, 2 = Raw Pattern, 3 = UVC HDMI.")
             # Source mux -> register stage (timing: FIFO BRAM -> mux -> CDC BRAM) -> GPIF.
-            self.gpif_buf = gpif_buf = stream.Buffer([("data", 32)])
+            self.gpif_buf = gpif_buf = stream.Buffer([("data", 32), ("next", 32)])
             self.comb += [
                 Case(self.source_sel.storage, {
                     0: self.gen.source.connect(gpif_buf.sink),

@@ -609,7 +609,8 @@ class HDMIIn(LiteXModule):
         ]
         self.sync += [
             # Registered (timing): one cycle old level, conservative for admission.
-            admit_ok.eq((fifo_depth - fifo.level) >= self.admit_level.storage),
+            # (No subtraction: the buffered FIFO level can exceed fifo_depth by one.)
+            admit_ok.eq((fifo.level + self.admit_level.storage) <= fifo_depth),
             If(sink.valid & sink.first,
                 If(admit_ok,
                     in_frame.eq(1),
