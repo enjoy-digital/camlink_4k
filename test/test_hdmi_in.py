@@ -55,7 +55,7 @@ def ddr_source(pads, frames):
                 yield pads.qe_fall.eq(pixel(f, 2*x + 1, y) if active else 0)
                 yield
 
-def run(ready_pattern, frames=6, ddr=False, downscale=False, crop=None, source=None):
+def run(ready_pattern, frames=6, ddr=False, downscale=False, crop=None, source=None, m420=False):
     pads = Pads()
     dut  = HDMIIn(pads, fifo_depth=64, idle_timeout=64, sim=True)
     out  = []
@@ -68,6 +68,7 @@ def run(ready_pattern, frames=6, ddr=False, downscale=False, crop=None, source=N
         yield dut.control.fields.ddr.eq(ddr)
         yield dut.control.fields.downscale.eq(downscale)
         yield dut.admit_level.storage.eq(40)
+        yield dut.control.fields.m420.eq(m420)
         if crop is not None:
             yield dut.control.fields.crop.eq(1)
             for csr, v in zip((dut.crop_x, dut.crop_y, dut.crop_w, dut.crop_h), crop):
@@ -183,3 +184,33 @@ def test_hdmi_in_signal_loss():
     for frame in frames[-2:]:
         f = ((frame[0] & 0xff) - 0xa0) % 256 // 16
         assert frame == expected_frame(f)
+
+def expected_m420(f):
+    words = []
+    for y in range(0, VACT, 2):
+        for yy in (y, y + 1):
+            for x in range(0, HACT, 4):
+                l = [pixel(f, x + i, yy) >> 8 for i in range(4)]
+                words.append(l[0] | (l[1] << 8) | (l[2] << 16) | (l[3] << 24))
+        for x in range(0, HACT, 4):
+            uv = []
+            for px in (x, x + 2):
+                u = ((pixel(f, px, y) & 0xff) + (pixel(f, px, y + 1) & 0xff) + 1) >> 1
+                v = ((pixel(f, px + 1, y) & 0xff) + (pixel(f, px + 1, y + 1) & 0xff) + 1) >> 1
+                uv += [u, v]
+            words.append(uv[0] | (uv[1] << 8) | (uv[2] << 16) | (uv[3] << 24))
+    return words
+
+def test_hdmi_in_ddr_m420():
+    dut, frames = run(lambda cycle: 1, ddr=True, m420=True)
+    assert len(frames) >= 3
+    for frame in frames:
+        f = ((frame[0] & 0xff) - 0xa0) % 256 // 16
+        assert frame == expected_m420(f)
+
+def test_hdmi_in_ddr_m420_backpressure():
+    dut, frames = run(lambda cycle: (cycle % 3) != 0, ddr=True, m420=True)
+    assert len(frames) >= 2
+    for frame in frames:
+        f = ((frame[0] & 0xff) - 0xa0) % 256 // 16
+        assert frame == expected_m420(f)

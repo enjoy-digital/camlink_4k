@@ -22,11 +22,26 @@
 
 #include "generated/fpga_csr.h"
 
-const struct uvc_frame uvc_frames[UVC_FRAME_COUNT] = {
-    {1920, 1080},
-    {1280,  720},
-    { 640,  480},
+static const struct uvc_frame yuy2_frames[UVC_YUY2_FRAME_COUNT] = {
+    {1920, 1080, 60},
+    {1280,  720, 60},
+    { 640,  480, 60},
 };
+
+static const struct uvc_frame m420_frames[UVC_M420_FRAME_COUNT] = {
+    {3840, 2160, 30},
+    {1920, 1080, 60},
+};
+
+const struct uvc_format uvc_formats[UVC_FORMAT_COUNT] = {
+    {yuy2_frames, UVC_YUY2_FRAME_COUNT, 16, 0},
+    {m420_frames, UVC_M420_FRAME_COUNT, 12, 1},
+};
+
+static const struct uvc_frame *uvc_frame(const struct uvc_probe *p)
+{
+    return &uvc_formats[p->bFormatIndex - 1].frames[p->bFrameIndex - 1];
+}
 
 static struct uvc_probe probe;
 static struct uvc_probe commit;
@@ -52,28 +67,29 @@ volatile uint32_t uvc_stats[4]; /* commits, halts, starts, stops. */
 
 static void uvc_probe_fixup(struct uvc_probe *p)
 {
+    const struct uvc_format *format;
     const struct uvc_frame *frame;
-    uint32_t fps;
 
-    p->bFormatIndex = 1;
-    if (p->bFrameIndex < 1 || p->bFrameIndex > UVC_FRAME_COUNT)
+    if (p->bFormatIndex < 1 || p->bFormatIndex > UVC_FORMAT_COUNT)
+        p->bFormatIndex = 1;
+    format = &uvc_formats[p->bFormatIndex - 1];
+    if (p->bFrameIndex < 1 || p->bFrameIndex > format->count)
         p->bFrameIndex = 1;
-    frame = &uvc_frames[p->bFrameIndex - 1];
+    frame = uvc_frame(p);
 
     /* Snap to a supported interval. */
-    if (p->dwFrameInterval == 0 || p->dwFrameInterval >= UVC_INTERVAL(UVC_FPS_MIN))
+    if (p->dwFrameInterval == 0 || p->dwFrameInterval >= UVC_INTERVAL(UVC_FPS_MIN) ||
+        frame->fps_max < UVC_FPS_MAX)
         p->dwFrameInterval = UVC_INTERVAL(UVC_FPS_MIN);
     else
         p->dwFrameInterval = UVC_INTERVAL(UVC_FPS_MAX);
-    fps = 10000000UL/p->dwFrameInterval;
-    (void)fps;
 
     p->wKeyFrameRate            = 0;
     p->wPFrameRate              = 0;
     p->wCompQuality             = 0;
     p->wCompWindowSize          = 0;
     p->wDelay                   = 0;
-    p->dwMaxVideoFrameSize      = (uint32_t)frame->width*frame->height*2;
+    p->dwMaxVideoFrameSize      = (uint32_t)frame->width*frame->height*format->bpp/8;
     p->dwMaxPayloadTransferSize = UVC_PAYLOAD_SIZE;
     p->dwClockFrequency         = UVC_CLOCK_FREQ;
     p->bmFramingInfo            = 0x03; /* FID + EOF. */
@@ -85,6 +101,7 @@ static void uvc_probe_fixup(struct uvc_probe *p)
 static void uvc_probe_default(struct uvc_probe *p, int max)
 {
     memset(p, 0, sizeof(*p));
+    p->bFormatIndex    = 1;
     p->bFrameIndex     = 1;
     p->dwFrameInterval = UVC_INTERVAL(max ? UVC_FPS_MAX : UVC_FPS_MIN);
     uvc_probe_fixup(p);
@@ -290,27 +307,35 @@ void uvc_stream_halt(void)
 
 static void video_start(void)
 {
-    const struct uvc_frame *frame = &uvc_frames[commit.bFrameIndex - 1];
+    const struct uvc_frame *frame = uvc_frame(&commit);
     const struct it6802_status *hdmi = it6802_get_status();
-    uint32_t fps = 10000000UL/commit.dwFrameInterval;
+    int m420 = uvc_formats[commit.bFormatIndex - 1].m420;
     /* HDMI input when stable and matching the requested frame size directly, 2x downscaled, or
-     * cropped (crop mode, input larger than the frame), test pattern otherwise. */
-    int direct   = hdmi->hactive == frame->width   && hdmi->vactive == frame->height;
-    int half     = hdmi->hactive == 2*frame->width && hdmi->vactive == 2*frame->height;
-    int crop     = !direct && crop_mode &&
-                   hdmi->hactive >= frame->width && hdmi->vactive >= frame->height;
-    int use_hdmi = hdmi->stable && (direct || half || crop);
-    int ddr      = 1; /* IT6802 always in 0.5x PCLK DDR output mode (see it6802.c). */
-    uint16_t x = 0, y = 0;
+     * cropped (crop mode, input larger than the frame), test pattern otherwise. M420: direct only. */
+    int direct = hdmi->hactive == frame->width   && hdmi->vactive == frame->height;
+    int half   = !m420 && hdmi->hactive == 2*frame->width && hdmi->vactive == 2*frame->height;
+    int crop   = !m420 && !direct && crop_mode &&
+                 hdmi->hactive >= frame->width && hdmi->vactive >= frame->height;
+    struct fpga_video v = {
+        .width     = frame->width,
+        .height    = frame->height,
+        .fps       = 10000000UL/commit.dwFrameInterval,
+        .hdmi      = hdmi->stable && (direct || half || crop),
+        .ddr       = 1, /* IT6802 always in 0.5x PCLK DDR output mode (see it6802.c). */
+        .c_swap    = hdmi->colorspace != 0,
+        .m420      = m420,
+        .no_signal = !hdmi->stable,
+    };
 
-    if (use_hdmi && crop) {
+    if (v.hdmi && crop) {
         /* Clamp the window to the input (x on a 2-pixel boundary). */
-        x = crop_x < hdmi->hactive - frame->width  ? crop_x : hdmi->hactive - frame->width;
-        y = crop_y < hdmi->vactive - frame->height ? crop_y : hdmi->vactive - frame->height;
-        x &= ~1;
+        v.crop   = 1;
+        v.crop_x = (crop_x < hdmi->hactive - frame->width  ? crop_x : hdmi->hactive - frame->width) & ~1;
+        v.crop_y =  crop_y < hdmi->vactive - frame->height ? crop_y : hdmi->vactive - frame->height;
+    } else if (v.hdmi && half) {
+        v.downscale = 1;
     }
-    fpga_stream_start(frame->width, frame->height, fps, use_hdmi, ddr,
-        use_hdmi && half && !crop, hdmi->colorspace != 0, use_hdmi && crop, x, y, !hdmi->stable);
+    fpga_stream_start(&v);
 }
 
 /* (Re)start the GPIF with the active streams: FPGA sources and GPIF logic off (reset), FX3 GPIF

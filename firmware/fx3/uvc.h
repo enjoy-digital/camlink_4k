@@ -67,18 +67,33 @@
 
 #define UVC_CLOCK_FREQ      CSR_CONST_CONFIG_CLOCK_FREQUENCY /* FPGA sys clock (PTS/SCR). */
 #define UVC_PAYLOAD_SIZE    16384       /* One FX3 DMA buffer per payload.      */
-#define UVC_FRAME_COUNT     3
 #define UVC_FRAME_INTERVALS 2
 #define UVC_FPS_MAX         60
 #define UVC_FPS_MIN         30
 #define UVC_INTERVAL(fps)   (10000000UL/(fps))
 
+/* Formats: 1 = YUY2 (1920x1080, 1280x720, 640x480 at 30/60), 2 = M420 (YUV 4:2:0, 2 lines of Y
+ * then 1 line of CbCr: 3840x2160 at 30, 1920x1080 at 30/60). */
+#define UVC_FORMAT_YUY2      1
+#define UVC_FORMAT_M420      2
+#define UVC_FORMAT_COUNT     2
+#define UVC_YUY2_FRAME_COUNT 3
+#define UVC_M420_FRAME_COUNT 2
+
 struct uvc_frame {
     uint16_t width;
     uint16_t height;
+    uint8_t  fps_max;
 };
 
-extern const struct uvc_frame uvc_frames[UVC_FRAME_COUNT];
+struct uvc_format {
+    const struct uvc_frame *frames;
+    uint8_t count;
+    uint8_t bpp;
+    uint8_t m420;
+};
+
+extern const struct uvc_format uvc_formats[UVC_FORMAT_COUNT];
 
 /* Probe/Commit (UVC 1.1, 34 bytes) -------------------------------------------------------------- */
 

@@ -64,19 +64,28 @@ static const uint8_t bos[] = {
 
 #define VC_TOTAL      (13 + 18 + 11 + 26 + 9)
 #define FRAME_LEN     (26 + 4*UVC_FRAME_INTERVALS)
-#define VS_TOTAL      (14 + 27 + UVC_FRAME_COUNT*FRAME_LEN + 6)
+#define FRAME30_LEN   (26 + 4)
+#define VS_TOTAL      (15 + (27 + UVC_YUY2_FRAME_COUNT*FRAME_LEN + 6) + (27 + FRAME30_LEN + FRAME_LEN + 6))
 #define AC_TOTAL      (9 + 12 + 9)
 #define AUDIO_HS_LEN  (8 + 9 + AC_TOTAL + 9 + 9 + 7 + 11 + 9 + 7)
 #define AUDIO_SS_LEN  (AUDIO_HS_LEN + 6)
 #define CONFIG_HS_LEN (9 + 8 + 9 + VC_TOTAL + 9 + VS_TOTAL + 7 + AUDIO_HS_LEN)
 #define CONFIG_SS_LEN (9 + 8 + 9 + VC_TOTAL + 9 + VS_TOTAL + 7 + 6 + AUDIO_SS_LEN)
 
-#define FRAME_DESC(index, w, h)                                                                     \
+/* Frame at 30/60 fps, and 30 fps only (bpp: bits per pixel). */
+#define FRAME_DESC(index, w, h, bpp)                                                                \
     FRAME_LEN, UVC_CS_INTERFACE, UVC_VS_FRAME_UNCOMPRESSED, index, 0x00,                            \
     W16(w), W16(h),                                                                                 \
-    W32((w)*(h)*16*UVC_FPS_MIN), W32((w)*(h)*16*UVC_FPS_MAX), W32((w)*(h)*2),                       \
+    W32((w)*(h)*(bpp)*(uint32_t)UVC_FPS_MIN), W32((w)*(h)*(bpp)*(uint32_t)UVC_FPS_MAX), W32((w)*(h)*(bpp)/8),           \
     W32(UVC_INTERVAL(UVC_FPS_MIN)), UVC_FRAME_INTERVALS,                                            \
     W32(UVC_INTERVAL(UVC_FPS_MAX)), W32(UVC_INTERVAL(UVC_FPS_MIN))
+
+#define FRAME30_DESC(index, w, h, bpp)                                                              \
+    FRAME30_LEN, UVC_CS_INTERFACE, UVC_VS_FRAME_UNCOMPRESSED, index, 0x00,                          \
+    W16(w), W16(h),                                                                                 \
+    W32((w)*(h)*(bpp)*(uint32_t)UVC_FPS_MIN), W32((w)*(h)*(bpp)*(uint32_t)UVC_FPS_MIN), W32((w)*(h)*(bpp)/8),           \
+    W32(UVC_INTERVAL(UVC_FPS_MIN)), 1,                                                              \
+    W32(UVC_INTERVAL(UVC_FPS_MIN))
 
 #define CONFIG_BODY(total, max_power)                                                               \
     /* Configuration. */                                                                            \
@@ -102,17 +111,23 @@ static const uint8_t bos[] = {
     /* VS Interface. */                                                                             \
     9, USB_DT_INTERFACE, UVC_INTF_STREAMING, 0, 1, UVC_CC_VIDEO, UVC_SC_VIDEOSTREAMING, 0, 0,       \
     /* VS Input Header. */                                                                          \
-    14, UVC_CS_INTERFACE, UVC_VS_INPUT_HEADER, 1, W16(VS_TOTAL), 0x80 | USB_DESC_EP_STREAM,         \
-    0, 2, 0, 0, 0, 1, 0,                                                                            \
-    /* Format: Uncompressed YUY2. */                                                                \
-    27, UVC_CS_INTERFACE, UVC_VS_FORMAT_UNCOMPRESSED, 1, UVC_FRAME_COUNT,                           \
+    15, UVC_CS_INTERFACE, UVC_VS_INPUT_HEADER, UVC_FORMAT_COUNT, W16(VS_TOTAL),                     \
+    0x80 | USB_DESC_EP_STREAM, 0, 2, 0, 0, 0, 1, 0, 0,                                              \
+    /* Format 1: Uncompressed YUY2. */                                                              \
+    27, UVC_CS_INTERFACE, UVC_VS_FORMAT_UNCOMPRESSED, UVC_FORMAT_YUY2, UVC_YUY2_FRAME_COUNT,        \
     'Y', 'U', 'Y', '2', 0x00, 0x00, 0x10, 0x00, 0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71,     \
     16, 1, 0, 0, 0, 0,                                                                              \
-    /* Frames. */                                                                                   \
-    FRAME_DESC(1, 1920, 1080),                                                                      \
-    FRAME_DESC(2, 1280,  720),                                                                      \
-    FRAME_DESC(3,  640,  480),                                                                      \
+    FRAME_DESC(1, 1920, 1080, 16),                                                                  \
+    FRAME_DESC(2, 1280,  720, 16),                                                                  \
+    FRAME_DESC(3,  640,  480, 16),                                                                  \
     /* Color Matching (BT.709 primaries/transfer/matrix). */                                       \
+    6, UVC_CS_INTERFACE, UVC_VS_COLORFORMAT, 1, 1, 1,                                               \
+    /* Format 2: Uncompressed M420 (YUV 4:2:0, 2 lines of Y, 1 line of CbCr). */                   \
+    27, UVC_CS_INTERFACE, UVC_VS_FORMAT_UNCOMPRESSED, UVC_FORMAT_M420, UVC_M420_FRAME_COUNT,        \
+    'M', '4', '2', '0', 0x00, 0x00, 0x10, 0x00, 0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71,     \
+    12, 1, 0, 0, 0, 0,                                                                              \
+    FRAME30_DESC(1, 3840, 2160, 12),                                                                \
+    FRAME_DESC(2, 1920, 1080, 12),                                                                  \
     6, UVC_CS_INTERFACE, UVC_VS_COLORFORMAT, 1, 1, 1
 
 #define AUDIO_BODY_START                                                                            \

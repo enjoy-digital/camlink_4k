@@ -30,6 +30,201 @@ from litex.gen import *
 from litex.soc.interconnect.csr import *
 from litex.soc.interconnect     import stream
 
+# M420 Packer --------------------------------------------------------------------------------------
+
+class M420Packer(LiteXModule):
+    """YUV 4:2:2 pixel pairs -> M420 (YUV 4:2:0: 2 lines of Y, then 1 line of interleaved CbCr).
+
+    Per pixel pair (one per clock at most): Y0/Y1 and the pair chroma (U, V). Y words (4 luma
+    samples) of all lines go through a line FIFO; the chroma of even lines is kept in a pair buffer
+    and averaged with the odd line into a (double buffered) UV line. The output sequencer emits the
+    even Y line, the odd Y line, then the UV line of the pair. Lines must have an even number of
+    pairs. `restart` (VSYNC) resets the packer; `last_pair` marks the last line pair of the frame.
+    """
+    def __init__(self, max_pairs=1920, y_fifo_depth=1024):
+        self.valid     = Signal()   # Active pixel pair.
+        self.ya        = Signal(8)
+        self.yb        = Signal(8)
+        self.u         = Signal(8)
+        self.v         = Signal(8)
+        self.odd_line  = Signal()
+        self.eol       = Signal()   # Last pair of the line.
+        self.sof       = Signal()   # First pair of the frame.
+        self.last_pair = Signal()   # Current (odd) line is the last line of the frame.
+        self.source    = source = stream.Endpoint([("data", 32)])
+
+        # # #
+
+        max_words = max_pairs//2
+
+        # Y packing (2 pairs -> 1 word) -> line FIFO (data + end of line + start of frame).
+        y_layout    = [("data", 32), ("eol", 1), ("sof", 1)]
+        self.y_fifo = y_fifo = stream.SyncFIFO(y_layout, y_fifo_depth, buffered=True)
+        self.y_buf  = y_buf  = stream.Buffer(y_layout) # Register stage (timing: BRAM -> sequencer).
+        self.comb += y_fifo.source.connect(y_buf.sink)
+        y_half   = Signal()
+        y_first  = Signal(16)
+        y_sof    = Signal()
+        self.sync += [
+            y_fifo.sink.valid.eq(0),
+            If(self.valid,
+                y_half.eq(~y_half),
+                If(~y_half,
+                    y_first.eq(Cat(self.ya, self.yb)),
+                    y_sof.eq(self.sof),
+                ).Else(
+                    y_fifo.sink.valid.eq(1),
+                    y_fifo.sink.data.eq(Cat(y_first, self.ya, self.yb)),
+                    y_fifo.sink.eol.eq(self.eol),
+                    y_fifo.sink.sof.eq(y_sof),
+                ),
+                If(self.eol, y_half.eq(0)),
+            ),
+        ]
+
+        # Chroma: even lines -> pair buffer; odd lines -> vertical average -> UV line (2 banks).
+        px     = Signal(max=max_pairs)
+        cbuf   = Memory(16, max_pairs)
+        cbuf_w = cbuf.get_port(write_capable=True)
+        cbuf_r = cbuf.get_port()
+        self.specials += cbuf, cbuf_w, cbuf_r
+        self.comb += [
+            cbuf_w.adr.eq(px),
+            cbuf_w.dat_w.eq(Cat(self.u, self.v)),
+            cbuf_w.we.eq(self.valid & ~self.odd_line),
+            cbuf_r.adr.eq(px),
+        ]
+        self.sync += If(self.valid, px.eq(Mux(self.eol, 0, px + 1)))
+
+        # Odd line: pair delayed by 2 cycles (buffer read + registered BRAM output), averages.
+        p_valid = Signal()
+        p_eol   = Signal()
+        p_last  = Signal()
+        p_u     = Signal(8)
+        p_v     = Signal(8)
+        o_valid = Signal()
+        o_eol   = Signal()
+        o_last  = Signal()
+        o_u     = Signal(8)
+        o_v     = Signal(8)
+        o_c     = Signal(16)
+        self.sync += [
+            p_valid.eq(self.valid & self.odd_line),
+            p_eol.eq(self.eol),
+            p_last.eq(self.last_pair),
+            p_u.eq(self.u),
+            p_v.eq(self.v),
+            o_valid.eq(p_valid),
+            o_eol.eq(p_eol),
+            o_last.eq(p_last),
+            o_u.eq(p_u),
+            o_v.eq(p_v),
+            o_c.eq(cbuf_r.dat_r),
+        ]
+        su = Signal(9)
+        sv = Signal(9)
+        self.comb += [
+            su.eq(o_u + o_c[0:8]  + 1),
+            sv.eq(o_v + o_c[8:16] + 1),
+        ]
+        bank_words = 2**bits_for(max_words - 1)
+        uvbuf   = Memory(32, 2*bank_words)
+        uvbuf_w = uvbuf.get_port(write_capable=True)
+        uvbuf_r = uvbuf.get_port(has_re=True)
+        self.specials += uvbuf, uvbuf_w, uvbuf_r
+        uv_half  = Signal()
+        uv_first = Signal(16)
+        uv_x     = Signal(bits_for(bank_words - 1))
+        wbank    = Signal()
+        uv_len   = Array(Signal(max=max_words + 1) for _ in range(2))
+        uv_last  = Array(Signal() for _ in range(2))
+        uv_ready = Array(Signal() for _ in range(2)) # UV line complete (bank), cleared when emitted.
+        uv_done  = Signal()                           # Sequencer: UV line emitted (clears ready).
+        rbank    = Signal()
+        self.comb += [
+            uvbuf_w.adr.eq(Cat(uv_x, wbank)),
+            uvbuf_w.dat_w.eq(Cat(uv_first, su[1:], sv[1:])),
+            uvbuf_w.we.eq(o_valid & uv_half),
+        ]
+        self.sync += [
+            If(o_valid,
+                uv_half.eq(~uv_half),
+                If(~uv_half,
+                    uv_first.eq(Cat(su[1:], sv[1:])),
+                ).Else(
+                    uv_x.eq(uv_x + 1),
+                ),
+                If(o_eol,
+                    uv_half.eq(0),
+                    uv_x.eq(0),
+                    uv_len[wbank].eq(uv_x + uv_half),
+                    uv_last[wbank].eq(o_last),
+                    uv_ready[wbank].eq(1),
+                    wbank.eq(~wbank),
+                ),
+            ),
+            If(uv_done, uv_ready[rbank].eq(0), rbank.eq(~rbank)),
+        ]
+
+        # Output sequencer: Y even line, Y odd line, UV line.
+        out_odd  = Signal() # Y line being emitted is odd.
+        rd_i     = Signal(max=max_words + 1)
+        rd_idx   = Signal(max=max_words + 1) # Index of the UV word on dat_r.
+        uv_valid = Signal()
+        advance  = Signal()
+        self.fsm = fsm = FSM(reset_state="Y")
+        fsm.act("Y",
+            source.valid.eq(y_buf.source.valid),
+            source.data.eq(y_buf.source.data),
+            source.first.eq(y_buf.source.sof),
+            y_buf.source.ready.eq(source.ready),
+            If(y_buf.source.valid & source.ready,
+                If(y_buf.source.sof, NextValue(out_odd, 0)),
+                If(y_buf.source.eol,
+                    If(out_odd,
+                        NextValue(out_odd, 0),
+                        NextValue(rd_i, 0),
+                        NextState("UV_WAIT"),
+                    ).Else(
+                        NextValue(out_odd, 1),
+                    )
+                )
+            )
+        )
+        fsm.act("UV_WAIT",
+            If(uv_ready[rbank], NextState("UV"))
+        )
+        # UV read pipeline: BRAM (read enable = advance) -> output register (timing).
+        uv_valid0 = Signal() # Word on dat_r.
+        uv_idx0   = Signal(max=max_words + 1)
+        uv_q      = Signal(32)
+        self.comb += [
+            advance.eq(~uv_valid | source.ready),
+            uvbuf_r.adr.eq(Cat(rd_i[:len(uv_x)], rbank)),
+            uvbuf_r.re.eq(advance & fsm.ongoing("UV")),
+        ]
+        fsm.act("UV",
+            source.valid.eq(uv_valid),
+            source.data.eq(uv_q),
+            source.last.eq(uv_last[rbank] & (rd_idx == (uv_len[rbank] - 1))),
+            If(advance,
+                NextValue(uv_valid, uv_valid0),
+                NextValue(uv_q,     uvbuf_r.dat_r),
+                NextValue(rd_idx,   uv_idx0),
+                If(rd_i < uv_len[rbank],
+                    NextValue(uv_valid0, 1),
+                    NextValue(uv_idx0,   rd_i),
+                    NextValue(rd_i,      rd_i + 1),
+                ).Else(
+                    NextValue(uv_valid0, 0),
+                    If(~uv_valid0,
+                        uv_done.eq(1),
+                        NextState("Y"),
+                    )
+                )
+            )
+        )
+
 # HDMI In ------------------------------------------------------------------------------------------
 
 class HDMIIn(LiteXModule):
@@ -45,6 +240,7 @@ class HDMIIn(LiteXModule):
             CSRField("ddr_swap",  size=1, offset=13, description="DDR: falling edge carries the first pixel."),
             CSRField("downscale", size=1, offset=14, description="2x downscale (2x2 box filter, DDR modes)."),
             CSRField("crop",      size=1, offset=15, description="Crop window (DDR modes, no downscale)."),
+            CSRField("m420",      size=1, offset=16, description="M420 output (YUV 4:2:0, DDR modes, no downscale/crop)."),
         ])
         self.crop_x = CSRStorage(16, description="Crop window X (words, 2 pixels per word).")
         self.crop_y = CSRStorage(16, description="Crop window Y (lines).")
@@ -82,6 +278,8 @@ class HDMIIn(LiteXModule):
             MultiReg(self.control.fields.ddr_swap,  ddr_swap,  "hdmi"),
             MultiReg(self.control.fields.downscale, downscale, "hdmi"),
         ]
+        m420    = Signal()
+        self.specials += MultiReg(self.control.fields.m420, m420, "hdmi")
         crop    = Signal()
         crop_x0 = Signal(16)
         crop_x1 = Signal(16)
@@ -322,17 +520,42 @@ class HDMIIn(LiteXModule):
                 w_last.eq(v_last),
             ),
         ]
-        cdc = stream.Endpoint([("data", 32)])
+        # M420 packer (4:2:0 line pairs, reset on VSYNC).
+        self.m420 = m420_packer = ClockDomainsRenamer("hdmi")(ResetInserter()(M420Packer()))
         self.comb += [
-            cdc.valid.eq(w_valid),
-            cdc.data.eq(w_data),
-            cdc.first.eq(w_first),
-            cdc.last.eq(w_last),
+            m420_packer.reset.eq(vs_start | ~m420 | ~enable),
+            m420_packer.valid.eq(active & ddr & m420),
+            m420_packer.ya.eq(ya),
+            m420_packer.yb.eq(yb),
+            m420_packer.u.eq(Mux(c_swap, cb, ca)),
+            m420_packer.v.eq(Mux(c_swap, ca, cb)),
+            m420_packer.odd_line.eq(line[0]),
+            m420_packer.eol.eq(~de_next),
+            m420_packer.sof.eq((line == 0) & (x == 0)),
+            m420_packer.last_pair.eq(is_last_line),
         ]
 
-        # CDC (hdmi -> sys): the sys side always drains faster than the input rate.
-        self.cdc = cdc_fifo = stream.ClockDomainCrossing([("data", 32)], cd_from="hdmi", cd_to="sys", depth=16)
-        self.comb += cdc.connect(cdc_fifo.sink)
+        cdc = stream.Endpoint([("data", 32)])
+        self.comb += [
+            If(m420,
+                m420_packer.source.connect(cdc),
+            ).Else(
+                cdc.valid.eq(w_valid),
+                cdc.data.eq(w_data),
+                cdc.first.eq(w_first),
+                cdc.last.eq(w_last),
+            )
+        ]
+
+        # CDC (hdmi -> sys): the sys side drains faster than the average input rate (M420 bursts
+        # the UV lines at up to 1 word per pixel clock: deeper FIFO).
+        self.cdc = cdc_fifo = stream.ClockDomainCrossing([("data", 32)], cd_from="hdmi", cd_to="sys", depth=1024)
+        # Register stage (timing: packer BRAM -> mux -> CDC BRAM).
+        self.cdc_buf = cdc_buf = ClockDomainsRenamer("hdmi")(stream.Buffer([("data", 32)], pipe_ready=True))
+        self.comb += [
+            cdc.connect(cdc_buf.sink),
+            cdc_buf.source.connect(cdc_fifo.sink),
+        ]
 
         # Frame admission / drop (sys) + frame FIFO.
         # The FIFO is flushed while the capture is disabled; a frame without input for

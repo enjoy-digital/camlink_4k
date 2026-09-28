@@ -12,9 +12,21 @@
 
 int  fpga_csr_write(uint32_t addr, uint32_t value);
 int  fpga_csr_read(uint32_t addr, uint32_t *value);
-/* Video: pattern or HDMI (DDR, 2x downscale or crop window at (crop_x, crop_y), Cb/Cr swap). */
-void fpga_stream_start(uint16_t width, uint16_t height, uint32_t fps, int hdmi, int ddr, int downscale,
-    int c_swap, int crop, uint16_t crop_x, uint16_t crop_y, int no_signal);
+/* Video source configuration. */
+struct fpga_video {
+    uint16_t width, height;   /* UVC frame size.                                          */
+    uint32_t fps;             /* Pattern frame rate.                                      */
+    uint8_t  hdmi;            /* HDMI input (else test pattern).                          */
+    uint8_t  ddr;             /* IT6802 0.5x PCLK DDR output.                             */
+    uint8_t  downscale;       /* 2x2 box downscale.                                       */
+    uint8_t  crop;            /* Crop window at (crop_x, crop_y) (x even).                */
+    uint16_t crop_x, crop_y;
+    uint8_t  c_swap;          /* Cb/Cr swap.                                              */
+    uint8_t  m420;            /* M420 output (YUV 4:2:0), else YUY2.                      */
+    uint8_t  no_signal;       /* Pattern: "no signal" mode.                               */
+};
+
+void fpga_stream_start(const struct fpga_video *v);
 void fpga_stream_stop(void);
 /* GPIF streamer: video (thread 0) / audio (thread 1) enables (both off: GPIF logic in reset). */
 void fpga_gpif_control(int video, int audio);

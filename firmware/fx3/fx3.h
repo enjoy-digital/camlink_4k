@@ -17,8 +17,10 @@
 /* Clocks ---------------------------------------------------------------------------------------- */
 
 #define FX3_REF_CLK   19200000UL          /* FSLC[2:0] = 000: 19.2MHz crystal. */
-#define FX3_PLL_FBDIV 20
-#define FX3_SYS_CLK   (FX3_REF_CLK*FX3_PLL_FBDIV) /* 384MHz. */
+#ifndef FX3_PLL_FBDIV
+#define FX3_PLL_FBDIV 20                          /* 20: 384MHz, 21: 403.2MHz (GPIF 100.8MHz, 4K30). */
+#endif
+#define FX3_SYS_CLK   (FX3_REF_CLK*FX3_PLL_FBDIV)
 #define FX3_CPU_DIV   2
 #define FX3_CPU_CLK   (FX3_SYS_CLK/FX3_CPU_DIV)   /* 192MHz. */
 

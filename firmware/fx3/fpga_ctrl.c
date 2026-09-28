@@ -39,28 +39,33 @@ int fpga_csr_read(uint32_t addr, uint32_t *value)
 
 /* Stream ---------------------------------------------------------------------------------------- */
 
-void fpga_stream_start(uint16_t width, uint16_t height, uint32_t fps, int hdmi, int ddr, int downscale,
-    int c_swap, int crop, uint16_t crop_x, uint16_t crop_y, int no_signal)
+void fpga_stream_start(const struct fpga_video *v)
 {
+    /* Pattern fallback of a M420 frame: YUY2 pattern words with the M420 frame size. */
+    uint16_t pattern_lines = v->m420 ? (uint16_t)(v->height*3/4) : v->height;
+    uint32_t frame_words   = (uint32_t)v->width*v->height*(v->m420 ? 12 : 16)/32;
+
     fpga_stream_stop();
-    fpga_csr_write(CSR_HDMI_IN_CROP_X, crop_x/2);
-    fpga_csr_write(CSR_HDMI_IN_CROP_Y, crop_y);
-    fpga_csr_write(CSR_HDMI_IN_CROP_W, width/2);
-    fpga_csr_write(CSR_HDMI_IN_CROP_H, height);
-    fpga_csr_write(CSR_MAIN_SOURCE_SEL,       hdmi ? 3 : 1); /* UVC HDMI / UVC pattern. */
-    /* HDMI: enable, Y lane 1 (QE[23:16]), C lane 2 (QE[35:28]), DDR/downscale. The Cb/Cr order
-     * depends on the IT6802 path: swapped with CSC bypass (YCbCr sources), not with the RGB->YUV
-     * CSC (RGB sources) (validated with a MacBook YCbCr and a PC RGB source). */
-    fpga_csr_write(CSR_HDMI_IN_CONTROL, hdmi ?
-        (1 | (1 << 4) | (2 << 6) | (c_swap << 8) | (ddr << 12) | (downscale << 14) | (crop << 15)) : 0);
-    fpga_csr_write(CSR_PATTERN_HWORDS,        width/2);
-    fpga_csr_write(CSR_PATTERN_VRES,          height);
-    fpga_csr_write(CSR_PATTERN_BAR_WORDS,     width/16);
-    fpga_csr_write(CSR_PATTERN_FRAME_PERIOD,  UVC_CLOCK_FREQ/fps);
+    fpga_csr_write(CSR_HDMI_IN_CROP_X,        v->crop_x/2);
+    fpga_csr_write(CSR_HDMI_IN_CROP_Y,        v->crop_y);
+    fpga_csr_write(CSR_HDMI_IN_CROP_W,        v->width/2);
+    fpga_csr_write(CSR_HDMI_IN_CROP_H,        v->height);
+    fpga_csr_write(CSR_MAIN_SOURCE_SEL,       v->hdmi ? 3 : 1); /* UVC HDMI / UVC pattern. */
+    fpga_csr_write(CSR_PATTERN_HWORDS,        v->width/2);
+    fpga_csr_write(CSR_PATTERN_VRES,          pattern_lines);
+    fpga_csr_write(CSR_PATTERN_BAR_WORDS,     v->width/16);
+    fpga_csr_write(CSR_PATTERN_FRAME_PERIOD,  UVC_CLOCK_FREQ/v->fps);
+    fpga_csr_write(CSR_PATTERN_MODE,          v->no_signal);
     fpga_csr_write(CSR_UVC_PAYLOAD_WORDS,     (UVC_PAYLOAD_SIZE - 12)/4);
-    fpga_csr_write(CSR_UVC_FRAME_WORDS,       (uint32_t)width*height/2);
-    fpga_csr_write(CSR_PATTERN_MODE,          no_signal);
-    fpga_csr_write(CSR_PATTERN_ENABLE,        !hdmi);
+    fpga_csr_write(CSR_UVC_FRAME_WORDS,       frame_words);
+    /* Sources enabled last (the UVC packetizer leaves reset with its configuration set).
+     * HDMI: enable, Y lane 1 (QE[23:16]), C lane 2 (QE[35:28]), DDR/downscale/crop/M420. The Cb/Cr
+     * order depends on the IT6802 path: swapped with CSC bypass (YCbCr sources), not with the
+     * RGB->YUV CSC (RGB sources) (validated with a MacBook YCbCr and a PC RGB source). */
+    fpga_csr_write(CSR_HDMI_IN_CONTROL, v->hdmi ?
+        (1UL | (1UL << 4) | (2UL << 6) | ((uint32_t)v->c_swap << 8) | ((uint32_t)v->ddr << 12) |
+         ((uint32_t)v->downscale << 14) | ((uint32_t)v->crop << 15) | ((uint32_t)v->m420 << 16)) : 0);
+    fpga_csr_write(CSR_PATTERN_ENABLE,        !v->hdmi);
 }
 
 void fpga_stream_stop(void)

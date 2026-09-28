@@ -61,6 +61,24 @@ def yuy2_to_rgb(frame, width, height):
     b = 1.164*y + 2.112*u
     return np.clip(np.stack([r, g, b], axis=-1), 0, 255).astype(np.uint8)
 
+def m420_to_yuv(frame, width, height):
+    """M420 (2 lines of Y, then 1 line of interleaved CbCr) -> Y (h, w), U/V (h/2, w/2) planes."""
+    f  = np.frombuffer(frame, dtype=np.uint8)[:width*height*3//2].reshape(height//2, 3, width)
+    y  = f[:, :2, :].reshape(height, width)
+    uv = f[:, 2, :].reshape(height//2, width//2, 2)
+    return y, uv[..., 0], uv[..., 1]
+
+def m420_to_rgb(frame, width, height):
+    """M420 -> RGB (BT.709, limited range)."""
+    y, u, v = m420_to_yuv(frame, width, height)
+    y = y.astype(np.float32) - 16
+    u = np.repeat(np.repeat(u.astype(np.float32) - 128, 2, axis=0), 2, axis=1)
+    v = np.repeat(np.repeat(v.astype(np.float32) - 128, 2, axis=0), 2, axis=1)
+    r = 1.164*y + 1.793*v
+    g = 1.164*y - 0.213*u - 0.533*v
+    b = 1.164*y + 2.112*u
+    return np.clip(np.stack([r, g, b], axis=-1), 0, 255).astype(np.uint8)
+
 def yuy2_luma(frame, width, height):
     f = np.frombuffer(frame, dtype=np.uint8)[:width*height*2].reshape(height, width*2)
     return f[:, 0::2]
