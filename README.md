@@ -28,6 +28,7 @@ hardware (latency, formats, modes, diagnostics).
 - [doc/HARDWARE.md](doc/HARDWARE.md): what is known (and missing) about the hardware.
 - [doc/PLAN.md](doc/PLAN.md): phases and status.
 - [doc/BENCH.md](doc/BENCH.md): test bench setup.
+- [doc/ROADMAP.md](doc/ROADMAP.md): benchmarking vs stock, improvements and new features.
 
 ## Build
 
