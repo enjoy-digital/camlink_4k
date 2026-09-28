@@ -10,6 +10,7 @@
 
 import os
 import mmap
+import select
 import time
 import glob
 import fcntl
@@ -115,9 +116,11 @@ class Capture:
         fcntl.ioctl(self.fd, VIDIOC_STREAMON, struct.pack("<I", V4L2_BUF_TYPE_VIDEO_CAPTURE))
         self.streaming = True
 
-    def read(self, copy=True):
+    def read(self, copy=True, timeout=2.0):
         """Return (data, buffer_ts, sequence, dequeue_ts, bytesused, flags); timestamps in seconds
-        (CLOCK_MONOTONIC)."""
+        (CLOCK_MONOTONIC). Raises TimeoutError when no frame arrives within timeout."""
+        if not select.select([self.fd], [], [], timeout)[0]:
+            raise TimeoutError("No frame.")
         buf = self._buffer(0)
         fcntl.ioctl(self.fd, VIDIOC_DQBUF, buf)
         t_dq = time.monotonic()

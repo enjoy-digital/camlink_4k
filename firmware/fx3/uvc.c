@@ -151,7 +151,7 @@ static void uvc_stream_start(void)
     int direct   = hdmi->hactive == frame->width   && hdmi->vactive == frame->height;
     int half     = hdmi->hactive == 2*frame->width && hdmi->vactive == 2*frame->height;
     int use_hdmi = hdmi->stable && (direct || half);
-    int ddr      = hdmi->hactive > 1920; /* IT6802 0.5x PCLK DDR output above 1080p. */
+    int ddr      = 1; /* IT6802 always in 0.5x PCLK DDR output mode (see it6802.c). */
 
     if (streaming)
         fpga_stream_stop();

@@ -87,7 +87,8 @@ class BaseSoC(SoCCore):
 
         # HDMI Receiver (IT6802) -------------------------------------------------------------------
         hdmi_in = platform.request("hdmi_in")
-        self.comb += hdmi_in.rst_n.eq(1) # Release IT6802 reset.
+        self.hdmi_rst = CSRStorage(description="IT6802 reset (1 = held in reset).")
+        self.comb += hdmi_in.rst_n.eq(~self.hdmi_rst.storage)
         self.hdmi_clk_freq = FreqMeter(period=int(sys_clk_freq), clk=hdmi_in.pclk)
         self.hdmi_in = HDMIIn(hdmi_in)
         platform.add_period_constraint(hdmi_in.pclk, 1e9/150e6)
