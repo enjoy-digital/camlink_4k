@@ -101,6 +101,8 @@ VREQ_I2C_STAT  = 0x32
 VREQ_STREAM_START  = 0x40
 VREQ_STREAM_STOP   = 0x41
 VREQ_STREAM_STATUS = 0x42
+VREQ_HDMI_STATUS   = 0x50
+VREQ_HDMI_INIT     = 0x51
 
 GPIF_OMEGA_EMPTY_FULL_TH0 = 16
 
@@ -189,6 +191,19 @@ class CamLink:
 
     def read_stream(self, length, timeout=1000):
         return self.dev.read(0x81, length, timeout=timeout)
+
+    def hdmi_init(self):
+        self.vendor_out(VREQ_HDMI_INIT)
+
+    def hdmi_status(self):
+        names = ["present", "sys_status", "hpd", "stable"]
+        d = self.vendor_in(VREQ_HDMI_STATUS, length=16)
+        st = dict(zip(names, d[:4]))
+        st.update(zip(["htotal", "hactive", "vtotal", "vactive"], struct.unpack("<4H", d[4:12])))
+        st["pclk_reg"], st["video_mode"] = d[12], d[13]
+        st["5v"]  = st["sys_status"] & 1
+        st["pclk_mhz"] = (124*255/st["pclk_reg"])/10 if st["pclk_reg"] else 0
+        return st
 
     def reboot(self):
         self.vendor_out(VREQ_REBOOT)
@@ -454,6 +469,8 @@ def main():
     p.add_argument("--cmd",  action="append", dest="commands", help="Command(s) to send (scripted mode).")
     p.add_argument("--time", type=float,      help="Capture duration in seconds (scripted mode).")
 
+    sub.add_parser("hdmi-status", help="Show HDMI receiver (IT6802) status.")
+
     sub.add_parser("list",   help="List Cam Link related USB devices.")
     sub.add_parser("ident",  help="Show LiteCamLink firmware identification.")
     sub.add_parser("reboot", help="Reboot the FX3 (back to the USB bootloader).")
@@ -478,6 +495,7 @@ def main():
             try:
                 print(cl.ident())
                 cl.fpga_load(args.bit)
+                cl.hdmi_init()
                 break
             except usb.core.USBError:
                 time.sleep(0.5)
@@ -532,6 +550,10 @@ def main():
 
     if args.cmd == "term":
         term(CamLinkBus(), cmds=args.commands, duration=args.time)
+
+    if args.cmd == "hdmi-status":
+        for k, v in CamLink().hdmi_status().items():
+            print(f"{k:12s}: {v}")
 
     if args.cmd == "ident":
         cl  = CamLink()

@@ -15,6 +15,7 @@
 #include "i2c.h"
 #include "gpif.h"
 #include "uvc.h"
+#include "it6802.h"
 
 /* Vendor Requests ------------------------------------------------------------------------------- */
 
@@ -35,6 +36,8 @@ enum {
     VREQ_STREAM_START  = 0x40, /* OUT: Start GPIF streaming, value = PIB clk div x2, index = flag omega. */
     VREQ_STREAM_STOP   = 0x41, /* OUT: Stop GPIF streaming.                        */
     VREQ_STREAM_STATUS = 0x42, /* IN : GPIF/DMA status (8x32-bit).                 */
+    VREQ_HDMI_STATUS   = 0x50, /* IN : IT6802 status (struct it6802_status).        */
+    VREQ_HDMI_INIT     = 0x51, /* OUT: (Re)initialize the IT6802.                   */
 };
 
 #define EP0_BUF_SIZE 4096
@@ -43,6 +46,7 @@ static uint8_t ep0_buf[EP0_BUF_SIZE] __attribute__((aligned(32)));
 static volatile int reboot_request;
 static int i2c_status;
 volatile uint32_t main_loops;
+static volatile int hdmi_init_request;
 
 static const char ident[] = "LiteCamLink FX3 firmware " GIT_VERSION;
 
@@ -153,6 +157,14 @@ static void vendor_request(const struct usb_setup *setup)
         gpif_stream_status((uint32_t *)ep0_buf);
         usb_ep0_in(ep0_buf, 32);
         return;
+    case VREQ_HDMI_STATUS:
+        memcpy(ep0_buf, it6802_get_status(), sizeof(struct it6802_status));
+        usb_ep0_in(ep0_buf, sizeof(struct it6802_status));
+        return;
+    case VREQ_HDMI_INIT:
+        usb_ep0_ack();
+        hdmi_init_request = 1;
+        return;
     case VREQ_REBOOT:
         usb_ep0_ack();
         reboot_request = 1;
@@ -261,6 +273,11 @@ int main(void)
     for (;;) {
         main_loops++;
         uvc_service();
+        it6802_service();
+        if (hdmi_init_request) {
+            hdmi_init_request = 0;
+            it6802_init();
+        }
         if (reboot_request) {
             delay_us(10000);
             gctl_hard_reset();

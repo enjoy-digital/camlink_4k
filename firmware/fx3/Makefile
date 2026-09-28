@@ -14,7 +14,7 @@ CFLAGS += -Wall -Wextra -Werror -ffunction-sections -fdata-sections -fno-stack-p
 CFLAGS += -I. -MMD -MP -DGIT_VERSION=\"$(VERSION)\"
 LDFLAGS = -nostartfiles -static -T fx3.ld -Wl,--gc-sections -Wl,-Map,$(BUILD)/fx3.map
 
-OBJS = start.o fx3.o usb.o usb_desc.o fpga.o i2c.o gpif.o fpga_ctrl.o uvc.o main.o
+OBJS = start.o fx3.o usb.o usb_desc.o fpga.o i2c.o gpif.o fpga_ctrl.o uvc.o it6802.o main.o
 OBJS := $(addprefix $(BUILD)/,$(OBJS))
 
 all: $(BUILD)/fx3.img
@@ -31,6 +31,12 @@ CSR_CSV ?= ../../build/csr.csv
 generated/fpga_csr.h: $(CSR_CSV) csr2h.py
 	mkdir -p generated
 	python3 csr2h.py $< $@
+
+generated/edid.h: gen_edid.py ../../software/edid.py
+	mkdir -p generated
+	python3 gen_edid.py $@
+
+$(BUILD)/it6802.o: generated/edid.h
 
 $(BUILD)/fpga_ctrl.o $(BUILD)/uvc.o $(BUILD)/usb_desc.o $(BUILD)/main.o: generated/fpga_csr.h
 
