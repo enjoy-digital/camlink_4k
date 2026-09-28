@@ -19,8 +19,8 @@ Commit/Push**. The stock firmware can be restored at any time from the flash bac
 | 3  | FX3 USB streaming              | Bulk IN EP1 on SuperSpeed, async host reader: 300MB/s sustained (GPIF 96MHz x 32-bit).        | Done   |
 | 4  | GPIF-II + FPGA pattern         | GPIF master waveform, auto DMA, FPGA GPIFStreamer + counter/pattern sources, CRC-free counter check. | Done   |
 | 5  | UVC                            | UVC 1.1 YUY2 480p/720p/1080p @30/60, FPGA packetizer, probe/commit, works with uvcvideo/ffmpeg/VLC. | Done   |
-| 6  | DDR3 frame buffer              | LiteDRAM memtest (SSTL135 vs SSTL15), frame buffering with LiteDRAM DMA.                    |        |
-| 7  | HDMI capture                   | IT6802 init + EDID, mode detection, video capture (2 px/clk at 4K), packing to YUY2/NV12.   |        |
+| 6  | DDR3 frame buffer              | LiteDRAM + VexRiscv BIOS (crossover UART): DDR3L 324MT/s memtest OK. Frame buffer not needed yet. | WIP    |
+| 7  | HDMI capture                   | IT6802 init/EDID/HPD, DDR capture + 2x downscale: MacBook 4K30 -> 1080p30 via uvcvideo/VLC. | WIP    |
 | 8  | Audio                          | I2S capture, in-band over GPIF, UAC 1.0, A/V sync.                                          |        |
 | 9  | Beyond stock                   | Low latency, extra modes/EDIDs (1440p...), scaling, formats (P010/RGB), stats, self-test.   |        |
 
@@ -44,5 +44,7 @@ Commit/Push**. The stock firmware can be restored at any time from the flash bac
 - Development loop: `software/camlink.py boot` (FX3 RAM load + FPGA load), `camlink.py csr` (FPGA CSRs
   through the FX3 I2C master and the FPGA I2C bridge), `stream-test`, `uvc-raw-test`, `i2c-dump`.
 - UVC measured through uvcvideo: 640x480@60 59.94fps, 1280x720@60 59.94fps, 1920x1080@60 59.94fps.
+- HDMI: MacBook Pro 4K30 input captured as 1920x1080@30 (downscaled), 30.00fps sustained, no dropped
+  frames. To do: colour validation with a known pattern, native 1080p60 (SDR path), full 4K modes.
 - Known limitations: the first frame after a stream start is lost (FX3 first-word quirk); a ZLP
   follows each short payload (ignored by uvcvideo); 4K30 needs > 300MB/s or NV12.
