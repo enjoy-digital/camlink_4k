@@ -11,8 +11,9 @@ chroma sample (Cb on even pixels, Cr on odd ones). Two pixels are packed into a 
 (Y0 Cb Y1 Cr, little endian). The Y/C byte lanes (QE[11:4], QE[23:16], QE[35:28]) are selectable.
 
 QE/DE are captured with DDR input registers: SDR modes (up to 1080p60) use the rising edge sample,
-the 0.5x PCLK DDR modes (4K) provide a pixel pair per clock. An optional 2x downscaler (horizontal
-luma averaging, odd lines skipped) turns 3840x2160 into 1920x1080.
+the 0.5x PCLK DDR modes (4K) provide a pixel pair per clock. An optional 2x downscaler (2x2 box
+filter: horizontal luma/chroma averaging, even lines kept in a line buffer and averaged with the
+odd ones) turns 3840x2160 into 1920x1080.
 
 The active area (DE) is measured on each frame (`hres`/`vres` CSRs). Output frames are marked with
 `first`/`last`; `last` is set on the last word of the last line using the previous frame's height.
@@ -32,7 +33,7 @@ from litex.soc.interconnect     import stream
 # HDMI In ------------------------------------------------------------------------------------------
 
 class HDMIIn(LiteXModule):
-    def __init__(self, pads, fifo_depth=2048, sim=False):
+    def __init__(self, pads, fifo_depth=2048, max_line_words=1024, sim=False):
         self.source = source = stream.Endpoint([("data", 32)])
 
         self.control = CSRStorage(fields=[
@@ -42,7 +43,7 @@ class HDMIIn(LiteXModule):
             CSRField("c_swap",  size=1, offset=8, description="Swap Cb/Cr order."),
             CSRField("ddr",       size=1, offset=12, description="DDR input (2 pixels per clock, IT6802 0.5x PCLK modes, 4K)."),
             CSRField("ddr_swap",  size=1, offset=13, description="DDR: falling edge carries the first pixel."),
-            CSRField("downscale", size=1, offset=14, description="2x downscale (horizontal luma averaging, odd lines skipped)."),
+            CSRField("downscale", size=1, offset=14, description="2x downscale (2x2 box filter, DDR modes)."),
         ])
         self.admit_level = CSRStorage(16, reset=fifo_depth//2, description="Minimum free FIFO words to admit a frame.")
         self.hres     = CSRStatus(16, description="Measured active width (pixels).")
@@ -159,13 +160,14 @@ class HDMIIn(LiteXModule):
         # Word generation: YUY2 word = Y0 | C0 << 8 | Y1 << 16 | C1 << 24.
         # - SDR: two consecutive pixels per word.
         # - DDR: the pixel pair of each clock is a word.
-        # - Downscale (2x): pairs of words are averaged (luma) into one word, odd lines are skipped.
+        # - Downscale (2x, DDR): pairs of words are averaged into one word; even lines are stored in
+        #   a line buffer and averaged with the following odd line, which is emitted.
         last_line = Signal(16)
-        self.comb += last_line.eq(vres - 1 - (downscale & ~vres[0]))
-        keep_line = Signal()
-        self.comb += keep_line.eq(~downscale | ~line[0])
+        self.comb += last_line.eq(vres - 1 - (downscale & vres[0]))
         active    = Signal()
-        self.comb += active.eq(de & enable & (vres != 0) & keep_line)
+        self.comb += active.eq(de & enable & (vres != 0))
+        odd_line  = Signal()
+        self.comb += odd_line.eq(line[0])
 
         w_valid = Signal()
         w_data  = Signal(32)
@@ -176,13 +178,67 @@ class HDMIIn(LiteXModule):
 
         y0   = Signal(8)
         c0   = Signal(8)
+        c1   = Signal(8)
         odd  = Signal()
-        ysum = Signal(9) # Explicit 9-bit sum (Verilog would size (ya + yb) >> 1 to 8 bits).
-        yavg = Signal(8) # Averaged luma of the current pixel pair (8-bit for Cat()).
-        self.comb += [
-            ysum.eq(ya + yb),
-            yavg.eq(ysum[1:]),
+        # Averages use explicit 9-bit sums (Verilog would size (a + b) >> 1 to 8 bits).
+        def avg(a, b, rnd=0):
+            s = Signal(9)
+            r = Signal(8)
+            self.comb += [s.eq(a + b + rnd), r.eq(s[1:])]
+            return r
+        yavg = avg(ya, yb) # Averaged luma of the current pixel pair.
+
+        # Downscale: horizontal 2x word (averaged luma of each pair, averaged Cb/Cr of both pairs),
+        # line buffer (even lines) and vertical average (odd lines).
+        hword  = Signal(32)
+        self.comb += hword.eq(Cat(y0, avg(c0, ca), yavg, avg(c1, cb)))
+        wx     = Signal(max=max_line_words)
+        lbuf   = Memory(32, max_line_words)
+        lbuf_w = lbuf.get_port(write_capable=True, clock_domain="hdmi")
+        lbuf_r = lbuf.get_port(clock_domain="hdmi")
+        self.specials += lbuf, lbuf_w, lbuf_r
+        # Stage H (second pair): registered horizontal word, line buffer read issued.
+        h_valid    = Signal()
+        h_word     = Signal(32)
+        h_wx       = Signal(max=max_line_words)
+        h_odd_line = Signal()
+        h_first    = Signal()
+        h_last     = Signal()
+        h_stage    = Signal()
+        self.comb += h_stage.eq(active & ddr & downscale & odd)
+        self.sync.hdmi += [
+            h_valid.eq(h_stage),
+            If(h_stage,
+                h_word.eq(hword),
+                h_wx.eq(wx),
+                h_odd_line.eq(odd_line),
+                h_first.eq((line == 1) & (x == 1)),
+                h_last.eq(end_of_frame),
+            ),
+            If(~active, wx.eq(0)).Elif(h_stage, wx.eq(wx + 1)),
         ]
+        # Stage V: even lines -> line buffer, odd lines -> registered stored word (BRAM output)...
+        self.comb += [
+            lbuf_r.adr.eq(wx),
+            lbuf_w.adr.eq(h_wx),
+            lbuf_w.dat_w.eq(h_word),
+            lbuf_w.we.eq(h_valid & ~h_odd_line),
+        ]
+        v_valid = Signal()
+        v_word  = Signal(32)
+        v_mem   = Signal(32)
+        v_first = Signal()
+        v_last  = Signal()
+        self.sync.hdmi += [
+            v_valid.eq(h_valid & h_odd_line),
+            v_word.eq(h_word),
+            v_mem.eq(lbuf_r.dat_r),
+            v_first.eq(h_first),
+            v_last.eq(h_last),
+        ]
+        # ... and vertical average (emitted on the next clock).
+        vword = Signal(32)
+        self.comb += vword.eq(Cat(*[avg(v_word[8*i:8*(i+1)], v_mem[8*i:8*(i+1)], rnd=1) for i in range(4)]))
         self.sync.hdmi += [
             w_valid.eq(0),
             If(active,
@@ -194,17 +250,10 @@ class HDMIIn(LiteXModule):
                         w_first.eq((line == 0) & (x == 0)),
                         w_last.eq(end_of_frame),
                     ).Elif(~odd,
-                        # First pair: averaged luma + first chroma (Cb).
+                        # First pair: averaged luma + chroma.
                         y0.eq(yavg),
                         c0.eq(ca),
-                    ).Else(
-                        # Second pair: averaged luma + second chroma (Cr).
-                        w_valid.eq(1),
-                        w_data.eq(Mux(c_swap,
-                            Cat(y0, cb, yavg, c0),
-                            Cat(y0, c0, yavg, cb))),
-                        w_first.eq((line == 0) & (x == 1)),
-                        w_last.eq(end_of_frame),
+                        c1.eq(cb),
                     )
                 ).Else(
                     If(~odd,
@@ -219,7 +268,14 @@ class HDMIIn(LiteXModule):
                 )
             ).Else(
                 odd.eq(0),
-            )
+            ),
+            # Downscale output (stage V, odd lines).
+            If(v_valid,
+                w_valid.eq(1),
+                w_data.eq(Mux(c_swap, Cat(vword[0:8], vword[24:32], vword[16:24], vword[8:16]), vword)),
+                w_first.eq(v_first),
+                w_last.eq(v_last),
+            ),
         ]
         cdc = stream.Endpoint([("data", 32)])
         self.comb += [

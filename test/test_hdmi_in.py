@@ -131,10 +131,14 @@ def test_hdmi_in_ddr_downscale():
         assert len(frame) == (HACT//2)*(VACT//2)//2
         f = ((frame[0] & 0xff) - 0xa0) % 256 // 16
         words = []
+        def hword(y, x):
+            p  = [pixel(f, x + i, y) for i in range(4)]
+            l  = [v >> 8 for v in p]
+            c  = [v & 0xff for v in p]
+            return [(l[0] + l[1]) >> 1, (c[0] + c[2]) >> 1, (l[2] + l[3]) >> 1, (c[1] + c[3]) >> 1]
         for y in range(0, VACT, 2):
             for x in range(0, HACT, 4):
-                p = [pixel(f, x + i, y) for i in range(4)]
-                ya = ((p[0] >> 8) + (p[1] >> 8)) >> 1
-                yb = ((p[2] >> 8) + (p[3] >> 8)) >> 1
-                words.append(ya | ((p[0] & 0xff) << 8) | (yb << 16) | ((p[3] & 0xff) << 24))
+                a, b = hword(y, x), hword(y + 1, x)
+                v = [(a[i] + b[i] + 1) >> 1 for i in range(4)]
+                words.append(v[0] | (v[1] << 8) | (v[2] << 16) | (v[3] << 24))
         assert frame == words
