@@ -27,7 +27,7 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(__file__))
 import stock
-from v4l2cap import Capture, find_device, yuy2_to_rgb, yuy2_luma
+from v4l2cap import Capture, find_device, yuy2_to_rgb, yuy2_luma, m420_to_rgb, m420_to_yuv
 from source  import barcode_decode, barcode_geometry, chart, output_geometry
 
 import usb.core
@@ -120,6 +120,8 @@ def set_mode(mode, rate):
 def to_rgb(data, fmt, w, h):
     if fmt == "YUYV":
         return yuy2_to_rgb(data, w, h)
+    if fmt == "M420":
+        return m420_to_rgb(data, w, h)
     # NV12.
     f = np.frombuffer(data, dtype=np.uint8)
     y = f[:w*h].reshape(h, w).astype(np.float32) - 16
@@ -134,6 +136,8 @@ def to_rgb(data, fmt, w, h):
 def to_luma(data, fmt, w, h):
     if fmt == "YUYV":
         return yuy2_luma(data, w, h)
+    if fmt == "M420":
+        return m420_to_yuv(data, w, h)[0]
     return np.frombuffer(data, dtype=np.uint8)[:w*h].reshape(h, w)
 
 def psnr(a, b):
@@ -257,6 +261,8 @@ SCENARIOS = {
     "1080p30": ("1920x1080", 29.97, {"stock": ("YUYV", 1920, 1080, 30), "litecamlink": ("YUYV", 1920, 1080, 30)}),
     "720p60":  ("1280x720", 60, {"stock": ("YUYV", 1280, 720, 60), "litecamlink": ("YUYV", 1280, 720, 60)}),
     "2160p30": ("3840x2160", 30, {"stock": ("NV12", 3840, 2160, 30), "litecamlink": ("YUYV", 1920, 1080, 30)}),
+    # Native 4K30 (4:2:0 both): stock NV12, LiteCamLink M420 (firmware built with PLL_FBDIV=21).
+    "2160p30n": ("3840x2160", 30, {"stock": ("NV12", 3840, 2160, 30), "litecamlink": ("M420", 3840, 2160, 30)}),
 }
 
 def run(fw, scenarios, seconds):
