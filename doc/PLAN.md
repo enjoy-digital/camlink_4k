@@ -16,9 +16,9 @@ Commit/Push**. The stock firmware can be restored at any time from the flash bac
 | 0  | Bootstrap                      | Repo, docs, platform, flash backup, stock I2C/EDID dumps, bench scripts.                    | Done   |
 | 1  | FX3 bare-metal hello           | Bare-metal C (fx3lafw register defs), RAM boot, EP0 vendor requests (ident, peek/poke).     | Done   |
 | 2  | FPGA configuration from FX3    | Slave-SPI bitstream load from the host, DONE readback. `litecamlink.py --load`.             | Done   |
-| 3  | FX3 USB streaming              | Bulk IN from FX3 memory, host throughput benchmark (target >350MB/s on SuperSpeed).         |        |
-| 4  | GPIF-II + FPGA pattern         | 32-bit GPIF state machine, LiteX GPIF PHY, pattern generator, CRC checked on the host.      |        |
-| 5  | UVC                            | UVC 1.1 descriptors (YUY2 first), probe/commit, payload headers, VLC/ffplay/OBS. No quirks. |        |
+| 3  | FX3 USB streaming              | Bulk IN EP1 on SuperSpeed, async host reader: 300MB/s sustained (GPIF 96MHz x 32-bit).        | Done   |
+| 4  | GPIF-II + FPGA pattern         | GPIF master waveform, auto DMA, FPGA GPIFStreamer + counter/pattern sources, CRC-free counter check. | Done   |
+| 5  | UVC                            | UVC 1.1 YUY2 480p/720p/1080p @30/60, FPGA packetizer, probe/commit, works with uvcvideo/ffmpeg/VLC. | Done   |
 | 6  | DDR3 frame buffer              | LiteDRAM memtest (SSTL135 vs SSTL15), frame buffering with LiteDRAM DMA.                    |        |
 | 7  | HDMI capture                   | IT6802 init + EDID, mode detection, video capture (2 px/clk at 4K), packing to YUY2/NV12.   |        |
 | 8  | Audio                          | I2S capture, in-band over GPIF, UAC 1.0, A/V sync.                                          |        |
@@ -38,3 +38,11 @@ Commit/Push**. The stock firmware can be restored at any time from the flash bac
 - Formats: NV12/YUY2/P010/RGB24, full range/limited range control, correct colorimetry.
 - Frame timestamps, dropped frames/stats counters, input info exposed through UVC controls.
 - Test pattern / self-test mode, latency measurement tool, recovery/update tool.
+
+## Status Notes
+
+- Development loop: `software/camlink.py boot` (FX3 RAM load + FPGA load), `camlink.py csr` (FPGA CSRs
+  through the FX3 I2C master and the FPGA I2C bridge), `stream-test`, `uvc-raw-test`, `i2c-dump`.
+- UVC measured through uvcvideo: 640x480@60 59.94fps, 1280x720@60 59.94fps, 1920x1080@60 59.94fps.
+- Known limitations: the first frame after a stream start is lost (FX3 first-word quirk); a ZLP
+  follows each short payload (ignored by uvcvideo); 4K30 needs > 300MB/s or NV12.

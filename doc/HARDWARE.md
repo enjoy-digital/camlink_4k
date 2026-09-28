@@ -70,6 +70,29 @@ FX3 GPIO58/59 (I2C master), FPGA `P18`/`P19`, IT6802 `PCSCL`/`PCSDA`.
 | 2, 3  | 3.3V   | GPIF-II, I2C, resets            |
 | 6, 7  | VREF   | DDR3 (stock uses SSTL15)        |
 
+## FX3 GPIF-II Findings (empirical, see firmware/fx3/gpif.c)
+
+- FX3 as GPIF master: internal clock + CLK_OUT drives PCLK (GPIO16 -> FPGA L19). PIB DLL must stay
+  disabled (0xf8f0): with the DLL enabled the PCLK output is unstable. 96MHz with div_x2 = 8.
+- Waveform memory is not readable/writable while the GPIF is enabled.
+- Alphas (SAMPLE_DIN) only act on state entry: two DATA states alternate on each VALID clock.
+- CTL1 output = omega 16 (EMPTY_FULL_TH0), active low as "DMA ready".
+- Beta bit 30 (COMMIT) commits a partial buffer (short packet, followed by a ZLP). The FX3 latches
+  DQ one cycle before the EOP strobe and uses it as the first word of the next buffer: the FPGA
+  drives the next payload's first word on DQ during EOP.
+- USB3: CLEAR_FEATURE(ENDPOINT_HALT) requires resetting the endpoint sequence number
+  (PROT_SEQ_NUM), otherwise later transfers fail (OOSERR).
+
+## IT6802 (from bring-up + public reference driver knowledge)
+
+- Answers at 7-bit `0x49` once SYSRSTN (FPGA `R20`) is released; ID `54 49 02 68`, rev `B1`.
+  Other stock addresses (`0x30-0x32`, `0x38`, `0x50`) are programmed by the init (EDID RAM
+  slave address register `0x87`, MHL `0x34`, CEC `0x86`).
+- No internal test pattern: the output pixel clock comes from the input TMDS PLL.
+- Output modes (`0x51`/`0x65`): 24-bit SDR up to ~162MHz; 4K30 requires the 0.5x PCLK dual-edge
+  (DDR) mode (148.5MHz, data on both edges). 8-bit per channel on QE[11:4]/[23:16]/[35:28],
+  matching the 24 wired lines (B, G, R for RGB).
+
 ## Flash Layout (stock)
 
 | Offset     | Content                                                          |
