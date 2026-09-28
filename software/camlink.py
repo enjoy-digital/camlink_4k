@@ -8,6 +8,7 @@
 
 """LiteCamLink host tool: FX3 RAM boot, device control and tests."""
 
+import os
 import sys
 import time
 import struct
@@ -330,6 +331,48 @@ def uvc_raw_test(cl, bus, width=1920, height=1080, fps=30, frames=60, clk_div_x2
         np.save("build/uvc_frame.npy", f)
     return good >= frames - 2 and state["errors"] == 0
 
+# Terminal (UART crossover) -----------------------------------------------------------------------
+
+def term(bus, cmds=None, duration=None):
+    """BIOS console over the UART crossover CSRs. Scripted if cmds/duration are given."""
+    import select, termios, tty
+    def rx():
+        out = bytearray()
+        while not bus.regs.uart_xover_rxempty.read():
+            out.append(bus.regs.uart_xover_rxtx.read() & 0xff)
+        return bytes(out)
+    def tx(data):
+        for c in data:
+            while bus.regs.uart_xover_txfull.read():
+                pass
+            bus.regs.uart_xover_rxtx.write(c)
+    if cmds is not None or duration is not None:
+        start = time.time()
+        for cmd in (cmds or []):
+            tx(cmd.encode() + b"\n")
+        while time.time() - start < (duration or 2):
+            data = rx()
+            if data:
+                sys.stdout.write(data.decode(errors="replace")); sys.stdout.flush()
+            else:
+                time.sleep(0.05)
+        return
+    fd  = sys.stdin.fileno()
+    old = termios.tcgetattr(fd)
+    tty.setcbreak(fd)
+    try:
+        while True:
+            data = rx()
+            if data:
+                sys.stdout.write(data.decode(errors="replace")); sys.stdout.flush()
+            if select.select([sys.stdin], [], [], 0.02)[0]:
+                c = os.read(fd, 1)
+                if c == b"\x03":
+                    break
+                tx(b"\n" if c == b"\r" else c)
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old)
+
 # Pin Test -----------------------------------------------------------------------------------------
 
 # FPGA PinTest pins order (see litecamlink.py) with their expected FX3 GPIO.
@@ -407,6 +450,10 @@ def main():
     p.add_argument("--fps",    default=30,   type=int)
     p.add_argument("--frames", default=60,   type=int)
 
+    p = sub.add_parser("term", help="BIOS console over the UART crossover (Ctrl-C to exit).")
+    p.add_argument("--cmd",  action="append", dest="commands", help="Command(s) to send (scripted mode).")
+    p.add_argument("--time", type=float,      help="Capture duration in seconds (scripted mode).")
+
     sub.add_parser("list",   help="List Cam Link related USB devices.")
     sub.add_parser("ident",  help="Show LiteCamLink firmware identification.")
     sub.add_parser("reboot", help="Reboot the FX3 (back to the USB bootloader).")
@@ -482,6 +529,9 @@ def main():
     if args.cmd == "stream-status":
         for k, v in CamLink().stream_status().items():
             print(f"{k:16s}: 0x{v:08x}")
+
+    if args.cmd == "term":
+        term(CamLinkBus(), cmds=args.commands, duration=args.time)
 
     if args.cmd == "ident":
         cl  = CamLink()

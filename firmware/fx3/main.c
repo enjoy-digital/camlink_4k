@@ -251,7 +251,7 @@ int main(void)
     gctl_init_iomatrix(IOMATRIX_GPIF32BIT_UART_I2S);
     gpio_init_clock();
     fpga_init();
-    i2c_init(100000);
+    i2c_init(400000);
     irq_enable();
 
     uvc_init();

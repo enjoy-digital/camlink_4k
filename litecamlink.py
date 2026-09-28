@@ -21,6 +21,9 @@ from litex.soc.cores.led            import LedChaser
 from litex.soc.cores.freqmeter      import FreqMeter
 from litex.soc.interconnect.csr     import CSRStorage
 
+from litedram.modules import MT41K64M16
+from litedram.phy     import ECP5DDRPHY
+
 from litecamlink_platform import Platform
 
 from litecamlink.gateware.crg     import CRG
@@ -32,15 +35,40 @@ from litecamlink.gateware.uvc        import UVCPacketizer
 
 # BaseSoC ------------------------------------------------------------------------------------------
 
-class BaseSoC(SoCMini):
-    def __init__(self, sys_clk_freq=100e6, toolchain="trellis", with_pintest=False):
+class BaseSoC(SoCCore):
+    def __init__(self, sys_clk_freq=100e6, toolchain="trellis",
+        with_cpu     = False,
+        with_sdram   = False,
+        with_pintest = False,
+        ):
         platform = Platform(toolchain=toolchain)
 
         # CRG --------------------------------------------------------------------------------------
-        self.crg = CRG(platform, sys_clk_freq)
+        self.crg = CRG(platform, sys_clk_freq, with_sdram=with_sdram)
 
-        # SoCMini ----------------------------------------------------------------------------------
-        SoCMini.__init__(self, platform, sys_clk_freq, ident="LiteCamLink SoC on Cam Link 4K.")
+        # SoCCore ----------------------------------------------------------------------------------
+        # Optional VexRiscv + BIOS (DRAM init/debug); console on a UART crossover (CSRs, host access
+        # through the I2C bridge, see software/camlink.py term).
+        SoCCore.__init__(self, platform, sys_clk_freq,
+            ident                = "LiteCamLink SoC on Cam Link 4K.",
+            cpu_type             = "vexriscv" if with_cpu else None,
+            cpu_variant          = "minimal",
+            integrated_rom_size  = 0x8000 if with_cpu else 0,
+            integrated_sram_size = 0x1000 if with_cpu else 0,
+            uart_name            = "crossover" if with_cpu else "stub",
+            with_uart            = with_cpu,
+            with_timer           = with_cpu,
+        )
+
+        # DDR3 SDRAM -------------------------------------------------------------------------------
+        if with_sdram:
+            self.ddrphy = ECP5DDRPHY(platform.request("ddram"), sys_clk_freq=sys_clk_freq)
+            self.comb += self.crg.stop.eq(self.ddrphy.init.stop)
+            self.add_sdram("sdram",
+                phy           = self.ddrphy,
+                module        = MT41K64M16(sys_clk_freq, "1:2"),
+                l2_cache_size = 0,
+            )
 
         # Leds -------------------------------------------------------------------------------------
         self.leds = LedChaser(
@@ -103,9 +131,16 @@ def main():
     parser.add_argument("--load",         action="store_true", help="Load bitstream (through the FX3, see software/camlink.py).")
     parser.add_argument("--sys-clk-freq", default=100e6, type=float, help="System clock frequency.")
     parser.add_argument("--with-pintest", action="store_true",       help="Enable FX3 <-> FPGA pin test.")
+    parser.add_argument("--with-cpu",     action="store_true",       help="Enable VexRiscv CPU + BIOS (console over UART crossover).")
+    parser.add_argument("--with-sdram",   action="store_true",       help="Enable DDR3 SDRAM.")
     args = parser.parse_args()
 
-    soc     = BaseSoC(sys_clk_freq=args.sys_clk_freq, with_pintest=args.with_pintest)
+    soc     = BaseSoC(
+        sys_clk_freq = args.sys_clk_freq,
+        with_cpu     = args.with_cpu,
+        with_sdram   = args.with_sdram,
+        with_pintest = args.with_pintest,
+    )
     builder = Builder(soc, output_dir="build", csr_csv="build/csr.csv")
     builder.build(build_name="litecamlink", run=args.build and not args.no_compile)
 

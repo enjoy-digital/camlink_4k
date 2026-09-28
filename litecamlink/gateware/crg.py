@@ -56,9 +56,7 @@ class CRG(LiteXModule):
                     i_CLKI    = self.cd_sys2x.clk,
                     i_RST     = self.cd_sys2x.rst,
                     o_CDIVX   = self.cd_sys.clk),
-                AsyncResetSynchronizer(self.cd_init,  ~pll.locked),
-                AsyncResetSynchronizer(self.cd_sys,   ~pll.locked),
-                AsyncResetSynchronizer(self.cd_sys2x, ~pll.locked),
+                AsyncResetSynchronizer(self.cd_sys, ~pll.locked),
             ]
         else:
             pll.create_clkout(self.cd_sys, sys_clk_freq)
