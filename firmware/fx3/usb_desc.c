@@ -99,8 +99,8 @@ static const uint8_t bos[] = {
     FRAME_DESC(1, 1920, 1080),                                                                      \
     FRAME_DESC(2, 1280,  720),                                                                      \
     FRAME_DESC(3,  640,  480),                                                                      \
-    /* Color Matching (BT.709 primaries/transfer, BT.601 matrix). */                                \
-    6, UVC_CS_INTERFACE, UVC_VS_COLORFORMAT, 1, 1, 4
+    /* Color Matching (BT.709 primaries/transfer/matrix). */                                       \
+    6, UVC_CS_INTERFACE, UVC_VS_COLORFORMAT, 1, 1, 1
 
 static const uint8_t config_hs[] = {
     CONFIG_BODY(CONFIG_HS_LEN, 250),

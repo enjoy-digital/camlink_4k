@@ -110,6 +110,8 @@ class HDMIIn(LiteXModule):
             de.eq(de_r),
         ]
         self.comb += de_next.eq(de_r)
+        self.debug_qe = qe0 # Debug (IOScan).
+        self.debug_de = de
 
         # Lanes.
         def lanes(qe):
@@ -175,8 +177,12 @@ class HDMIIn(LiteXModule):
         y0   = Signal(8)
         c0   = Signal(8)
         odd  = Signal()
+        ysum = Signal(9) # Explicit 9-bit sum (Verilog would size (ya + yb) >> 1 to 8 bits).
         yavg = Signal(8) # Averaged luma of the current pixel pair (8-bit for Cat()).
-        self.comb += yavg.eq((ya + yb) >> 1)
+        self.comb += [
+            ysum.eq(ya + yb),
+            yavg.eq(ysum[1:]),
+        ]
         self.sync.hdmi += [
             w_valid.eq(0),
             If(active,

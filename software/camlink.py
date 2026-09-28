@@ -200,7 +200,7 @@ class CamLink:
         d = self.vendor_in(VREQ_HDMI_STATUS, length=16)
         st = dict(zip(names, d[:4]))
         st.update(zip(["htotal", "hactive", "vtotal", "vactive"], struct.unpack("<4H", d[4:12])))
-        st["pclk_reg"], st["video_mode"] = d[12], d[13]
+        st["pclk_reg"], st["video_mode"], st["colorspace"] = d[12], d[13], ["RGB", "YCbCr422", "YCbCr444", "?"][d[14] & 3]
         st["5v"]  = st["sys_status"] & 1
         st["pclk_mhz"] = (124*255/st["pclk_reg"])/10 if st["pclk_reg"] else 0
         return st

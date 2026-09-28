@@ -27,7 +27,7 @@ class Pads:
 
 def pixel(frame, x, y):
     # Y on QE[23:16] (lane 1), C on QE[7:0] (lane 0): Cb on even pixels, Cr on odd ones.
-    luma   = (frame*16 + y*4 + x) & 0xff
+    luma   = (0xa0 + frame*16 + y*4 + x) & 0xff # Values >= 128 (catches carry/width issues).
     chroma = (0x40 + x) & 0xff if x % 2 == 0 else (0xc0 + y) & 0xff
     return (luma << 8) | chroma
 
@@ -107,7 +107,7 @@ def test_hdmi_in_frames():
     assert len(frames) >= 3
     for frame in frames:
         assert len(frame) == HACT*VACT//2
-        f = (frame[0] & 0xff) // 16
+        f = ((frame[0] & 0xff) - 0xa0) % 256 // 16
         assert frame == expected_frame(f)
 
 def test_hdmi_in_drop():
@@ -121,7 +121,7 @@ def test_hdmi_in_ddr():
     dut, frames = run(lambda cycle: 1, ddr=True)
     assert len(frames) >= 3
     for frame in frames:
-        f = (frame[0] & 0xff) // 16
+        f = ((frame[0] & 0xff) - 0xa0) % 256 // 16
         assert frame == expected_frame(f)
 
 def test_hdmi_in_ddr_downscale():
@@ -129,7 +129,7 @@ def test_hdmi_in_ddr_downscale():
     assert len(frames) >= 3
     for frame in frames:
         assert len(frame) == (HACT//2)*(VACT//2)//2
-        f = (frame[0] & 0xff) // 16
+        f = ((frame[0] & 0xff) - 0xa0) % 256 // 16
         words = []
         for y in range(0, VACT, 2):
             for x in range(0, HACT, 4):

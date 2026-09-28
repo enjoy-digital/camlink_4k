@@ -21,7 +21,8 @@ struct it6802_status {
     uint16_t vactive;
     uint8_t  pclk_reg;     /* Reg 0x9A (pixel clock measurement).  */
     uint8_t  video_mode;   /* Reg 0x99.                            */
-    uint8_t  reserved[2];
+    uint8_t  colorspace;   /* AVI InfoFrame Y: 0 = RGB, 1 = YCbCr 4:2:2, 2 = YCbCr 4:4:4. */
+    uint8_t  reserved;
 };
 
 int  it6802_init(void);

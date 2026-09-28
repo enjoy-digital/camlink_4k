@@ -185,8 +185,13 @@ void it6802_service(void)
         it6802_hpd(0);
 
     if ((sys & SYS_SCDT) && !status.stable) {
-        /* Video became stable: YUV 4:2:2 8-bit output (16-bit bus), RGB -> YUV CSC, outputs on. */
-        it6802_write(0, 0x65, 0x12);
+        /* Video became stable: YUV 4:2:2 8-bit output (16-bit bus), outputs on. The input color
+         * space comes from the AVI InfoFrame (bank 2 0x15 = PB1, Y[6:5]: 0 = RGB, 1 = YCbCr 4:2:2,
+         * 2 = YCbCr 4:4:4): RGB -> YUV CSC for RGB sources, bypass for YCbCr sources. */
+        uint8_t avi_pb1 = 0;
+        it6802_read(2, 0x15, &avi_pb1);
+        status.colorspace = (avi_pb1 >> 5) & 0x3;
+        it6802_write(0, 0x65, status.colorspace ? 0x10 : 0x12);
         it6802_write(0, 0x50, 0xb0); /* Output clock inverted, no delay (middle of the sampling window). */
         it6802_write(0, 0x53, 0x40);
     }

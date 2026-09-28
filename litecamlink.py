@@ -33,6 +33,9 @@ from litecamlink.gateware.gpif       import GPIFStreamer, CounterGenerator
 from litecamlink.gateware.video      import VideoPatternGenerator
 from litecamlink.gateware.uvc        import UVCPacketizer
 from litecamlink.gateware.hdmi_in    import HDMIIn
+from litecamlink.gateware.ioscan     import IOScan
+
+from litex.build.generic_platform import Pins, IOStandard, Subsignal
 
 # BaseSoC ------------------------------------------------------------------------------------------
 
@@ -41,6 +44,7 @@ class BaseSoC(SoCCore):
         with_cpu     = False,
         with_sdram   = False,
         with_pintest = False,
+        with_ioscan  = False,
         ):
         platform = Platform(toolchain=toolchain)
 
@@ -88,6 +92,18 @@ class BaseSoC(SoCCore):
         self.hdmi_in = HDMIIn(hdmi_in)
         platform.add_period_constraint(hdmi_in.pclk, 1e9/150e6)
         platform.add_false_path_constraints(self.crg.cd_sys.clk, self.hdmi_in.cd_hdmi.clk)
+
+        # IO Scan (debug: locate unknown connections, qualified by HDMI DE) ------------------------
+        if with_ioscan:
+            scan_pins = "A11 B10 B8 C10 C11 C6 D8 D9 E8 A18 A19 B19 B20 C12 C17 D12 E11 E12"
+            platform.add_extension([("ioscan", 0, Pins(scan_pins), IOStandard("LVCMOS33"))])
+            ioscan_pads = platform.request("ioscan")
+            self.ioscan = IOScan(
+                pins      = [ioscan_pads[i] for i in range(len(ioscan_pads))] +
+                            [self.hdmi_in.debug_qe[i] for i in range(24)],
+                qualifier = self.hdmi_in.debug_de,
+                cd        = "hdmi",
+            )
 
         # PinTest ----------------------------------------------------------------------------------
         fx3 = platform.request("fx3")
@@ -138,6 +154,7 @@ def main():
     parser.add_argument("--with-pintest", action="store_true",       help="Enable FX3 <-> FPGA pin test.")
     parser.add_argument("--with-cpu",     action="store_true",       help="Enable VexRiscv CPU + BIOS (console over UART crossover).")
     parser.add_argument("--with-sdram",   action="store_true",       help="Enable DDR3 SDRAM.")
+    parser.add_argument("--with-ioscan",  action="store_true",       help="Enable IO scan debug core.")
     args = parser.parse_args()
 
     soc     = BaseSoC(
@@ -145,6 +162,7 @@ def main():
         with_cpu     = args.with_cpu,
         with_sdram   = args.with_sdram,
         with_pintest = args.with_pintest,
+        with_ioscan  = args.with_ioscan,
     )
     builder = Builder(soc, output_dir="build", csr_csv="build/csr.csv")
     builder.build(build_name="litecamlink", run=args.build and not args.no_compile)
