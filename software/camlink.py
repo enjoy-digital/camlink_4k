@@ -263,7 +263,9 @@ def stream_test(cl, bus, size=64*1024*1024, clk_div_x2=16, flag_omega=GPIF_OMEGA
 
 # UVC Raw Test -------------------------------------------------------------------------------------
 
-def uvc_pattern_config(bus, width=1920, height=1080, fps=30, sys_clk_freq=75e6):
+def uvc_pattern_config(bus, width=1920, height=1080, fps=30, sys_clk_freq=None):
+    if sys_clk_freq is None:
+        sys_clk_freq = bus.constants.config_clock_frequency
     bus.regs.pattern_enable.write(0)
     bus.regs.pattern_hwords.write(width//2)
     bus.regs.pattern_vres.write(height)
@@ -315,7 +317,7 @@ def uvc_raw_test(cl, bus, width=1920, height=1080, fps=30, frames=60, clk_div_x2
 
     sizes  = state["frames"]
     good   = sum(1 for s in sizes if s == frame_size)
-    pts    = np.diff(np.array(state["pts"], dtype=np.int64)) % (1 << 32) / 75e6
+    pts    = np.diff(np.array(state["pts"], dtype=np.int64)) % (1 << 32) / bus.constants.config_clock_frequency
     print(f"Received {received/1e6:.1f} MB in {duration:.2f}s ({received/duration/1e6:.1f} MB/s), "
           f"{len(sizes)} frames, {good} with size {frame_size}, {state['errors']} header errors.")
     if len(pts):
@@ -428,10 +430,10 @@ def main():
         for retry in range(5):
             try:
                 print(cl.ident())
+                cl.fpga_load(args.bit)
                 break
             except usb.core.USBError:
                 time.sleep(0.5)
-        cl.fpga_load(args.bit)
 
     if args.cmd == "fpga-load":
         CamLink().fpga_load(args.bitstream)

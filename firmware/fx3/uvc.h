@@ -11,6 +11,7 @@
 #include <stdint.h>
 
 #include "fx3.h"
+#include "generated/fpga_csr.h"
 
 /* UVC Constants --------------------------------------------------------------------------------- */
 
@@ -44,7 +45,7 @@
 
 /* Stream Configuration -------------------------------------------------------------------------- */
 
-#define UVC_CLOCK_FREQ      75000000UL  /* FPGA sys clock (PTS/SCR timestamps). */
+#define UVC_CLOCK_FREQ      CSR_CONST_CONFIG_CLOCK_FREQUENCY /* FPGA sys clock (PTS/SCR). */
 #define UVC_PAYLOAD_SIZE    16384       /* One FX3 DMA buffer per payload.      */
 #define UVC_FRAME_COUNT     3
 #define UVC_FRAME_INTERVALS 2

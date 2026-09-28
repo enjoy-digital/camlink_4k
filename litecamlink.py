@@ -33,7 +33,7 @@ from litecamlink.gateware.uvc        import UVCPacketizer
 # BaseSoC ------------------------------------------------------------------------------------------
 
 class BaseSoC(SoCMini):
-    def __init__(self, sys_clk_freq=75e6, toolchain="trellis", with_pintest=False):
+    def __init__(self, sys_clk_freq=100e6, toolchain="trellis", with_pintest=False):
         platform = Platform(toolchain=toolchain)
 
         # CRG --------------------------------------------------------------------------------------
@@ -101,7 +101,7 @@ def main():
     parser.add_argument("--build",        action="store_true", help="Build bitstream.")
     parser.add_argument("--no-compile",   action="store_true", help="Generate build files without running the toolchain.")
     parser.add_argument("--load",         action="store_true", help="Load bitstream (through the FX3, see software/camlink.py).")
-    parser.add_argument("--sys-clk-freq", default=75e6, type=float, help="System clock frequency.")
+    parser.add_argument("--sys-clk-freq", default=100e6, type=float, help="System clock frequency.")
     parser.add_argument("--with-pintest", action="store_true",       help="Enable FX3 <-> FPGA pin test.")
     args = parser.parse_args()
 

@@ -32,7 +32,7 @@ generated/fpga_csr.h: $(CSR_CSV) csr2h.py
 	mkdir -p generated
 	python3 csr2h.py $< $@
 
-$(BUILD)/fpga_ctrl.o: generated/fpga_csr.h
+$(BUILD)/fpga_ctrl.o $(BUILD)/uvc.o $(BUILD)/usb_desc.o $(BUILD)/main.o: generated/fpga_csr.h
 
 $(BUILD)/%.o: %.c | $(BUILD)
 	$(CC) $(CFLAGS) -c -o $@ $<

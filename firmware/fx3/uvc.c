@@ -163,8 +163,16 @@ static void uvc_stream_stop(void)
 
 void uvc_service(void)
 {
-    int request = stream_request;
+    int request;
+
+    /* Take the pending request atomically (set from the USB interrupt). */
+    if (stream_request == STREAM_IDLE)
+        return;
+    irq_disable();
+    request = stream_request;
     stream_request = STREAM_IDLE;
+    irq_enable();
+
     if (request == STREAM_START) {
         uvc_stats[2]++;
         uvc_stream_start();
