@@ -15,6 +15,9 @@ CFLAGS += -I. -MMD -MP -DGIT_VERSION=\"$(VERSION)\"
 # FX3 PLL: 20 = 384MHz (default), 21 = 403.2MHz (GPIF at 100.8MHz for 4K30 M420).
 PLL_FBDIV ?= 20
 CFLAGS += -DFX3_PLL_FBDIV=$(PLL_FBDIV)
+# FX3 DMA buffer / UVC payload size (bytes).
+DMA_BUF_SIZE ?= 16384
+CFLAGS += -DGPIF_DMA_BUF_SIZE=$(DMA_BUF_SIZE)
 LDFLAGS = -nostartfiles -static -T fx3.ld -Wl,--gc-sections -Wl,-Map,$(BUILD)/fx3.map
 
 OBJS = start.o fx3.o usb.o usb_desc.o fpga.o i2c.o gpif.o fpga_ctrl.o uvc.o it6802.o spi_flash.o main.o
@@ -41,7 +44,7 @@ generated/edid.h: gen_edid.py ../../software/edid.py
 
 $(BUILD)/it6802.o: generated/edid.h
 
-$(BUILD)/fpga_ctrl.o $(BUILD)/uvc.o $(BUILD)/usb_desc.o $(BUILD)/main.o: generated/fpga_csr.h
+$(OBJS): generated/fpga_csr.h generated/edid.h
 
 $(BUILD)/%.o: %.c | $(BUILD)
 	$(CC) $(CFLAGS) -c -o $@ $<

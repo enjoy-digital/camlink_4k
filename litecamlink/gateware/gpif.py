@@ -22,7 +22,9 @@ thread switch with a partially filled thread 0 buffer corrupts the video stream;
 when video data is available so audio is serviced during blanking): audio samples are packetized in
 `audio_packet_words` packets (one FX3 thread 1 DMA buffer, 1ms). When a packet is available and the
 thread 1 DMA flag (CTL4) is ready, the FPGA asserts ASEL (CTL3), waits `audio_lead` cycles for the
-FX3 to switch to its thread 1 states, sends the packet (VALID) and releases ASEL.
+FX3 to switch to its thread 1 states, sends the packet (VALID) and releases ASEL. With
+`audio_batch` > 1, the switch waits for that many packets and sends them in the same thread 1
+phase (consecutive buffers only need the short guard), reducing the thread switch overhead.
 As with video, the FX3 uses the DQ value latched at a buffer switch as the first word of the next
 buffer (the first word sent is dropped): a packet is only sent once the first word of the next
 packet is available, and that word stays on DQ during the guard time after the packet.
@@ -53,6 +55,7 @@ class GPIFStreamer(LiteXModule):
             CSRField("dq_cycles",  size=1, offset=12, description="Debug: drive a cycle counter on DQ outside bursts."),
             CSRField("audio_enable", size=1, offset=16, description="Enable audio (GPIF thread 1)."),
             CSRField("audio_lead",   size=4, offset=20, reset=8, description="Cycles between ASEL and the first audio word."),
+            CSRField("audio_batch",  size=4, offset=24, reset=1, description="Audio packets sent per thread switch (min available)."),
         ])
         self._burst      = CSRStorage(32, reset=16384//4, description="Burst length (32-bit words).")
         self._guard      = CSRStorage(8,  reset=32,       description="Guard cycles after a burst.")
@@ -134,6 +137,7 @@ class GPIFStreamer(LiteXModule):
         # Audio: samples -> CDC -> packet FIFO (gpif domain), packets count, audio FLAG input.
         audio_enable  = Signal()
         audio_lead    = Signal(4)
+        audio_batch   = Signal(4)
         audio_flag_i  = Signal()
         audio_flag    = Signal()
         audio_packets = Signal(8)
@@ -141,6 +145,7 @@ class GPIFStreamer(LiteXModule):
         self.specials += [
             MultiReg(self._control.fields.audio_enable, audio_enable, "gpif"),
             MultiReg(self._control.fields.audio_lead,   audio_lead,   "gpif"),
+            MultiReg(self._control.fields.audio_batch,  audio_batch,  "gpif"),
         ]
         self.sync.gpif += audio_flag_i.eq(ctl.i[4])
         self.comb += audio_flag.eq(audio_flag_i ^ flag_invert)
@@ -188,7 +193,12 @@ class GPIFStreamer(LiteXModule):
         last_audio  = Signal() # Last data phase was audio (thread 1).
         idle        = Signal(16) # Cycles since the last word sent (saturating).
         switch_ok   = Signal()   # Thread switch allowed (previous thread buffer switch done).
-        self.comb += audio_ready.eq(audio_enable & (audio_packets != 0) & audio_next & audio_flag)
+        audio_more  = Signal() # Another packet can follow in the same thread 1 phase.
+        self.comb += [
+            audio_ready.eq(audio_enable & (audio_packets != 0) & (audio_packets >= audio_batch) &
+                audio_next & audio_flag),
+            audio_more.eq(audio_enable & (audio_packets != 0) & audio_next & audio_flag),
+        ]
         fsm.act("WAIT",
             fifo.source.ready.eq(video_drain),
             NextValue(count, 0),
@@ -273,6 +283,8 @@ class GPIFStreamer(LiteXModule):
             )
         )
         audio_count      = Signal(max=max(audio_packet_words, 2))
+        audio_sent_batch = Signal(4)
+        idle_count       = Signal(16)
         audio_sent       = Signal(32)
         fsm.act("ASEL",
             asel.eq(1),
@@ -292,8 +304,28 @@ class GPIFStreamer(LiteXModule):
                     NextValue(gcount, 0),
                     NextValue(audio_sent, audio_sent + 1),
                     NextValue(last_audio, 1),
-                    NextState("AGUARD"),
+                    NextState("ANEXT"),
                 )
+            )
+        )
+        # Between packets of a batch: ASEL kept (FX3 in thread 1), short guard for the buffer
+        # switch (DQ presents the next audio word), then next packet or release.
+        # The next buffer may take up to `switch_guard` cycles to become current (FLAG).
+        batch_left = Signal()
+        self.comb += batch_left.eq((audio_batch > 1) & (audio_sent_batch < (audio_batch - 1)))
+        fsm.act("ANEXT",
+            asel.eq(1),
+            NextValue(idle_count, idle_count + 1),
+            If((idle_count >= guard) & batch_left & audio_more,
+                NextValue(idle_count, 0),
+                NextValue(audio_count, 0),
+                NextValue(audio_sent_batch, audio_sent_batch + 1),
+                NextState("ADATA"),
+            ).Elif((idle_count >= guard) & (~batch_left | (idle_count >= switch_guard)),
+                NextValue(idle_count, 0),
+                NextValue(gcount, 0),
+                NextValue(audio_sent_batch, 0),
+                NextState("AGUARD"),
             )
         )
         fsm.act("AGUARD",

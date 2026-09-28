@@ -11,6 +11,7 @@
 #include "i2c.h"
 #include "fpga_ctrl.h"
 #include "uvc.h"
+#include "gpif.h"
 
 #include "generated/fpga_csr.h"
 
@@ -74,10 +75,13 @@ void fpga_stream_stop(void)
     fpga_csr_write(CSR_HDMI_IN_CONTROL, 0);
 }
 
-void fpga_gpif_control(int video, int audio)
+void fpga_gpif_control(int video, int audio, int audio_batch)
 {
-    /* Head lead 4, FLAGs inverted (active low), audio lead 8. */
-    fpga_csr_write(CSR_GPIF_CONTROL, (8UL << 20) | ((uint32_t)!!audio << 16) | (4 << 8) | 0x2 | !!video);
+    /* Burst = one FX3 DMA buffer. Head lead 4, FLAGs inverted (active low), audio lead 8, audio
+     * packets per thread switch. */
+    fpga_csr_write(CSR_GPIF_BURST, GPIF_DMA_BUF_SIZE/4);
+    fpga_csr_write(CSR_GPIF_CONTROL, ((uint32_t)(audio_batch & 0xf) << 24) | (8UL << 20) |
+        ((uint32_t)!!audio << 16) | (4 << 8) | 0x2 | !!video);
 }
 
 void fpga_audio_control(int enable, int test)

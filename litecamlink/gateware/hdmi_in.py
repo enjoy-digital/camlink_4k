@@ -285,9 +285,12 @@ class HDMIIn(LiteXModule):
         crop_x1 = Signal(16)
         crop_y0 = Signal(16)
         crop_y1 = Signal(16)
+        crop_x0m1   = Signal(16)
         crop_x1_sys = Signal(16)
         crop_y1_sys = Signal(16)
+        crop_x0m1_sys = Signal(16)
         self.comb += [
+            crop_x0m1_sys.eq(self.crop_x.storage - 1),
             crop_x1_sys.eq(self.crop_x.storage + self.crop_w.storage - 1),
             crop_y1_sys.eq(self.crop_y.storage + self.crop_h.storage - 1),
         ]
@@ -296,6 +299,7 @@ class HDMIIn(LiteXModule):
             MultiReg(self.crop_x.storage,      crop_x0, "hdmi"),
             MultiReg(self.crop_y.storage,      crop_y0, "hdmi"),
             MultiReg(crop_x1_sys,              crop_x1, "hdmi"),
+            MultiReg(crop_x0m1_sys,            crop_x0m1, "hdmi"),
             MultiReg(crop_y1_sys,              crop_y1, "hdmi"),
         ]
 
@@ -392,6 +396,16 @@ class HDMIIn(LiteXModule):
         crop_line       = Signal()
         crop_first_line = Signal()
         crop_last_line  = Signal()
+        # Crop window X membership (x counts up during DE): set one clock before x0, cleared after x1.
+        crop_in_x = Signal()
+        self.sync.hdmi += [
+            If(~de,
+                crop_in_x.eq(crop_x0 == 0),
+            ).Else(
+                If(x == crop_x0m1, crop_in_x.eq(1)),
+                If(x == crop_x1,   crop_in_x.eq(0)),
+            ),
+        ]
         self.sync.hdmi += [
             last_line.eq(vres - 1 - (downscale & vres[0])),
             is_last_line.eq(line == last_line),
@@ -400,7 +414,9 @@ class HDMIIn(LiteXModule):
             crop_last_line.eq(line == crop_y1),
         ]
         active    = Signal()
-        self.comb += active.eq(de & enable & (vres != 0))
+        capture_ok = Signal() # Registered (static during a frame): capture enabled, height known.
+        self.sync.hdmi += capture_ok.eq(enable & (vres != 0))
+        self.comb += active.eq(de & capture_ok)
         odd_line  = Signal()
         self.comb += odd_line.eq(line[0])
 
@@ -481,7 +497,7 @@ class HDMIIn(LiteXModule):
                 If(ddr,
                     If(crop,
                         # Crop window: native pixels inside [x0, x1] x [y0, y1].
-                        If((x >= crop_x0) & (x <= crop_x1) & crop_line,
+                        If(crop_in_x & crop_line,
                             w_valid.eq(1),
                             w_data.eq(Mux(c_swap, Cat(ya, cb, yb, ca), Cat(ya, ca, yb, cb))),
                             w_first.eq(crop_first_line & (x == crop_x0)),

@@ -150,7 +150,13 @@ def test_hdmi_in_ddr_downscale():
 
 def test_hdmi_in_ddr_crop():
     # Window: words 2-5 (pixels 4-11), lines 1-2.
-    x0, y0, w, h = 2, 1, 4, 2
+    run_crop(2, 1, 4, 2)
+
+def test_hdmi_in_ddr_crop_origin():
+    # Window at the origin (first word of the line in the window).
+    run_crop(0, 0, 3, 3)
+
+def run_crop(x0, y0, w, h):
     dut, frames = run(lambda cycle: 1, ddr=True, crop=(x0, y0, w, h))
     assert len(frames) >= 3
     for frame in frames:

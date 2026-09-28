@@ -11,6 +11,7 @@
 #include <stdint.h>
 
 #include "fx3.h"
+#include "gpif.h"
 #include "generated/fpga_csr.h"
 
 /* UVC Constants --------------------------------------------------------------------------------- */
@@ -66,7 +67,7 @@
 /* Stream Configuration -------------------------------------------------------------------------- */
 
 #define UVC_CLOCK_FREQ      CSR_CONST_CONFIG_CLOCK_FREQUENCY /* FPGA sys clock (PTS/SCR). */
-#define UVC_PAYLOAD_SIZE    16384       /* One FX3 DMA buffer per payload.      */
+#define UVC_PAYLOAD_SIZE    GPIF_DMA_BUF_SIZE /* One FX3 DMA buffer per payload. */
 #define UVC_FRAME_INTERVALS 2
 #define UVC_FPS_MAX         60
 #define UVC_FPS_MIN         30
@@ -134,5 +135,7 @@ uint8_t uvc_audio_get_interface(void);
 void uvc_set_crop(int enable, uint16_t x, uint16_t y);
 /* Audio source: 0 = HDMI (I2S), 1 = test counter. */
 void uvc_audio_set_test(int test);
+/* Audio packets (1ms) per GPIF thread switch (1-8, latency vs video bandwidth). */
+void uvc_audio_set_batch(int batch);
 
 #endif /* UVC_H */

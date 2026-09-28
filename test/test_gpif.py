@@ -40,6 +40,7 @@ class FX3Model:
         self.switch_delay = switch_delay
         self.buffers      = ([], []) # Completed buffers (word lists).
         self.commits      = 0
+        self.audio_phases = 0
         self.errors       = []
 
     def words(self, thread):
@@ -106,6 +107,7 @@ class FX3Model:
                 if valid:
                     self.errors.append(f"VALID in DECIDE at {cycle}")
                 if asel:
+                    self.audio_phases += 1
                     state = "AIDLE"
                 else:
                     self.commits += 1
@@ -136,7 +138,8 @@ class DUT(LiteXModule):
         self.ctl     = self.gpif.ctl
         self.pads_dq = pads.dq
 
-def run_video_audio(video_gap, drain=(80, 150), switch_delay=(2, 2), switch_guard=16):
+def run_video_audio(video_gap, drain=(80, 150), switch_delay=(2, 2), switch_guard=16, audio_batch=1,
+    audio_packets=4):
     random.seed(0)
     dut    = DUT()
     fx3    = FX3Model(dut, drain=drain, switch_delay=switch_delay)
@@ -148,7 +151,7 @@ def run_video_audio(video_gap, drain=(80, 150), switch_delay=(2, 2), switch_guar
         payloads.append(list(range(word, word + n)))
         word += n
     video = [w for p in payloads for w in p]
-    audio = [0xa0000000 + i for i in range(48*4)]
+    audio = [0xa0000000 + i for i in range(48*audio_packets)]
 
     def csr_setup():
         ctrl = dut.gpif._control
@@ -157,6 +160,7 @@ def run_video_audio(video_gap, drain=(80, 150), switch_delay=(2, 2), switch_guar
         yield ctrl.fields.head_lead.eq(0)
         yield ctrl.fields.audio_enable.eq(1)
         yield ctrl.fields.audio_lead.eq(8)
+        yield ctrl.fields.audio_batch.eq(audio_batch)
         yield dut.gpif._burst.storage.eq(64)
         yield dut.gpif._guard.storage.eq(8)
         yield dut.gpif._switch_guard.storage.eq(switch_guard)
@@ -205,6 +209,7 @@ def run_video_audio(video_gap, drain=(80, 150), switch_delay=(2, 2), switch_guar
     assert fx3.words(1)[1:len(audio)] == audio[1:]
     assert fx3.words(0)[1:len(video)] == video[1:]
     assert fx3.commits == lengths.count(40)
+    return fx3
 
 def test_gpif_video_audio():
     run_video_audio(video_gap=0)
@@ -280,3 +285,8 @@ def test_gpif_first_word():
     run_simulation(dut, {"sys": [gen()], "gpif": [fx3.run()]},
         clocks={"sys": 10, "gpif": 10, "gpif_cdc": 10})
     assert fx3.words(0)[:64] == payload
+
+def test_gpif_video_audio_batch():
+    # Audio packets sent by batches of 3 per thread 1 phase (with buffer switch lag).
+    fx3 = run_video_audio(video_gap=0, switch_delay=(2, 20), switch_guard=64, audio_batch=3, audio_packets=6)
+    assert fx3.audio_phases == 2

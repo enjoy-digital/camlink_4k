@@ -126,6 +126,7 @@ VREQ_WATCHDOG      = 0x72
 VREQ_WATCHDOG_READ = 0x73
 VREQ_HANG          = 0x74
 VREQ_STATS         = 0x75
+VREQ_AUDIO_BATCH   = 0x76
 
 FLASH_BLOCK_SIZE      = 0x10000
 FLASH_BITSTREAM_HDR   = 0x100000
@@ -317,6 +318,10 @@ class CamLink:
         names = ["main_loops", "usb_isrs", "ss_to_usb2_fallbacks", "ss_connects", "phy_cr_timeouts",
             "uvc_commits", "uvc_halts", "stream_starts", "stream_stops"]
         return dict(zip(names, struct.unpack("<9I", self.vendor_in(VREQ_STATS, length=36))))
+
+    def audio_batch(self, packets):
+        """Audio packets (1ms) sent per GPIF thread switch."""
+        self.vendor_out(VREQ_AUDIO_BATCH, packets)
 
     def hang(self):
         """Debug: hang the FX3 CPU with interrupts off (watchdog test)."""
@@ -604,6 +609,8 @@ def main():
     p = sub.add_parser("crop", help="Crop window for inputs larger than the UVC frame (no args: downscale).")
     p.add_argument("x", nargs="?", type=int)
     p.add_argument("y", nargs="?", type=int, default=0)
+    p = sub.add_parser("audio-batch", help="Audio packets per GPIF thread switch (1-8).")
+    p.add_argument("packets", type=int)
     p = sub.add_parser("audio-source", help="Select the audio source.")
     p.add_argument("source", choices=["hdmi", "test"])
 
@@ -719,6 +726,9 @@ def main():
 
     if args.cmd == "crop":
         CamLink().crop(args.x, args.y)
+
+    if args.cmd == "audio-batch":
+        CamLink().audio_batch(args.packets)
 
     if args.cmd == "audio-source":
         CamLink().audio_test(args.source == "test")

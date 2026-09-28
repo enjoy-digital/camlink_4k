@@ -53,6 +53,7 @@ enum {
     VREQ_WATCHDOG_READ = 0x73, /* IN : Watchdog timer value (calibration).         */
     VREQ_HANG          = 0x74, /* OUT: Debug: hang with interrupts off (watchdog test). */
     VREQ_STATS         = 0x75, /* IN : Debug counters (see vendor_request).          */
+    VREQ_AUDIO_BATCH   = 0x76, /* OUT: Audio packets per GPIF thread switch (value, 1-8). */
     VREQ_CROP          = 0x71, /* OUT: Crop mode, value = x (0xffff: off, downscale), index = y. */
     VREQ_FPGA_BOOT     = 0x66, /* OUT: Load the FPGA from the flash bitstream (deferred, status via FLASH_STATUS). */
 };
@@ -288,6 +289,10 @@ static void vendor_request(const struct usb_setup *setup)
         for (;;);
     case VREQ_CROP:
         uvc_set_crop(setup->value != 0xffff, setup->value, setup->index);
+        usb_ep0_ack();
+        return;
+    case VREQ_AUDIO_BATCH:
+        uvc_audio_set_batch(setup->value);
         usb_ep0_ack();
         return;
     case VREQ_AUDIO_TEST:

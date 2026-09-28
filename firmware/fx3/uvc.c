@@ -58,6 +58,7 @@ static uint32_t          input_generation;
 static volatile int     audio_request; /* Pending audio alternate setting + 1 (0: none). */
 static volatile uint8_t audio_alt;
 static volatile int     audio_test;
+static volatile int     audio_batch = 1;
 static int              audio_on;
 
 /* Debug counters (read with camlink.py peek). */
@@ -344,13 +345,13 @@ static void streams_apply(void)
 {
     fpga_audio_control(0, 0);
     fpga_stream_stop();
-    fpga_gpif_control(0, 0);
+    fpga_gpif_control(0, 0, audio_batch);
     gpif_stream_start(streaming, audio_on);
     if (streaming)
         video_start();
     if (audio_on)
         fpga_audio_control(1, audio_test);
-    fpga_gpif_control(streaming, audio_on);
+    fpga_gpif_control(streaming, audio_on, audio_batch);
 }
 
 void uvc_audio_set_interface(uint8_t alt)
@@ -370,6 +371,12 @@ void uvc_set_crop(int enable, uint16_t x, uint16_t y)
     crop_x        = x;
     crop_y        = y;
     video_request = 1;
+}
+
+void uvc_audio_set_batch(int batch)
+{
+    audio_batch   = (batch < 1) ? 1 : (batch > 8) ? 8 : batch;
+    audio_request = audio_alt + 1;
 }
 
 void uvc_audio_set_test(int test)
