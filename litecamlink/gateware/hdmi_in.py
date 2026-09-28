@@ -44,7 +44,12 @@ class HDMIIn(LiteXModule):
             CSRField("ddr",       size=1, offset=12, description="DDR input (2 pixels per clock, IT6802 0.5x PCLK modes, 4K)."),
             CSRField("ddr_swap",  size=1, offset=13, description="DDR: falling edge carries the first pixel."),
             CSRField("downscale", size=1, offset=14, description="2x downscale (2x2 box filter, DDR modes)."),
+            CSRField("crop",      size=1, offset=15, description="Crop window (DDR modes, no downscale)."),
         ])
+        self.crop_x = CSRStorage(16, description="Crop window X (words, 2 pixels per word).")
+        self.crop_y = CSRStorage(16, description="Crop window Y (lines).")
+        self.crop_w = CSRStorage(16, reset=960,  description="Crop window width (words).")
+        self.crop_h = CSRStorage(16, reset=1080, description="Crop window height (lines).")
         self.admit_level = CSRStorage(16, reset=fifo_depth//2, description="Minimum free FIFO words to admit a frame.")
         self.hres     = CSRStatus(16, description="Measured active width (pixels).")
         self.vres     = CSRStatus(16, description="Measured active height (lines).")
@@ -74,6 +79,24 @@ class HDMIIn(LiteXModule):
             MultiReg(self.control.fields.ddr,       ddr,       "hdmi"),
             MultiReg(self.control.fields.ddr_swap,  ddr_swap,  "hdmi"),
             MultiReg(self.control.fields.downscale, downscale, "hdmi"),
+        ]
+        crop    = Signal()
+        crop_x0 = Signal(16)
+        crop_x1 = Signal(16)
+        crop_y0 = Signal(16)
+        crop_y1 = Signal(16)
+        crop_x1_sys = Signal(16)
+        crop_y1_sys = Signal(16)
+        self.comb += [
+            crop_x1_sys.eq(self.crop_x.storage + self.crop_w.storage - 1),
+            crop_y1_sys.eq(self.crop_y.storage + self.crop_h.storage - 1),
+        ]
+        self.specials += [
+            MultiReg(self.control.fields.crop, crop,    "hdmi"),
+            MultiReg(self.crop_x.storage,      crop_x0, "hdmi"),
+            MultiReg(self.crop_y.storage,      crop_y0, "hdmi"),
+            MultiReg(crop_x1_sys,              crop_x1, "hdmi"),
+            MultiReg(crop_y1_sys,              crop_y1, "hdmi"),
         ]
 
         # Inputs: DDR input registers on QE/DE (Q0: rising edge, Q1: falling edge), VS registered.
@@ -244,7 +267,15 @@ class HDMIIn(LiteXModule):
             If(active,
                 odd.eq(~odd),
                 If(ddr,
-                    If(~downscale,
+                    If(crop,
+                        # Crop window: native pixels inside [x0, x1] x [y0, y1].
+                        If((x >= crop_x0) & (x <= crop_x1) & (line >= crop_y0) & (line <= crop_y1),
+                            w_valid.eq(1),
+                            w_data.eq(Mux(c_swap, Cat(ya, cb, yb, ca), Cat(ya, ca, yb, cb))),
+                            w_first.eq((line == crop_y0) & (x == crop_x0)),
+                            w_last.eq((line == crop_y1) & (x == crop_x1)),
+                        )
+                    ).Elif(~downscale,
                         w_valid.eq(1),
                         w_data.eq(Mux(c_swap, Cat(ya, cb, yb, ca), Cat(ya, ca, yb, cb))),
                         w_first.eq((line == 0) & (x == 0)),

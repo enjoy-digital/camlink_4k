@@ -33,6 +33,10 @@ enum { STREAM_IDLE = 0, STREAM_START, STREAM_STOP };
 static volatile int stream_request;
 static int streaming;
 
+static volatile int      crop_mode;     /* 0: downscale, 1: crop (inputs larger than the frame). */
+static volatile uint16_t crop_x, crop_y; /* Crop window position (pixels, lines). */
+static volatile int      video_request; /* Video settings changed: restart if streaming. */
+
 static volatile int     audio_request; /* Pending audio alternate setting + 1 (0: none). */
 static volatile uint8_t audio_alt;
 static volatile int     audio_test;
@@ -152,15 +156,24 @@ static void video_start(void)
     const struct uvc_frame *frame = &uvc_frames[commit.bFrameIndex - 1];
     const struct it6802_status *hdmi = it6802_get_status();
     uint32_t fps = 10000000UL/commit.dwFrameInterval;
-    /* HDMI input when stable and matching the requested frame size (directly or 2x downscaled),
-     * test pattern otherwise. */
+    /* HDMI input when stable and matching the requested frame size directly, 2x downscaled, or
+     * cropped (crop mode, input larger than the frame), test pattern otherwise. */
     int direct   = hdmi->hactive == frame->width   && hdmi->vactive == frame->height;
     int half     = hdmi->hactive == 2*frame->width && hdmi->vactive == 2*frame->height;
-    int use_hdmi = hdmi->stable && (direct || half);
+    int crop     = !direct && crop_mode &&
+                   hdmi->hactive >= frame->width && hdmi->vactive >= frame->height;
+    int use_hdmi = hdmi->stable && (direct || half || crop);
     int ddr      = 1; /* IT6802 always in 0.5x PCLK DDR output mode (see it6802.c). */
+    uint16_t x = 0, y = 0;
 
-    fpga_stream_start(frame->width, frame->height, fps, use_hdmi, ddr, use_hdmi && half,
-        hdmi->colorspace != 0);
+    if (use_hdmi && crop) {
+        /* Clamp the window to the input (x on a 2-pixel boundary). */
+        x = crop_x < hdmi->hactive - frame->width  ? crop_x : hdmi->hactive - frame->width;
+        y = crop_y < hdmi->vactive - frame->height ? crop_y : hdmi->vactive - frame->height;
+        x &= ~1;
+    }
+    fpga_stream_start(frame->width, frame->height, fps, use_hdmi, ddr,
+        use_hdmi && half && !crop, hdmi->colorspace != 0, use_hdmi && crop, x, y);
 }
 
 /* (Re)start the GPIF with the active streams: FPGA sources and GPIF logic off (reset), FX3 GPIF
@@ -189,6 +202,14 @@ uint8_t uvc_audio_get_interface(void)
     return audio_alt;
 }
 
+void uvc_set_crop(int enable, uint16_t x, uint16_t y)
+{
+    crop_mode     = enable;
+    crop_x        = x;
+    crop_y        = y;
+    video_request = 1;
+}
+
 void uvc_audio_set_test(int test)
 {
     audio_test    = test;
@@ -202,14 +223,25 @@ void uvc_service(void)
     int audio;
 
     /* Take the pending requests atomically (set from the USB interrupt). */
-    if (stream_request == STREAM_IDLE && !audio_request)
+    int video;
+
+    if (stream_request == STREAM_IDLE && !audio_request && !video_request)
         return;
     irq_disable();
     request        = stream_request;
     stream_request = STREAM_IDLE;
     audio          = audio_request;
     audio_request  = 0;
+    video          = video_request;
+    video_request  = 0;
     irq_enable();
+
+    if (video && request == STREAM_IDLE && !audio) {
+        /* Settings change: only applied immediately while streaming. */
+        if (streaming)
+            streams_apply();
+        return;
+    }
 
     if (request == STREAM_START) {
         uvc_stats[2]++;

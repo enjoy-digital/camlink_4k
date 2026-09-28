@@ -121,6 +121,7 @@ VREQ_FLASH_STATUS  = 0x64
 VREQ_FLASH_RECOVER = 0x65
 VREQ_FPGA_BOOT     = 0x66
 VREQ_AUDIO_TEST    = 0x70
+VREQ_CROP          = 0x71
 
 FLASH_BLOCK_SIZE      = 0x10000
 FLASH_BITSTREAM_HDR   = 0x100000
@@ -292,6 +293,10 @@ class CamLink:
     def audio_test(self, enable):
         """Audio source: FPGA test counter (True) or HDMI I2S (False)."""
         self.vendor_out(VREQ_AUDIO_TEST, int(enable))
+
+    def crop(self, x=None, y=0):
+        """Inputs larger than the UVC frame: crop window at (x, y), or 2x downscale (x=None)."""
+        self.vendor_out(VREQ_CROP, 0xffff if x is None else x, y)
 
     def reboot(self):
         self.vendor_out(VREQ_REBOOT)
@@ -571,6 +576,9 @@ def main():
     p.add_argument("image", nargs="?", default="firmware/fx3/build/fx3.img")
     sub.add_parser("flash-recover", help="Erase the FX3 image and reboot to the USB bootloader.")
     sub.add_parser("fpga-boot", help="Load the FPGA from the flash bitstream.")
+    p = sub.add_parser("crop", help="Crop window for inputs larger than the UVC frame (no args: downscale).")
+    p.add_argument("x", nargs="?", type=int)
+    p.add_argument("y", nargs="?", type=int, default=0)
     p = sub.add_parser("audio-source", help="Select the audio source.")
     p.add_argument("source", choices=["hdmi", "test"])
 
@@ -679,6 +687,9 @@ def main():
 
     if args.cmd == "flash-recover":
         CamLink().flash_recover()
+
+    if args.cmd == "crop":
+        CamLink().crop(args.x, args.y)
 
     if args.cmd == "audio-source":
         CamLink().audio_test(args.source == "test")

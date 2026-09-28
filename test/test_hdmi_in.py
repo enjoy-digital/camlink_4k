@@ -55,7 +55,7 @@ def ddr_source(pads, frames):
                 yield pads.qe_fall.eq(pixel(f, 2*x + 1, y) if active else 0)
                 yield
 
-def run(ready_pattern, frames=6, ddr=False, downscale=False):
+def run(ready_pattern, frames=6, ddr=False, downscale=False, crop=None):
     pads = Pads()
     dut  = HDMIIn(pads, fifo_depth=64, sim=True)
     out  = []
@@ -68,6 +68,10 @@ def run(ready_pattern, frames=6, ddr=False, downscale=False):
         yield dut.control.fields.ddr.eq(ddr)
         yield dut.control.fields.downscale.eq(downscale)
         yield dut.admit_level.storage.eq(40)
+        if crop is not None:
+            yield dut.control.fields.crop.eq(1)
+            for csr, v in zip((dut.crop_x, dut.crop_y, dut.crop_w, dut.crop_h), crop):
+                yield csr.storage.eq(v)
         yield
 
 
@@ -141,4 +145,16 @@ def test_hdmi_in_ddr_downscale():
                 a, b = hword(y, x), hword(y + 1, x)
                 v = [(a[i] + b[i] + 1) >> 1 for i in range(4)]
                 words.append(v[0] | (v[1] << 8) | (v[2] << 16) | (v[3] << 24))
+        assert frame == words
+
+def test_hdmi_in_ddr_crop():
+    # Window: words 2-5 (pixels 4-11), lines 1-2.
+    x0, y0, w, h = 2, 1, 4, 2
+    dut, frames = run(lambda cycle: 1, ddr=True, crop=(x0, y0, w, h))
+    assert len(frames) >= 3
+    for frame in frames:
+        assert len(frame) == w*h
+        f = ((frame[0] & 0xff) - 0xa0 - 4*y0 - 2*x0) % 256 // 16
+        full = expected_frame(f)
+        words = [full[y*(HACT//2) + x] for y in range(y0, y0 + h) for x in range(x0, x0 + w)]
         assert frame == words
