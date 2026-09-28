@@ -18,11 +18,13 @@ from litex.gen import *
 from litex.soc.integration.soc_core import *
 from litex.soc.integration.builder  import *
 from litex.soc.cores.led            import LedChaser
+from litex.soc.cores.freqmeter      import FreqMeter
 
 from litecamlink_platform import Platform
 
 from litecamlink.gateware.crg     import CRG
-from litecamlink.gateware.pintest import PinTest
+from litecamlink.gateware.pintest    import PinTest
+from litecamlink.gateware.i2c_bridge import I2CBridge
 
 # BaseSoC ------------------------------------------------------------------------------------------
 
@@ -42,13 +44,20 @@ class BaseSoC(SoCMini):
             sys_clk_freq = sys_clk_freq,
         )
 
+        # I2C Bridge (Host access through the FX3 I2C master) --------------------------------------
+        self.i2c_bridge = I2CBridge(platform.request("i2c"), address=0x10)
+        self.bus.add_master(name="i2c_bridge", master=self.i2c_bridge.bus)
+
         # HDMI Receiver (IT6802) -------------------------------------------------------------------
         hdmi_in = platform.request("hdmi_in")
         self.comb += hdmi_in.rst_n.eq(1) # Release IT6802 reset.
+        self.hdmi_clk_freq = FreqMeter(period=int(sys_clk_freq), clk=hdmi_in.pclk)
 
         # PinTest ----------------------------------------------------------------------------------
+        fx3 = platform.request("fx3")
+        if not with_pintest:
+            self.fx3_clk_freq = FreqMeter(period=int(sys_clk_freq), clk=fx3.pclk)
         if with_pintest:
-            fx3      = platform.request("fx3")
             fx3_gpio = [platform.request("fx3_gpio", i) for i in (1, 2)]
             self.pintest = PinTest(
                 step_pin = fx3_gpio[1], # FX3 GPIO45.

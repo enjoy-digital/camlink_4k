@@ -174,6 +174,29 @@ class CamLink:
         self.vendor_out(VREQ_REBOOT)
         usb.util.dispose_resources(self.dev)
 
+# SoC Bus (FPGA I2C Bridge) ------------------------------------------------------------------------
+
+from litex.tools.remote.csr_builder import CSRBuilder
+
+FPGA_I2C_ADDR = 0x10
+
+class CamLinkBus(CSRBuilder):
+    """FPGA SoC bus access through the FX3 I2C master and the FPGA I2CBridge."""
+    def __init__(self, cl=None, csr_csv="build/csr.csv"):
+        self.cl = CamLink() if cl is None else cl
+        CSRBuilder.__init__(self, comm=self, csr_csv=csr_csv)
+
+    def read(self, addr, length=None, burst="incr"):
+        n = 1 if length is None else length
+        self.cl.i2c_write(FPGA_I2C_ADDR, data=struct.pack(">I", addr))
+        data = self.cl.i2c_read(FPGA_I2C_ADDR, length=4*n)
+        values = list(struct.unpack(f">{n}I", data))
+        return values[0] if length is None else values
+
+    def write(self, addr, data):
+        data = data if isinstance(data, list) else [data]
+        self.cl.i2c_write(FPGA_I2C_ADDR, data=struct.pack(f">I{len(data)}I", addr, *data))
+
 # Pin Test -----------------------------------------------------------------------------------------
 
 # FPGA PinTest pins order (see litecamlink.py) with their expected FX3 GPIO.
@@ -234,6 +257,10 @@ def main():
     p.add_argument("reg",  type=lambda x: int(x, 0))
     p.add_argument("value", type=lambda x: int(x, 0))
 
+    p = sub.add_parser("csr", help="Read (or write) a FPGA CSR register by name.")
+    p.add_argument("name", nargs="?", help="Register name (list all if omitted).")
+    p.add_argument("value", nargs="?", type=lambda x: int(x, 0))
+
     sub.add_parser("list",   help="List Cam Link related USB devices.")
     sub.add_parser("ident",  help="Show LiteCamLink firmware identification.")
     sub.add_parser("reboot", help="Reboot the FX3 (back to the USB bootloader).")
@@ -278,6 +305,16 @@ def main():
 
     if args.cmd == "i2c-write":
         CamLink().i2c_write(args.addr, bytes([args.reg]), bytes([args.value]))
+
+    if args.cmd == "csr":
+        bus = CamLinkBus()
+        names = [args.name] if args.name else list(bus.regs.d.keys())
+        for name in names:
+            reg = getattr(bus.regs, name)
+            if args.value is not None:
+                reg.write(args.value)
+            else:
+                print(f"{name:32s}: 0x{reg.read():08x}")
 
     if args.cmd == "ident":
         cl  = CamLink()
