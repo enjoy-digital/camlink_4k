@@ -12,6 +12,7 @@
 #include "fx3.h"
 #include "usb_desc.h"
 #include "fpga.h"
+#include "i2c.h"
 
 /* Vendor Requests ------------------------------------------------------------------------------- */
 
@@ -26,12 +27,16 @@ enum {
     VREQ_FPGA_DONE = 0x13, /* IN : Finish FPGA configuration, returns status.      */
     VREQ_GPIO_CFG  = 0x20, /* OUT: GPIO value: 0 = input, 1 = output low, 2 = high. */
     VREQ_GPIO_READ = 0x21, /* IN : GPIO 0-60 input values (64-bit bitmap).         */
+    VREQ_I2C_WRITE = 0x30, /* OUT: I2C write, value = addr | prefix_len << 8, data = prefix + payload. */
+    VREQ_I2C_READ  = 0x31, /* IN : I2C read,  value = addr | prefix_len << 8, index = prefix (LE).  */
+    VREQ_I2C_STATUS= 0x32, /* IN : Status of the last I2C transfer (0 = OK).       */
 };
 
 #define EP0_BUF_SIZE 4096
 
 static uint8_t ep0_buf[EP0_BUF_SIZE] __attribute__((aligned(32)));
 static volatile int reboot_request;
+static int i2c_status;
 
 static const char ident[] = "LiteCamLink FX3 firmware " GIT_VERSION;
 
@@ -100,6 +105,36 @@ static void vendor_request(const struct usb_setup *setup)
         usb_ep0_in(ep0_buf, 8);
         return;
     }
+    case VREQ_I2C_WRITE: {
+        uint8_t addr       = setup->value & 0x7f;
+        uint8_t prefix_len = setup->value >> 8;
+        if (setup->length > EP0_BUF_SIZE || prefix_len > setup->length)
+            break;
+        if (setup->length && usb_ep0_out(ep0_buf, setup->length) < 0)
+            return;
+        if (!setup->length)
+            usb_ep0_ack();
+        /* Errors are reported through VREQ_I2C_READ/status only (data stage already acked). */
+        i2c_status = i2c_write(addr, ep0_buf, prefix_len, ep0_buf + prefix_len,
+            setup->length - prefix_len);
+        return;
+    }
+    case VREQ_I2C_READ: {
+        uint8_t addr       = setup->value & 0x7f;
+        uint8_t prefix_len = setup->value >> 8;
+        uint8_t prefix[2]  = {setup->index & 0xff, setup->index >> 8};
+        if (setup->length > EP0_BUF_SIZE || prefix_len > 2)
+            break;
+        i2c_status = i2c_read(addr, prefix, prefix_len, ep0_buf, setup->length);
+        if (i2c_status)
+            break;
+        usb_ep0_in(ep0_buf, setup->length);
+        return;
+    }
+    case VREQ_I2C_STATUS:
+        ep0_buf[0] = (uint8_t)i2c_status;
+        usb_ep0_in(ep0_buf, 1);
+        return;
     case VREQ_REBOOT:
         usb_ep0_ack();
         reboot_request = 1;
@@ -186,6 +221,7 @@ int main(void)
     gctl_init_iomatrix(IOMATRIX_GPIF32BIT_UART_I2S);
     gpio_init_clock();
     fpga_init();
+    i2c_init(100000);
     irq_enable();
 
     usb_init(setup_request);

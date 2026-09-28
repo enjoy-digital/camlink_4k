@@ -94,6 +94,9 @@ VREQ_FPGA_DATA = 0x12
 VREQ_FPGA_DONE = 0x13
 VREQ_GPIO_CFG  = 0x20
 VREQ_GPIO_READ = 0x21
+VREQ_I2C_WRITE = 0x30
+VREQ_I2C_READ  = 0x31
+VREQ_I2C_STAT  = 0x32
 
 FPGA_STATUS_DONE = (1 <<  8)
 FPGA_STATUS_BUSY = (1 << 12)
@@ -143,6 +146,29 @@ class CamLink:
 
     def gpio_read(self):
         return struct.unpack("<Q", self.vendor_in(VREQ_GPIO_READ, length=8))[0]
+
+    def i2c_write(self, addr, prefix=b"", data=b""):
+        self.vendor_out(VREQ_I2C_WRITE, addr | (len(prefix) << 8), 0, bytes(prefix) + bytes(data))
+        if self.vendor_in(VREQ_I2C_STAT, length=1)[0]:
+            raise IOError(f"I2C write to 0x{addr:02x} failed.")
+
+    def i2c_read(self, addr, prefix=b"", length=1):
+        assert len(prefix) <= 2
+        index = int.from_bytes(bytes(prefix), "little")
+        try:
+            return self.vendor_in(VREQ_I2C_READ, addr | (len(prefix) << 8), index, length)
+        except usb.core.USBError:
+            raise IOError(f"I2C read from 0x{addr:02x} failed.")
+
+    def i2c_scan(self):
+        found = []
+        for addr in range(0x08, 0x78):
+            try:
+                self.i2c_read(addr, length=1)
+                found.append(addr)
+            except IOError:
+                pass
+        return found
 
     def reboot(self):
         self.vendor_out(VREQ_REBOOT)
@@ -200,6 +226,14 @@ def main():
     sub.add_parser("fpga-info", help="Show FPGA IDCODE/status.")
     sub.add_parser("pintest",   help="Run FX3 <-> FPGA pin test (needs --with-pintest bitstream).")
 
+    sub.add_parser("i2c-scan", help="Scan the internal I2C bus.")
+    p = sub.add_parser("i2c-dump", help="Dump 256 registers of an I2C device (8-bit register address).")
+    p.add_argument("addr", type=lambda x: int(x, 0))
+    p = sub.add_parser("i2c-write", help="Write an I2C register (8-bit register address).")
+    p.add_argument("addr", type=lambda x: int(x, 0))
+    p.add_argument("reg",  type=lambda x: int(x, 0))
+    p.add_argument("value", type=lambda x: int(x, 0))
+
     sub.add_parser("list",   help="List Cam Link related USB devices.")
     sub.add_parser("ident",  help="Show LiteCamLink firmware identification.")
     sub.add_parser("reboot", help="Reboot the FX3 (back to the USB bootloader).")
@@ -231,6 +265,19 @@ def main():
 
     if args.cmd == "pintest":
         sys.exit(0 if pintest(CamLink()) else 1)
+
+    if args.cmd == "i2c-scan":
+        print(" ".join(f"0x{a:02x}" for a in CamLink().i2c_scan()))
+
+    if args.cmd == "i2c-dump":
+        cl   = CamLink()
+        data = b"".join(cl.i2c_read(args.addr, bytes([r]), 32) for r in range(0, 256, 32))
+        print("     " + " ".join(f"{i:02x}" for i in range(16)))
+        for r in range(0, 256, 16):
+            print(f"{r:02x} : " + " ".join(f"{b:02x}" for b in data[r:r + 16]))
+
+    if args.cmd == "i2c-write":
+        CamLink().i2c_write(args.addr, bytes([args.reg]), bytes([args.value]))
 
     if args.cmd == "ident":
         cl  = CamLink()

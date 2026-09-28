@@ -93,7 +93,7 @@ _io = [
     ("i2c", 0,
         Subsignal("scl", Pins("P18")),
         Subsignal("sda", Pins("P19")),
-        IOStandard("LVCMOS33"),
+        IOStandard("LVCMOS33"), Misc("PULLMODE=NONE"),
     ),
 
     # IT6802 HDMI Receiver (24-bit output: QE4-11, QE16-23, QE28-35).

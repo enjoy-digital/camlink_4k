@@ -42,6 +42,10 @@ class BaseSoC(SoCMini):
             sys_clk_freq = sys_clk_freq,
         )
 
+        # HDMI Receiver (IT6802) -------------------------------------------------------------------
+        hdmi_in = platform.request("hdmi_in")
+        self.comb += hdmi_in.rst_n.eq(1) # Release IT6802 reset.
+
         # PinTest ----------------------------------------------------------------------------------
         if with_pintest:
             fx3      = platform.request("fx3")
