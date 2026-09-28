@@ -12,6 +12,9 @@ make -C firmware/fx3 && python3 litecamlink.py --build
 python3 software/camlink.py boot
 ```
 
+Most checks below are scripted: `python3 software/validate.py` (all steps, PASS/FAIL table) or
+`python3 software/validate.py --list` / `validate.py <step> ...`.
+
 ## 1. Base + robustness (commit cd6a483, 94b5d4d, FX3 PHY fix)
 
 | Check | Command | Expected |

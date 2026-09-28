@@ -23,38 +23,38 @@ UVC_VS_PROBE_CONTROL  = 0x01
 UVC_VS_COMMIT_CONTROL = 0x02
 PAYLOAD_SIZE = 16384
 
-def uvc_commit(handle, frame_index, fps):
-    probe = struct.pack("<HBBIHHHHHIIIBBBB", 0, 1, frame_index, 10000000//fps, 0, 0, 0, 0, 0,
+FRAMES = {
+    1: {1: (1920, 1080), 2: (1280, 720), 3: (640, 480)}, # YUY2.
+    2: {1: (3840, 2160), 2: (1920, 1080)},               # M420.
+}
+BPP = {1: 16, 2: 12}
+
+def uvc_commit(handle, frame_index, fps, format_index=1):
+    probe = struct.pack("<HBBIHHHHHIIIBBBB", 0, format_index, frame_index, 10000000//fps, 0, 0, 0, 0, 0,
         0, 0, 0, 0, 1, 1, 1)
     for selector in (UVC_VS_PROBE_CONTROL, UVC_VS_COMMIT_CONTROL):
         handle.controlWrite(0x21, UVC_SET_CUR, selector << 8, 1, probe)
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--frame",   type=int, default=1, help="UVC frame index (1: 1080p, 2: 720p, 3: 480p).")
-    parser.add_argument("--fps",     type=int, default=30)
-    parser.add_argument("--seconds", type=float, default=4)
-    parser.add_argument("--dump",    type=int, default=4, help="Bad payloads to dump.")
-    args = parser.parse_args()
-
-    width, height = {1: (1920, 1080), 2: (1280, 720), 3: (640, 480)}[args.frame]
-    frame_size = width*height*2
+def raw_capture(frame=1, fps=30, seconds=4, format_index=1, dump=0, payload_size=PAYLOAD_SIZE):
+    """Raw UVC capture (uvcvideo detached), returns statistics (frames, header errors...)."""
+    width, height = FRAMES[format_index][frame]
+    frame_size = width*height*BPP[format_index]//8
 
     reader = USBStreamReader()
-    uvc_commit(reader.handle, args.frame, args.fps)
+    uvc_commit(reader.handle, frame, fps, format_index)
 
     state = {"frame": 0, "frames": [], "fid": None, "errors": 0, "dumps": 0, "payloads": 0,
         "short": []}
     def on_transfer(chunk):
-        for off in range(0, len(chunk), PAYLOAD_SIZE):
-            payload = chunk[off:off + PAYLOAD_SIZE]
+        for off in range(0, len(chunk), payload_size):
+            payload = chunk[off:off + payload_size]
             state["payloads"] += 1
-            if len(payload) < PAYLOAD_SIZE:
+            if len(payload) < payload_size:
                 state["short"].append(len(payload))
             hlen, info = payload[0], payload[1]
             if hlen != 12 or not (info & 0x80):
                 state["errors"] += 1
-                if state["dumps"] < args.dump:
+                if state["dumps"] < dump:
                     state["dumps"] += 1
                     print(f"bad payload #{state['payloads']} (chunk {len(chunk)}, off {off}, "
                           f"len {len(payload)}): {payload[:16].hex()}")
@@ -70,22 +70,44 @@ def main():
                 state["frame"] = 0
                 state["fid"] = None
 
-    size = int(args.seconds*frame_size*args.fps)
+    size = int(seconds*frame_size*fps)
     received, duration, error = reader.read(size, on_transfer, timeout=2.0)
     # Stream off (endpoint halt cleared, as uvcvideo does for bulk).
     reader.handle.clearHalt(0x81)
     reader.close()
 
     sizes = state["frames"]
-    good  = sum(1 for s in sizes if s == frame_size)
-    print(f"{received/1e6:.1f} MB in {duration:.2f}s ({received/max(duration, 1e-3)/1e6:.1f} MB/s), "
-          f"{len(sizes)} frames ({good} good, {len(sizes)/max(duration, 1e-3):.1f} fps), "
-          f"{state['payloads']} payloads, {state['errors']} header errors, error: {error}")
-    bad = [s for s in sizes if s != frame_size]
-    if bad:
-        print(f"bad frame sizes (expected {frame_size}): {bad[:8]}")
-    short = sorted(set(state["short"]))
-    print(f"short payload sizes: {short[:8]}")
+    return {
+        "frame_size":    frame_size,
+        "received_mb":   received/1e6,
+        "duration":      duration,
+        "rate_mbs":      received/max(duration, 1e-3)/1e6,
+        "frames":        len(sizes),
+        "good_frames":   sum(1 for s in sizes if s == frame_size),
+        "bad_sizes":     [s for s in sizes if s != frame_size][:8],
+        "fps":           len(sizes)/max(duration, 1e-3),
+        "payloads":      state["payloads"],
+        "header_errors": state["errors"],
+        "short":         sorted(set(state["short"]))[:8],
+        "error":         error,
+    }
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--format",  type=int, default=1, help="UVC format index (1: YUY2, 2: M420).")
+    parser.add_argument("--frame",   type=int, default=1, help="UVC frame index (YUY2: 1080p/720p/480p, M420: 2160p/1080p).")
+    parser.add_argument("--fps",     type=int, default=30)
+    parser.add_argument("--seconds", type=float, default=4)
+    parser.add_argument("--dump",    type=int, default=4, help="Bad payloads to dump.")
+    args = parser.parse_args()
+
+    r = raw_capture(args.frame, args.fps, args.seconds, args.format, args.dump)
+    print(f"{r['received_mb']:.1f} MB in {r['duration']:.2f}s ({r['rate_mbs']:.1f} MB/s), "
+          f"{r['frames']} frames ({r['good_frames']} good, {r['fps']:.1f} fps), "
+          f"{r['payloads']} payloads, {r['header_errors']} header errors, error: {r['error']}")
+    if r["bad_sizes"]:
+        print(f"bad frame sizes (expected {r['frame_size']}): {r['bad_sizes']}")
+    print(f"short payload sizes: {r['short']}")
 
 if __name__ == "__main__":
     main()
