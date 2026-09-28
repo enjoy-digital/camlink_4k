@@ -23,6 +23,26 @@
 #define UVC_VC_HEADER                     0x01
 #define UVC_VC_INPUT_TERMINAL             0x02
 #define UVC_VC_OUTPUT_TERMINAL            0x03
+#define UVC_VC_PROCESSING_UNIT            0x05
+#define UVC_VC_EXTENSION_UNIT             0x06
+
+/* Video Control entities. */
+#define UVC_ID_CAMERA     1
+#define UVC_ID_OUTPUT     2
+#define UVC_ID_PROCESSING 3
+#define UVC_ID_EXTENSION  4
+
+/* Processing Unit controls. */
+#define UVC_PU_BRIGHTNESS_CONTROL 0x02
+#define UVC_PU_CONTRAST_CONTROL   0x03
+#define UVC_PU_SATURATION_CONTROL 0x07
+
+/* Extension Unit controls (LiteCamLink). */
+#define XU_INPUT_INFO_CONTROL 0x01 /* GET: struct it6802_status (24 bytes).                  */
+#define XU_CROP_CONTROL       0x02 /* GET/SET: x (u16), y (u16); x = 0xffff: 2x downscale.   */
+#define XU_CONTROLS           2
+/* {4c434c4c-4b4e-4943-4c43-4b3478750001} ("LiteCamLink XU"). */
+#define XU_GUID 0x4c, 0x4c, 0x43, 0x4c, 0x4e, 0x4b, 0x43, 0x49, 0x4c, 0x43, 0x4b, 0x34, 0x78, 0x75, 0x00, 0x01
 #define UVC_VS_INPUT_HEADER               0x01
 #define UVC_VS_FORMAT_UNCOMPRESSED        0x04
 #define UVC_VS_FRAME_UNCOMPRESSED         0x05

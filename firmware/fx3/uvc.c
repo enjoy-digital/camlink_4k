@@ -20,6 +20,8 @@
 #include "fpga_ctrl.h"
 #include "it6802.h"
 
+#include "generated/fpga_csr.h"
+
 const struct uvc_frame uvc_frames[UVC_FRAME_COUNT] = {
     {1920, 1080},
     {1280,  720},
@@ -88,6 +90,126 @@ static void uvc_probe_default(struct uvc_probe *p, int max)
     uvc_probe_fixup(p);
 }
 
+/* Video Control Requests ------------------------------------------------------------------------ */
+
+/* Processing Unit controls (applied by the FPGA ColorAdjust on the HDMI path). */
+struct pu_control {
+    uint8_t  selector;
+    int16_t  min, max, def;
+    volatile int16_t cur;
+};
+
+static struct pu_control pu_controls[] = {
+    {UVC_PU_BRIGHTNESS_CONTROL, -64,  64,   0,   0},
+    {UVC_PU_CONTRAST_CONTROL,     0, 255, 128, 128},
+    {UVC_PU_SATURATION_CONTROL,   0, 255, 128, 128},
+};
+
+static volatile int color_request;
+
+static void uvc_apply_color(void)
+{
+    fpga_csr_write(CSR_COLOR_BRIGHTNESS, (uint8_t)pu_controls[0].cur);
+    fpga_csr_write(CSR_COLOR_CONTRAST,   (uint8_t)pu_controls[1].cur);
+    fpga_csr_write(CSR_COLOR_SATURATION, (uint8_t)pu_controls[2].cur);
+}
+
+static void ep0_in16(uint8_t *buf, uint16_t v0, uint16_t v1, uint16_t len)
+{
+    buf[0] = v0; buf[1] = v0 >> 8;
+    buf[2] = v1; buf[3] = v1 >> 8;
+    usb_ep0_in(buf, len);
+}
+
+static int uvc_pu_request(const struct usb_setup *setup, uint8_t *buf)
+{
+    uint8_t selector = setup->value >> 8;
+    uint16_t len     = setup->length < 2 ? setup->length : 2;
+    struct pu_control *c = 0;
+
+    for (unsigned i = 0; i < sizeof(pu_controls)/sizeof(pu_controls[0]); i++)
+        if (pu_controls[i].selector == selector)
+            c = &pu_controls[i];
+    if (!c)
+        return -1;
+    switch (setup->request) {
+    case UVC_SET_CUR: {
+        int16_t v;
+        if (usb_ep0_out(buf, 2) < 0)
+            return 0;
+        v = (int16_t)(buf[0] | (buf[1] << 8));
+        c->cur = v < c->min ? c->min : v > c->max ? c->max : v;
+        color_request = 1;
+        return 0;
+    }
+    case UVC_GET_CUR: ep0_in16(buf, c->cur, 0, len); return 0;
+    case UVC_GET_MIN: ep0_in16(buf, c->min, 0, len); return 0;
+    case UVC_GET_MAX: ep0_in16(buf, c->max, 0, len); return 0;
+    case UVC_GET_DEF: ep0_in16(buf, c->def, 0, len); return 0;
+    case UVC_GET_RES: ep0_in16(buf, 1,      0, len); return 0;
+    case UVC_GET_INFO:
+        buf[0] = 0x03; /* GET/SET supported. */
+        usb_ep0_in(buf, 1);
+        return 0;
+    }
+    return -1;
+}
+
+static int uvc_xu_request(const struct usb_setup *setup, uint8_t *buf)
+{
+    uint8_t selector = setup->value >> 8;
+    uint16_t size    = (selector == XU_INPUT_INFO_CONTROL) ? sizeof(struct it6802_status) : 4;
+    uint16_t len     = setup->length < size ? setup->length : size;
+
+    if (selector != XU_INPUT_INFO_CONTROL && selector != XU_CROP_CONTROL)
+        return -1;
+    switch (setup->request) {
+    case UVC_GET_LEN:
+        ep0_in16(buf, size, 0, setup->length < 2 ? setup->length : 2);
+        return 0;
+    case UVC_GET_INFO:
+        buf[0] = (selector == XU_CROP_CONTROL) ? 0x03 : 0x01;
+        usb_ep0_in(buf, 1);
+        return 0;
+    case UVC_GET_CUR:
+        if (selector == XU_INPUT_INFO_CONTROL) {
+            struct it6802_status *st = (struct it6802_status *)buf;
+            memcpy(st, it6802_get_status(), sizeof(*st));
+            fpga_csr_read(CSR_HDMI_IN_FRAME_PERIOD, &st->frame_period);
+            usb_ep0_in(buf, len);
+        } else {
+            ep0_in16(buf, crop_mode ? crop_x : 0xffff, crop_y, len);
+        }
+        return 0;
+    case UVC_GET_MIN:
+    case UVC_GET_RES:
+        memset(buf, 0, size);
+        if (setup->request == UVC_GET_RES && selector == XU_CROP_CONTROL)
+            buf[0] = buf[2] = 1;
+        usb_ep0_in(buf, len);
+        return 0;
+    case UVC_GET_MAX:
+    case UVC_GET_DEF:
+        memset(buf, setup->request == UVC_GET_MAX ? 0xff : 0, size);
+        if (setup->request == UVC_GET_DEF && selector == XU_CROP_CONTROL)
+            buf[0] = buf[1] = 0xff;
+        usb_ep0_in(buf, len);
+        return 0;
+    case UVC_SET_CUR:
+        if (selector != XU_CROP_CONTROL)
+            return -1;
+        if (usb_ep0_out(buf, 4) < 0)
+            return 0;
+        {
+            uint16_t x = buf[0] | (buf[1] << 8);
+            uint16_t y = buf[2] | (buf[3] << 8);
+            uvc_set_crop(x != 0xffff, x, y);
+        }
+        return 0;
+    }
+    return -1;
+}
+
 /* Class Requests -------------------------------------------------------------------------------- */
 
 int uvc_class_request(const struct usb_setup *setup, uint8_t *buf)
@@ -97,7 +219,14 @@ int uvc_class_request(const struct usb_setup *setup, uint8_t *buf)
     uint16_t len     = setup->length;
     struct uvc_probe *ctrl;
 
-    /* Video Control interface: no controls. */
+    /* Video Control interface: Processing/Extension Unit controls. */
+    if (intf == UVC_INTF_CONTROL) {
+        if ((setup->index >> 8) == UVC_ID_PROCESSING)
+            return uvc_pu_request(setup, buf);
+        if ((setup->index >> 8) == UVC_ID_EXTENSION)
+            return uvc_xu_request(setup, buf);
+        return -1;
+    }
     if (intf != UVC_INTF_STREAMING)
         return -1;
     if (selector != UVC_VS_PROBE_CONTROL && selector != UVC_VS_COMMIT_CONTROL)
@@ -226,6 +355,10 @@ void uvc_service(void)
     /* Take the pending requests atomically (set from the USB interrupt). */
     int video;
 
+    if (color_request) {
+        color_request = 0;
+        uvc_apply_color();
+    }
     /* Settled input change (mode, color space, loss): re-evaluate the video source. */
     if (it6802_get_status()->generation != input_generation) {
         input_generation = it6802_get_status()->generation;

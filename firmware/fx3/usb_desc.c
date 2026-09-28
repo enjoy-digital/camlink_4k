@@ -7,7 +7,8 @@
  * USB descriptors (High-Speed and SuperSpeed): UVC 1.1 camera, bulk streaming on EP1 IN, UAC 1.0
  * 48kHz stereo 16-bit audio, isochronous EP2 IN.
  *
- * Interface 0: Video Control   (Camera Terminal -> Output Terminal).
+ * Interface 0: Video Control   (Camera Terminal -> Processing Unit (brightness, contrast, saturation)
+ *              -> Extension Unit (input info, crop) -> Output Terminal).
  * Interface 1: Video Streaming (YUY2, frames from uvc_frames[], bulk EP1 IN).
  * Interface 2: Audio Control   (Input Terminal (digital audio interface) -> USB Streaming).
  * Interface 3: Audio Streaming (alt 0: idle, alt 1: PCM 48kHz stereo 16-bit, iso EP2 IN, 1ms).
@@ -61,7 +62,7 @@ static const uint8_t bos[] = {
 
 /* Configuration --------------------------------------------------------------------------------- */
 
-#define VC_TOTAL      (13 + 18 + 9)
+#define VC_TOTAL      (13 + 18 + 11 + 26 + 9)
 #define FRAME_LEN     (26 + 4*UVC_FRAME_INTERVALS)
 #define VS_TOTAL      (14 + 27 + UVC_FRAME_COUNT*FRAME_LEN + 6)
 #define AC_TOTAL      (9 + 12 + 9)
@@ -90,8 +91,14 @@ static const uint8_t bos[] = {
     /* Camera Terminal (ID 1). */                                                                   \
     18, UVC_CS_INTERFACE, UVC_VC_INPUT_TERMINAL, 1, W16(0x0201), 0, 0, W16(0), W16(0), W16(0),      \
     3, 0, 0, 0,                                                                                     \
+    /* Processing Unit (ID 3): brightness, contrast, saturation. */                               \
+    11, UVC_CS_INTERFACE, UVC_VC_PROCESSING_UNIT, UVC_ID_PROCESSING, UVC_ID_CAMERA, W16(0), 2,      \
+    W16(0x000b), 0,                                                                                 \
+    /* Extension Unit (ID 4): input info, crop. */                                                 \
+    26, UVC_CS_INTERFACE, UVC_VC_EXTENSION_UNIT, UVC_ID_EXTENSION, XU_GUID, XU_CONTROLS, 1,         \
+    UVC_ID_PROCESSING, 1, 0x03, 0,                                                                  \
     /* Output Terminal (ID 2). */                                                                   \
-    9, UVC_CS_INTERFACE, UVC_VC_OUTPUT_TERMINAL, 2, W16(0x0101), 0, 1, 0,                           \
+    9, UVC_CS_INTERFACE, UVC_VC_OUTPUT_TERMINAL, UVC_ID_OUTPUT, W16(0x0101), 0, UVC_ID_EXTENSION, 0,\
     /* VS Interface. */                                                                             \
     9, USB_DT_INTERFACE, UVC_INTF_STREAMING, 0, 1, UVC_CC_VIDEO, UVC_SC_VIDEOSTREAMING, 0, 0,       \
     /* VS Input Header. */                                                                          \
