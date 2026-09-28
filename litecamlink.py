@@ -25,6 +25,7 @@ from litecamlink_platform import Platform
 from litecamlink.gateware.crg     import CRG
 from litecamlink.gateware.pintest    import PinTest
 from litecamlink.gateware.i2c_bridge import I2CBridge
+from litecamlink.gateware.gpif       import GPIFStreamer, CounterGenerator
 
 # BaseSoC ------------------------------------------------------------------------------------------
 
@@ -57,6 +58,13 @@ class BaseSoC(SoCMini):
         fx3 = platform.request("fx3")
         if not with_pintest:
             self.fx3_clk_freq = FreqMeter(period=int(sys_clk_freq), clk=fx3.pclk)
+
+            # GPIF Streamer + Counter Generator ----------------------------------------------------
+            self.gpif = GPIFStreamer(fx3)
+            self.gen  = CounterGenerator()
+            self.comb += self.gen.source.connect(self.gpif.sink)
+            platform.add_period_constraint(fx3.pclk, 1e9/100e6)
+            platform.add_false_path_constraints(self.crg.cd_sys.clk, self.gpif.cd_gpif.clk)
         if with_pintest:
             fx3_gpio = [platform.request("fx3_gpio", i) for i in (1, 2)]
             self.pintest = PinTest(

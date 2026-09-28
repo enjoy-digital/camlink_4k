@@ -97,6 +97,11 @@ VREQ_GPIO_READ = 0x21
 VREQ_I2C_WRITE = 0x30
 VREQ_I2C_READ  = 0x31
 VREQ_I2C_STAT  = 0x32
+VREQ_STREAM_START  = 0x40
+VREQ_STREAM_STOP   = 0x41
+VREQ_STREAM_STATUS = 0x42
+
+GPIF_OMEGA_EMPTY_FULL_TH0 = 16
 
 FPGA_STATUS_DONE = (1 <<  8)
 FPGA_STATUS_BUSY = (1 << 12)
@@ -170,6 +175,20 @@ class CamLink:
                 pass
         return found
 
+    def stream_start(self, clk_div_x2=16, flag_omega=GPIF_OMEGA_EMPTY_FULL_TH0):
+        self.vendor_out(VREQ_STREAM_START, clk_div_x2, flag_omega)
+
+    def stream_stop(self):
+        self.vendor_out(VREQ_STREAM_STOP)
+
+    def stream_status(self):
+        names = ["gpif_wave_stat", "gpif_lambda", "pib_intr", "pib_error",
+                 "pib_sck0_status", "pib_sck0_dscr", "uib_sck1_status", "uib_sck1_dscr"]
+        return dict(zip(names, struct.unpack("<8I", self.vendor_in(VREQ_STREAM_STATUS, length=32))))
+
+    def read_stream(self, length, timeout=1000):
+        return self.dev.read(0x81, length, timeout=timeout)
+
     def reboot(self):
         self.vendor_out(VREQ_REBOOT)
         usb.util.dispose_resources(self.dev)
@@ -196,6 +215,47 @@ class CamLinkBus(CSRBuilder):
     def write(self, addr, data):
         data = data if isinstance(data, list) else [data]
         self.cl.i2c_write(FPGA_I2C_ADDR, data=struct.pack(f">I{len(data)}I", addr, *data))
+
+# Stream Test --------------------------------------------------------------------------------------
+
+import numpy as np
+
+def stream_test(cl, bus, size=64*1024*1024, clk_div_x2=16, flag_omega=GPIF_OMEGA_EMPTY_FULL_TH0,
+    flag_invert=0, data_delay=0, chunk=4*1024*1024):
+    bus.regs.gen_enable.write(0)
+    bus.regs.gpif_control.write(0)
+    cl.stream_start(clk_div_x2, flag_omega)
+    time.sleep(1.2) # FreqMeter period is 1s.
+    print(f"FX3 PCLK: {bus.regs.fx3_clk_freq_value.read()/1e6:.2f} MHz, "
+          f"FLAG: {bus.regs.gpif_status.read() & 1}")
+    bus.regs.gen_enable.write(1)
+    bus.regs.gpif_control.write(1 | (flag_invert << 1) | (data_delay << 4))
+    received = 0
+    errors   = 0
+    last     = None
+    start    = time.time()
+    try:
+        while received < size:
+            data = np.frombuffer(bytes(cl.read_stream(chunk)), dtype=np.uint32)
+            if last is not None:
+                data = np.concatenate([[last], data])
+            diffs   = np.diff(data.astype(np.int64)) % (1 << 32)
+            errors += int(np.count_nonzero(diffs != 1))
+            if received == 0:
+                print("First words: " + " ".join(f"{w:08x}" for w in data[:8]))
+            last      = data[-1]
+            received += 4*(len(data) - (1 if received else 0))
+    except usb.core.USBError as e:
+        print(f"USB error: {e}")
+    duration = time.time() - start
+    print(f"Received {received/1e6:.1f} MB in {duration:.2f}s: {received/duration/1e6:.1f} MB/s, "
+          f"{errors} counter discontinuities, {bus.regs.gpif_bursts.read()} bursts.")
+    for k, v in cl.stream_status().items():
+        print(f"  {k:16s}: 0x{v:08x}")
+    bus.regs.gpif_control.write(0)
+    bus.regs.gen_enable.write(0)
+    cl.stream_stop()
+    return errors == 0 and received >= size
 
 # Pin Test -----------------------------------------------------------------------------------------
 
@@ -261,6 +321,14 @@ def main():
     p.add_argument("name", nargs="?", help="Register name (list all if omitted).")
     p.add_argument("value", nargs="?", type=lambda x: int(x, 0))
 
+    p = sub.add_parser("stream-test", help="GPIF -> USB streaming test with FPGA counter pattern.")
+    p.add_argument("--size",        default=64, type=int, help="Size to receive (MB).")
+    p.add_argument("--clk-div-x2",  default=16, type=int, help="PIB clock divider x2 (SYS=384MHz).")
+    p.add_argument("--flag-omega",  default=16, type=int, help="GPIF omega signal for FLAG (CTL1).")
+    p.add_argument("--flag-invert", default=0,  type=int, help="Invert FLAG in the FPGA.")
+    p.add_argument("--data-delay",  default=0,  type=int, help="DQ delay relative to VALID (0-3).")
+    sub.add_parser("stream-status", help="Show GPIF/DMA status.")
+
     sub.add_parser("list",   help="List Cam Link related USB devices.")
     sub.add_parser("ident",  help="Show LiteCamLink firmware identification.")
     sub.add_parser("reboot", help="Reboot the FX3 (back to the USB bootloader).")
@@ -315,6 +383,16 @@ def main():
                 reg.write(args.value)
             else:
                 print(f"{name:32s}: 0x{reg.read():08x}")
+
+    if args.cmd == "stream-test":
+        cl = CamLink()
+        ok = stream_test(cl, CamLinkBus(cl), size=args.size*1024*1024, clk_div_x2=args.clk_div_x2,
+            flag_omega=args.flag_omega, flag_invert=args.flag_invert, data_delay=args.data_delay)
+        sys.exit(0 if ok else 1)
+
+    if args.cmd == "stream-status":
+        for k, v in CamLink().stream_status().items():
+            print(f"{k:16s}: 0x{v:08x}")
 
     if args.cmd == "ident":
         cl  = CamLink()

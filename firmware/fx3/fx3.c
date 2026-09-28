@@ -290,3 +290,32 @@ int dma_transfer_write(uint32_t socket, volatile void *buffer, uint16_t length)
     dma_free_descriptor(d);
     return ret;
 }
+
+void dma_fill_through(uint16_t d, uint32_t prod_socket, uint32_t cons_socket,
+    volatile void *buffer, uint16_t size, uint16_t wrchain, uint16_t rdchain)
+{
+    /* Auto channel descriptor: producer socket -> buffer -> consumer socket. */
+    dma_fill_descriptor(d, (uint32_t)buffer,
+        FX3_DSCR_SYNC_EN_PROD_INT   |
+        FX3_DSCR_SYNC_EN_PROD_EVENT |
+        (DMA_SCK_IP(prod_socket)  << FX3_DSCR_SYNC_PROD_IP_SHIFT) |
+        (DMA_SCK_NUM(prod_socket) << FX3_DSCR_SYNC_PROD_SCK_SHIFT) |
+        FX3_DSCR_SYNC_EN_CONS_INT   |
+        FX3_DSCR_SYNC_EN_CONS_EVENT |
+        (DMA_SCK_IP(cons_socket)  << FX3_DSCR_SYNC_CONS_IP_SHIFT) |
+        (DMA_SCK_NUM(cons_socket) << FX3_DSCR_SYNC_CONS_SCK_SHIFT),
+        size & FX3_DSCR_SIZE_BUFFER_SIZE_MASK,
+        wrchain, rdchain);
+}
+
+void dma_start_producer(uint32_t socket, uint16_t d)
+{
+    dma_socket_start(socket, d,
+        FX3_SCK_STATUS_SUSP_TRANS | FX3_SCK_STATUS_EN_PROD_EVENTS | FX3_SCK_STATUS_TRUNCATE, 0, 0);
+}
+
+void dma_start_consumer(uint32_t socket, uint16_t d)
+{
+    dma_socket_start(socket, d,
+        FX3_SCK_STATUS_SUSP_TRANS | FX3_SCK_STATUS_EN_CONS_EVENTS | FX3_SCK_STATUS_TRUNCATE, 0, 0);
+}

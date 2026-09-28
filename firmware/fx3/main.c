@@ -13,6 +13,7 @@
 #include "usb_desc.h"
 #include "fpga.h"
 #include "i2c.h"
+#include "gpif.h"
 
 /* Vendor Requests ------------------------------------------------------------------------------- */
 
@@ -30,6 +31,9 @@ enum {
     VREQ_I2C_WRITE = 0x30, /* OUT: I2C write, value = addr | prefix_len << 8, data = prefix + payload. */
     VREQ_I2C_READ  = 0x31, /* IN : I2C read,  value = addr | prefix_len << 8, index = prefix (LE).  */
     VREQ_I2C_STATUS= 0x32, /* IN : Status of the last I2C transfer (0 = OK).       */
+    VREQ_STREAM_START  = 0x40, /* OUT: Start GPIF streaming, value = PIB clk div x2, index = flag omega. */
+    VREQ_STREAM_STOP   = 0x41, /* OUT: Stop GPIF streaming.                        */
+    VREQ_STREAM_STATUS = 0x42, /* IN : GPIF/DMA status (8x32-bit).                 */
 };
 
 #define EP0_BUF_SIZE 4096
@@ -134,6 +138,18 @@ static void vendor_request(const struct usb_setup *setup)
     case VREQ_I2C_STATUS:
         ep0_buf[0] = (uint8_t)i2c_status;
         usb_ep0_in(ep0_buf, 1);
+        return;
+    case VREQ_STREAM_START:
+        usb_ep0_ack();
+        gpif_stream_start(setup->value, setup->index);
+        return;
+    case VREQ_STREAM_STOP:
+        usb_ep0_ack();
+        gpif_stream_stop();
+        return;
+    case VREQ_STREAM_STATUS:
+        gpif_stream_status((uint32_t *)ep0_buf);
+        usb_ep0_in(ep0_buf, 32);
         return;
     case VREQ_REBOOT:
         usb_ep0_ack();

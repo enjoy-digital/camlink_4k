@@ -144,6 +144,10 @@ void dma_free_descriptor(uint16_t d);
 void dma_abort_socket(uint32_t socket);
 int  dma_transfer_read(uint32_t socket, const volatile void *buffer, uint16_t length);
 int  dma_transfer_write(uint32_t socket, volatile void *buffer, uint16_t length);
+void dma_fill_through(uint16_t d, uint32_t prod_socket, uint32_t cons_socket,
+    volatile void *buffer, uint16_t size, uint16_t wrchain, uint16_t rdchain);
+void dma_start_producer(uint32_t socket, uint16_t d);
+void dma_start_consumer(uint32_t socket, uint16_t d);
 
 /* USB ------------------------------------------------------------------------------------------- */
 
