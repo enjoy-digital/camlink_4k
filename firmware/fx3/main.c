@@ -218,7 +218,7 @@ static void vendor_request(const struct usb_setup *setup)
         struct it6802_status *st = (struct it6802_status *)ep0_buf;
         uint16_t len = sizeof(*st) < setup->length ? sizeof(*st) : setup->length;
         memcpy(st, it6802_get_status(), sizeof(*st));
-        fpga_csr_read(CSR_HDMI_IN_FRAME_PERIOD, &st->frame_period);
+        st->frame_period = fpga_hdmi_frame_period();
         usb_ep0_in(ep0_buf, len);
         return;
     }

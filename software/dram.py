@@ -195,29 +195,46 @@ class DRAM:
                 self.regs.ddrphy_rdly_dq_bitslip.write(1)
         self.action(fn)
 
+    def warmup(self, n=16):
+        """DFII write/read cycles at mid delays (resynchronize the DQSBUF read path)."""
+        p = self.phy
+        self.software_control()
+        for module in range(p.modules):
+            self.select(module)
+            self.set_bitslip(0)
+            self.set_delay(p.delays//2 - 1)
+        for i in range(n):
+            self.write_read([i*0x01010101 for _ in range(p.phases)], col=8*(i % 4))
+        self.hardware_control()
+
     def read_window(self, verbose=True):
-        """Scan the PHY read window calibration (DQSBUF READ offset x read data delay, global) with
-        per-module leveling, keep the setting with the widest worst-module window."""
+        """PHY read window calibration (DQSBUF READ offset x read data delay, global) with per-module
+        leveling: stock timing (0, 2) first, then the other settings if it has no window. Changing
+        the READ offset leaves the DQSBUF read path out of sync on hardware (even the stock timing
+        then fails): the DRAM init is replayed before each setting."""
         if not hasattr(self.regs, "ddrphy_rdly_re"):
             return self.read_leveling(verbose)
         best = None
-        for re in range(3):
-            for data in range(3):
-                self.regs.ddrphy_rdly_re.write(re)
-                self.regs.ddrphy_rdly_data.write(data)
-                try:
-                    results = self.read_leveling(verbose=False, tries=1)
-                except RuntimeError:
-                    results = None
-                score = min(r[2] for r in results.values()) if results else 0
-                if verbose:
-                    print(f"  rdly_re {re} rdly_data {data}: {results if results else '-'}")
-                if score and (best is None or score > best[0]):
-                    best = (score, re, data)
+        for re, data in [(0, 2)] + [(r, d) for r in range(3) for d in range(3) if (r, d) != (0, 2)]:
+            self.regs.ddrphy_rdly_re.write(re)
+            self.regs.ddrphy_rdly_data.write(data)
+            self.init()
+            try:
+                results = self.read_leveling(verbose=False, tries=1)
+            except RuntimeError:
+                results = None
+            score = min(r[2] for r in results.values()) if results else 0
+            if verbose:
+                print(f"  rdly_re {re} rdly_data {data}: {results if results else '-'}")
+            if score and (best is None or score > best[0]):
+                best = (score, re, data)
+            if (re, data) == (0, 2) and score:
+                break # Stock timing works.
         if best is None:
             raise RuntimeError("Read window calibration failed.")
         self.regs.ddrphy_rdly_re.write(best[1])
         self.regs.ddrphy_rdly_data.write(best[2])
+        self.init()
         if verbose:
             print(f"  -> rdly_re {best[1]}, rdly_data {best[2]}")
         return self.read_leveling(verbose)
@@ -307,8 +324,30 @@ def main():
     print(f"sys {sys_clk_freq/1e6:.3f}MHz, {dram.phy.phases} phases, {dram.phy.memory//2**20}MB")
 
     if args.cmd == "init":
-        dram.init()
-        dram.read_window()
+        # Init + leveling, verified with a short BIST; retried (after reads at bad settings, the
+        # DQSBUF read path can need a few operations to resynchronize on hardware).
+        for attempt in range(5):
+            if attempt and hasattr(dram.regs, "main_crg_phase"):
+                # 1:4: other sys/sys2x phase (ALIGNWD slip + sys2x reset).
+                dram.regs.main_crg_phase.write(1)
+                dram.regs.main_crg_phase.write(0)
+                dram.regs.main_crg_phase.write(2)
+                dram.regs.main_crg_phase.write(0)
+                print(f"attempt {attempt}: sys2x ALIGNWD slip")
+            dram.init()
+            dram.warmup()
+            try:
+                dram.read_window(verbose=(attempt == 0))
+            except RuntimeError as e:
+                print(f"attempt {attempt}: {e}")
+                continue
+            dram.run([("generator", 0, 1 << 20)], sys_clk_freq)
+            errors = dram.run([("checker", 0, 1 << 20)], sys_clk_freq)["checker"][1]
+            print(f"attempt {attempt}: BIST check errors {errors}")
+            if errors == 0:
+                break
+        else:
+            raise RuntimeError("DRAM init failed.")
     if args.cmd == "leveling":
         dram.read_leveling()
     if args.cmd == "memtest":

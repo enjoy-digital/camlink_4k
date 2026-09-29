@@ -122,3 +122,5 @@ const struct it6802_status *it6802_get_status(void) { return &stub_hdmi; }
 /* Timing ---------------------------------------------------------------------------------------- */
 
 void delay_us(uint32_t us) { (void)us; }
+
+uint32_t fpga_hdmi_frame_period(void) { return stub_csr_read_value; }

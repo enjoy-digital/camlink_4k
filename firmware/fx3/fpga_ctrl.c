@@ -173,3 +173,12 @@ void fpga_watchdog_config(uint32_t period_ms)
         heartbeat_on = 0;
     }
 }
+
+/* HDMI input frame period in 100MHz cycles (measured in video clock cycles; host tools use 100MHz
+ * for all builds). */
+uint32_t fpga_hdmi_frame_period(void)
+{
+    uint32_t period = 0;
+    fpga_csr_read(CSR_HDMI_IN_FRAME_PERIOD, &period);
+    return (uint32_t)((uint64_t)period*100000000ULL/VIDEO_CLOCK_FREQ);
+}

@@ -196,7 +196,7 @@ static int uvc_xu_request(const struct usb_setup *setup, uint8_t *buf)
         if (selector == XU_INPUT_INFO_CONTROL) {
             struct it6802_status *st = (struct it6802_status *)buf;
             memcpy(st, it6802_get_status(), sizeof(*st));
-            fpga_csr_read(CSR_HDMI_IN_FRAME_PERIOD, &st->frame_period);
+            st->frame_period = fpga_hdmi_frame_period();
             usb_ep0_in(buf, len);
         } else {
             ep0_in16(buf, crop_mode ? crop_x : 0xffff, crop_y, len);

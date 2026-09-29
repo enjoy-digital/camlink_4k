@@ -20,7 +20,7 @@ from litex.soc.integration.soc_core import *
 from litex.soc.integration.builder  import *
 from litex.soc.cores.led            import LedChaser
 from litex.soc.cores.freqmeter      import FreqMeter
-from litex.soc.interconnect.csr     import CSRStorage
+from litex.soc.interconnect.csr     import CSRStorage, CSRField
 
 from litedram.modules import MT41K64M16
 from litedram.frontend.bist import LiteDRAMBISTGenerator, LiteDRAMBISTChecker
@@ -59,6 +59,7 @@ class BaseSoC(SoCCore):
         with_sdram_bist   = False,
         sdram_banks       = 8,
         sdram_lat_adj     = (0, 0),
+        video_clk_freq    = None,
         with_pintest = False,
         with_ioscan  = False,
         ):
@@ -69,6 +70,7 @@ class BaseSoC(SoCCore):
             sdram_rate  = sdram_rate if with_sdram else None,
             sys_clk_src = sdram_sys_clk_src,
             sys_phase   = sdram_sys_phase,
+            video_clk_freq = video_clk_freq,
         )
 
         # SoCCore ----------------------------------------------------------------------------------
@@ -102,6 +104,17 @@ class BaseSoC(SoCCore):
                 self.crg.stop.eq(self.ddrphy.init.stop),
                 self.crg.reset.eq(self.ddrphy.init.reset),
             ]
+            if sdram_rate == "1:4":
+                # sys/sys2x phase control (see CRG): ALIGNWD pulse and sys2x reset (host/firmware
+                # DRAM init retries with the other phase when the BIST check fails).
+                self.crg_phase = CSRStorage(fields=[
+                    CSRField("alignwd",   size=1, offset=0, description="sys2x CLKDIVF ALIGNWD (pulse: 1 then 0)."),
+                    CSRField("sys2x_rst", size=1, offset=1, description="sys2x domain reset (pulse: 1 then 0)."),
+                ])
+                self.comb += [
+                    self.crg.alignwd.eq(self.crg_phase.fields.alignwd),
+                    self.crg.sys2x_rst.eq(self.crg_phase.fields.sys2x_rst),
+                ]
             self.add_sdram("sdram",
                 phy           = self.ddrphy,
                 module        = (MT41K64M16_4Banks if sdram_banks == 4 else MT41K64M16)(sys_clk_freq, sdram_rate),
@@ -127,12 +140,23 @@ class BaseSoC(SoCCore):
         self.i2c_bridge = I2CBridge(platform.request("i2c"), address=0x10)
         self.bus.add_master(name="i2c_bridge", master=self.i2c_bridge.bus)
 
+        # Video Clock Domain -----------------------------------------------------------------------
+        # The video pipeline (HDMI frame FIFO read side -> canvas/color -> UVC -> GPIF input) runs in
+        # `video`: sys itself, or its own ~100MHz clock when sys is set by the DRAM (e.g. 87.75MHz for
+        # DDR3-700 at 1:4, too slow for 4K30: ~93-97M words/s). Only quasi-static CSRs cross.
+        vd    = "video" if video_clk_freq else "sys"
+        vfreq = video_clk_freq or sys_clk_freq
+        VR    = (lambda m: ClockDomainsRenamer({"sys": "video"})(m)) if video_clk_freq else (lambda m: m)
+        self.add_constant("CONFIG_VIDEO_CLOCK_FREQUENCY", int(vfreq))
+        if video_clk_freq:
+            platform.add_false_path_constraints(self.crg.cd_sys.clk, self.crg.cd_video.clk)
+
         # HDMI Receiver (IT6802) -------------------------------------------------------------------
         hdmi_in = platform.request("hdmi_in")
         self.hdmi_rst = CSRStorage(description="IT6802 reset (1 = held in reset).")
         self.comb += hdmi_in.rst_n.eq(~self.hdmi_rst.storage)
         self.hdmi_clk_freq = FreqMeter(period=int(sys_clk_freq), clk=hdmi_in.pclk)
-        self.hdmi_in = HDMIIn(hdmi_in)
+        self.hdmi_in = VR(HDMIIn(hdmi_in))
         platform.add_period_constraint(hdmi_in.pclk, 1e9/150e6)
         platform.add_false_path_constraints(self.crg.cd_sys.clk, self.hdmi_in.cd_hdmi.clk)
 
@@ -158,25 +182,28 @@ class BaseSoC(SoCCore):
             self.specials += Tristate(fx3.reset_n, o=0, oe=self.fx3_watchdog.reset)
 
             # GPIF Streamer ------------------------------------------------------------------------
-            self.gpif = GPIFStreamer(fx3, with_audio=True)
+            self.gpif = VR(GPIFStreamer(fx3, with_audio=True))
 
             # Audio (IT6802 I2S) -> GPIF thread 1.
-            self.audio = AudioSource(platform.request("i2s"), sys_clk_freq)
+            self.audio = VR(AudioSource(platform.request("i2s"), vfreq))
             self.comb += self.audio.source.connect(self.gpif.audio_sink)
 
             # Sources: Counter (raw) / Video Pattern -> UVC Packetizer.
-            self.gen     = CounterGenerator()
-            self.pattern = VideoPatternGenerator(sys_clk_freq)
-            self.uvc     = ResetInserter()(UVCPacketizer())
+            self.gen     = VR(CounterGenerator())
+            self.pattern = VR(VideoPatternGenerator(vfreq))
+            self.uvc     = ResetInserter()(VR(UVCPacketizer()))
             # HDMI: brightness/contrast/saturation (UVC Processing Unit), window centered in the UVC
             # frame, register stage (timing: HDMI frame FIFO BRAM -> canvas -> FIFO read).
-            self.color    = ResetInserter()(ColorAdjust())
-            self.canvas   = ResetInserter()(Canvas())
-            self.hdmi_buf = ResetInserter()(stream.Buffer([("data", 32)], pipe_valid=True, pipe_ready=True))
+            self.color    = ResetInserter()(VR(ColorAdjust()))
+            self.canvas   = ResetInserter()(VR(Canvas()))
+            self.hdmi_buf = ResetInserter()(VR(stream.Buffer([("data", 32)], pipe_valid=True, pipe_ready=True)))
 
-            # Timestamp (sys clock) for UVC PTS/SCR.
+            # Timestamp (video clock) for UVC PTS/SCR.
             timestamp = Signal(32)
-            self.sync += timestamp.eq(timestamp + 1)
+            if video_clk_freq:
+                self.sync.video += timestamp.eq(timestamp + 1)
+            else:
+                self.sync += timestamp.eq(timestamp + 1)
             self.comb += self.uvc.timestamp.eq(timestamp)
             self.comb += self.gpif.eop_data.eq(self.uvc.next_header0)
             # UVC packetizer held in reset while no video source is enabled (restarts on a frame
@@ -193,7 +220,7 @@ class BaseSoC(SoCCore):
 
             self.source_sel = CSRStorage(2, description="Stream source: 0 = Counter, 1 = UVC Pattern, 2 = Raw Pattern, 3 = UVC HDMI.")
             # Source mux -> register stage (timing: FIFO BRAM -> mux -> CDC BRAM) -> GPIF.
-            self.gpif_buf = gpif_buf = stream.Buffer([("data", 32), ("next", 32)])
+            self.gpif_buf = gpif_buf = VR(stream.Buffer([("data", 32), ("next", 32)]))
             self.comb += [
                 Case(self.source_sel.storage, {
                     0: self.gen.source.connect(gpif_buf.sink),
@@ -213,6 +240,8 @@ class BaseSoC(SoCCore):
             ]
             platform.add_period_constraint(fx3.pclk, 1e9/100.8e6) # FX3 PLL at 403.2MHz (4K30).
             platform.add_false_path_constraints(self.crg.cd_sys.clk, self.gpif.cd_gpif.clk)
+            if video_clk_freq:
+                platform.add_false_path_constraints(self.crg.cd_video.clk, self.gpif.cd_gpif.clk)
         if with_pintest:
             fx3_gpio = [platform.request("fx3_gpio", i) for i in (1, 2)]
             self.pintest = PinTest(
@@ -234,6 +263,7 @@ def main():
     parser.add_argument("--with-sdram",   action="store_true",       help="Enable DDR3 SDRAM.")
     parser.add_argument("--sdram-rate",   default="1:2", choices=["1:2", "1:4"], help="Controller:DRAM clock ratio.")
     parser.add_argument("--sdram-sys-clk-src", default="clkdivf", choices=["clkdivf", "pll"], help="1:4 sys clock source.")
+    parser.add_argument("--video-clk-freq",    default=None, type=float, help="Video pipeline clock (own domain, DRAM builds with a slow sys).")
     parser.add_argument("--sdram-lat-adj",     default="0,0",       help="Debug: controller read,write latency offsets (sys cycles)[,wrphase offset].")
     parser.add_argument("--sdram-sys-phase",   default=0, type=float, help="1:4 sys clock phase (degrees, pll source).")
     parser.add_argument("--with-sdram-bist",   action="store_true",   help="Add DRAM BIST generator/checker.")
@@ -253,6 +283,7 @@ def main():
         with_sdram_bist   = args.with_sdram_bist,
         sdram_banks       = args.sdram_banks,
         sdram_lat_adj     = tuple(int(x) for x in args.sdram_lat_adj.split(",")),
+        video_clk_freq    = args.video_clk_freq,
         with_pintest = args.with_pintest,
         with_ioscan  = args.with_ioscan,
     )

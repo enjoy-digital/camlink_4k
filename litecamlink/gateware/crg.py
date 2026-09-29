@@ -27,11 +27,21 @@ class CRG(LiteXModule):
                 divided by 2 (same structural path as sys2x).
               - sys_clk_src "pll": PLL output with `sys_phase` (degrees).
     The DDR PHY init sequence stops (`stop`) and resets (`reset`) the edge clock domains.
+
+    video_clk_freq: optional `video` domain (video pipeline) from the PLL, when the DRAM ratio sets a
+    sys clock too slow for 4K30 streaming (e.g. 87.75MHz sys for DDR3-700 at 1:4, video at ~100MHz).
     """
-    def __init__(self, platform, sys_clk_freq, sdram_rate=None, sys_clk_src="clkdivf", sys_phase=0):
+    def __init__(self, platform, sys_clk_freq, sdram_rate=None, sys_clk_src="clkdivf", sys_phase=0,
+        video_clk_freq=None):
         self.rst    = Signal()
         self.stop   = Signal()
         self.reset  = Signal()
+        # 1:4 sys/sys2x phase control: `alignwd` pulse slips sys2x by one sys4x cycle (the sys2x
+        # CLKDIVF division phase is set at reset release: sys edges end up either between sys2x
+        # edges or on them, a setup/hold race of the DFI rate converter crossings that nextpnr does
+        # not check, build dependent on hardware), `sys2x_rst` re-releases the sys2x reset from sys.
+        self.alignwd   = Signal()
+        self.sys2x_rst = Signal()
         self.cd_por = ClockDomain(reset_less=True)
         self.cd_sys = ClockDomain()
         if sdram_rate is not None:
@@ -42,6 +52,8 @@ class CRG(LiteXModule):
         if sdram_rate == "1:4":
             self.cd_sys4x   = ClockDomain()
             self.cd_sys4x_i = ClockDomain(reset_less=True)
+        if video_clk_freq is not None:
+            self.cd_video   = ClockDomain()
 
         # # #
 
@@ -78,7 +90,11 @@ class CRG(LiteXModule):
             ]
         elif sdram_rate == "1:4":
             pll.create_clkout(self.cd_sys4x_i, 4*sys_clk_freq)
-            pll.create_clkout(self.cd_init, 25e6) # DDRDLLA init sequencing (not critical).
+            # DDRDLLA init sequencing clock (not critical) from the input clock: keeps a PLL output
+            # free for the video clock with the dedicated PLL feedback (CLKOS3). With the 4 outputs
+            # used (feedback from CLKOP), the 1:4 DRAM had no read window on hardware.
+            self.comb += self.cd_init.clk.eq(clk27)
+            self.specials += AsyncResetSynchronizer(self.cd_init, ~por_done | ~pll.locked) # Init after lock.
             self.specials += [
                 Instance("ECLKSYNCB",
                     i_ECLKI = self.cd_sys4x_i.clk,
@@ -86,7 +102,7 @@ class CRG(LiteXModule):
                     o_ECLKO = self.cd_sys4x.clk),
                 Instance("CLKDIVF",
                     p_DIV     = "2.0",
-                    i_ALIGNWD = 0,
+                    i_ALIGNWD = self.alignwd,
                     i_CLKI    = self.cd_sys4x.clk,
                     i_RST     = self.reset,
                     o_CDIVX   = self.cd_sys2x.clk),
@@ -117,7 +133,12 @@ class CRG(LiteXModule):
             # rate converter serializers relative to sys edges).
             sys_rst_2x = Signal(reset=1, reset_less=True) # Drives cd_sys2x.rst: must not reset itself.
             self.specials += AsyncResetSynchronizer(self.cd_sys, ~pll.locked | self.reset)
-            self.sync.sys2x += sys_rst_2x.eq(ResetSignal("sys"))
+            self.sync.sys2x += sys_rst_2x.eq(ResetSignal("sys") | self.sys2x_rst)
             self.comb += self.cd_sys2x.rst.eq(sys_rst_2x)
         else:
             pll.create_clkout(self.cd_sys, sys_clk_freq)
+
+        # Video domain (PLL output, reset with the PLL lock by create_clkout; not stopped/reset by
+        # the DDR PHY init).
+        if video_clk_freq is not None:
+            pll.create_clkout(self.cd_video, video_clk_freq)

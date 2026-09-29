@@ -66,7 +66,12 @@
 
 /* Stream Configuration -------------------------------------------------------------------------- */
 
-#define UVC_CLOCK_FREQ      CSR_CONST_CONFIG_CLOCK_FREQUENCY /* FPGA sys clock (PTS/SCR). */
+#ifdef CSR_CONST_CONFIG_VIDEO_CLOCK_FREQUENCY
+#define VIDEO_CLOCK_FREQ    CSR_CONST_CONFIG_VIDEO_CLOCK_FREQUENCY /* FPGA video pipeline clock. */
+#else
+#define VIDEO_CLOCK_FREQ    CSR_CONST_CONFIG_CLOCK_FREQUENCY
+#endif
+#define UVC_CLOCK_FREQ      VIDEO_CLOCK_FREQ /* PTS/SCR (video clock timestamps). */
 #define UVC_PAYLOAD_SIZE    GPIF_DMA_BUF_SIZE /* One FX3 DMA buffer per payload. */
 #define UVC_FRAME_INTERVALS 2
 #define UVC_FPS_MAX         60

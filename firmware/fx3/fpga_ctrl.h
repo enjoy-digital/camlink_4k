@@ -34,6 +34,7 @@ void fpga_stream_start(const struct fpga_video *v);
 void fpga_stream_stop(void);
 /* GPIF streamer: video (thread 0) / audio (thread 1) enables (both off: GPIF logic in reset). */
 void fpga_payload_config(void);
+uint32_t fpga_hdmi_frame_period(void); /* 100MHz cycles. */
 void fpga_watchdog_init(void);
 void fpga_watchdog_service(void);
 void fpga_watchdog_config(uint32_t period_ms); /* 0: off. */
