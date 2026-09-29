@@ -129,11 +129,17 @@ class M420Packer(LiteXModule):
             su.eq(o_u + o_c[0:8]  + 1),
             sv.eq(o_v + o_c[8:16] + 1),
         ]
+        # One memory per bank (timing: a 2-bank memory spans EBRs in depth, its output mux after
+        # the EBR outputs was the HDMI clock critical path). Both banks read at the same address,
+        # the bank is selected after the output registers. No read enable (emulated with a hold
+        # mux on the EBR output): the read address only changes on `advance` and the output
+        # registers are enabled. A bank is never written while read: no collision emulation.
         bank_words = 2**bits_for(max_words - 1)
-        uvbuf   = Memory(32, 2*bank_words)
-        uvbuf_w = uvbuf.get_port(write_capable=True)
-        uvbuf_r = uvbuf.get_port(has_re=True, mode=READ_FIRST)
-        self.specials += uvbuf, uvbuf_w, uvbuf_r
+        # Named `m420_uvbuf*`: no read/write collision emulation (`no_rw_check`, see the SoC).
+        uvbufs     = [Memory(32, bank_words, name=f"m420_uvbuf{i}") for i in range(2)]
+        uvbufs_w   = [m.get_port(write_capable=True) for m in uvbufs]
+        uvbufs_r   = [m.get_port(mode=READ_FIRST) for m in uvbufs]
+        self.specials += uvbufs + uvbufs_w + uvbufs_r
         uv_half  = Signal()
         uv_first = Signal(16)
         uv_x     = Signal(bits_for(bank_words - 1))
@@ -143,11 +149,12 @@ class M420Packer(LiteXModule):
         uv_ready = Array(Signal() for _ in range(2)) # UV line complete (bank), cleared when emitted.
         uv_done  = Signal()                           # Sequencer: UV line emitted (clears ready).
         rbank    = Signal()
-        self.comb += [
-            uvbuf_w.adr.eq(Cat(uv_x, wbank)),
-            uvbuf_w.dat_w.eq(Cat(uv_first, su[1:], sv[1:])),
-            uvbuf_w.we.eq(o_valid & uv_half),
-        ]
+        for i, uvbuf_w in enumerate(uvbufs_w):
+            self.comb += [
+                uvbuf_w.adr.eq(uv_x),
+                uvbuf_w.dat_w.eq(Cat(uv_first, su[1:], sv[1:])),
+                uvbuf_w.we.eq(o_valid & uv_half & (wbank == i)),
+            ]
         self.sync += [
             If(o_valid,
                 uv_half.eq(~uv_half),
@@ -201,14 +208,16 @@ class M420Packer(LiteXModule):
         uv_q_en = Signal()
         uv_valid0 = Signal() # Word on dat_r.
         uv_idx0   = Signal(max=max_words + 1)
+        uv_qs     = [Signal(32) for _ in range(2)]
         uv_q      = Signal(32)
         self.comb += [
             advance.eq(~uv_valid | source.ready),
-            uvbuf_r.adr.eq(Cat(rd_i[:len(uv_x)], rbank)),
-            uvbuf_r.re.eq(advance & fsm.ongoing("UV")),
             uv_q_en.eq(advance & fsm.ongoing("UV")),
+            uv_q.eq(Mux(rbank, uv_qs[1], uv_qs[0])),
         ]
-        self.sync += If(uv_q_en, uv_q.eq(uvbuf_r.dat_r))
+        for uvbuf_r, q in zip(uvbufs_r, uv_qs):
+            self.comb += uvbuf_r.adr.eq(rd_i[:len(uv_x)])
+            self.sync += If(uv_q_en, q.eq(uvbuf_r.dat_r))
         fsm.act("UV",
             source.valid.eq(uv_valid),
             source.data.eq(uv_q),

@@ -90,6 +90,11 @@ class BaseSoC(SoCCore):
             with_timer           = with_cpu,
         )
 
+        # Yosys: no read/write collision emulation on the M420 UV line buffers (banks never written
+        # and read at the same time; the emulation logic after the EBR outputs was the HDMI clock
+        # critical path).
+        platform.toolchain._yosys_cmds.append("setattr -set no_rw_check 1 m:*m420_uvbuf*")
+
         # DDR3 SDRAM -------------------------------------------------------------------------------
         # - 1:2: ECP5DDRPHY at sys (DRAM clock = 2 x sys).
         # - 1:4: ECP5DDRPHY at sys2x behind a DFI rate converter (DRAM clock = 4 x sys, e.g. 100MHz
