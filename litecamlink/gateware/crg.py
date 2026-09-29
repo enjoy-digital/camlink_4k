@@ -42,6 +42,9 @@ class CRG(LiteXModule):
         # not check, build dependent on hardware), `sys2x_rst` re-releases the sys2x reset from sys.
         self.alignwd   = Signal()
         self.sys2x_rst = Signal()
+        # DDR PHY init sequence replay (init domain reset: DDRDLLA relock, ECLK stop/reset, DQSBUFM
+        # update): new CLKDIVF division phases, DRAM init retries on hardware.
+        self.phy_init  = Signal()
         self.cd_por = ClockDomain(reset_less=True)
         self.cd_sys = ClockDomain()
         if sdram_rate is not None:
@@ -94,7 +97,7 @@ class CRG(LiteXModule):
             # free for the video clock with the dedicated PLL feedback (CLKOS3). With the 4 outputs
             # used (feedback from CLKOP), the 1:4 DRAM had no read window on hardware.
             self.comb += self.cd_init.clk.eq(clk27)
-            self.specials += AsyncResetSynchronizer(self.cd_init, ~por_done | ~pll.locked) # Init after lock.
+            self.specials += AsyncResetSynchronizer(self.cd_init, ~por_done | ~pll.locked | self.phy_init) # Init after lock.
             self.specials += [
                 Instance("ECLKSYNCB",
                     i_ECLKI = self.cd_sys4x_i.clk,

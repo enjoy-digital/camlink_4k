@@ -479,27 +479,124 @@ class ECP5DDRPHY(Module, AutoCSR):
         self.comb += dqs_preamble.eq( wrdata_en.taps[wrtap - 1]  & ~wrdata_en.taps[wrtap + 0])
         self.comb += dqs_postamble.eq(wrdata_en.taps[wrtap + 2]  & ~wrdata_en.taps[wrtap + 1])
 
+# sys <-> sys2x Crossing (1:4) --------------------------------------------------------------------
+
+class RateCrossing(Module, AutoCSR):
+    """sys <-> sys2x crossing of the DFI rate converter (ratio 2), robust to the sys/sys2x skew.
+
+    LiteDRAM's Serializer/Deserializer sample each sys word on both sys2x edges of the sys cycle
+    (combinational slice selection): with the ECP5 CLKDIVF clocks, one of them is either on the
+    sys edge (hold race) or a quarter sys period after it (depending on the CLKDIVF division
+    phase), and nextpnr does not check these paths: the DRAM only worked with some placements
+    (commands corrupted otherwise). Here each sys word is captured once per sys cycle into sys2x
+    registers, on the sys2x edge selected by `sel` (the one furthest from the sys edges), and each
+    read word is assembled in sys2x on that same edge then taken by sys half a sys period later.
+    `shift` (sys2x cycles, 0-3) aligns the read words (runtime read latency adjustment).
+
+    `sel`/`shift` are found at DRAM init (with the CLKDIVF ALIGNWD phase): DFII leveling works for
+    the right `sel`, then the BIST passes for the right `shift`.
+    """
+    def __init__(self, clk="sys2x"):
+        self.rate = CSRStorage(fields=[
+            CSRField("sel",   size=1, offset=0, description="sys2x capture edge (0/1)."),
+            CSRField("shift", size=2, offset=1, description="Read word alignment (sys2x cycles)."),
+        ])
+        self.clk   = clk
+        self.ph    = Signal()
+        self.sel   = self.rate.fields.sel
+        self.shift = self.rate.fields.shift
+
+        # # #
+
+        sync = getattr(self.sync, clk)
+        sync += self.ph.eq(~self.ph)
+
+    def serializer_cls(self):
+        rate = self
+        class RateSerializer(Module):
+            LATENCY = 1
+            def __init__(self, clkdiv, clk, i_dw, o_dw, i=None, o=None, reset_cnt=-1, name=None, **kwargs):
+                assert i_dw == 2*o_dw and clk == rate.clk
+                self.i = i = Signal(i_dw) if i is None else i
+                self.o = o = Signal(o_dw) if o is None else o
+
+                # # #
+
+                i_d = Signal(i_dw)
+                hi  = Signal(o_dw)
+                sync_div = getattr(self.sync, clkdiv)
+                sync     = getattr(self.sync, clk)
+                sync_div += i_d.eq(i)
+                sync += [
+                    If(rate.ph == rate.sel,
+                        o.eq(i_d[:o_dw]),
+                        hi.eq(i_d[o_dw:]),
+                    ).Else(
+                        o.eq(hi),
+                    )
+                ]
+        return RateSerializer
+
+    def deserializer_cls(self):
+        rate = self
+        class RateDeserializer(Module):
+            LATENCY = 3 # Max: `shift` delays less.
+            def __init__(self, clkdiv, clk, i_dw, o_dw, i=None, o=None, reset_cnt=-1, name=None, **kwargs):
+                assert o_dw == 2*i_dw and clk == rate.clk
+                self.i = i = Signal(i_dw) if i is None else i
+                self.o = o = Signal(o_dw) if o is None else o
+
+                # # #
+
+                p1     = Signal(i_dw)
+                p2     = Signal(i_dw)
+                word   = Signal(o_dw)
+                word_d = Signal(o_dw)
+                sync_div = getattr(self.sync, clkdiv)
+                sync     = getattr(self.sync, clk)
+                sync += [
+                    p1.eq(i),
+                    p2.eq(p1),
+                    If(rate.ph == rate.sel,
+                        word.eq(Mux(rate.shift[0], Cat(p2, p1), Cat(p1, i))),
+                    )
+                ]
+                sync_div += [
+                    word_d.eq(word),
+                    o.eq(Mux(rate.shift[1], word_d, word)),
+                ]
+        return RateDeserializer
+
 # ECP5 DDR PHY with a higher controller:DRAM ratio --------------------------------------------------
 
 def ecp5ddrphy_with_ratio(ratio=2):
     """ECP5DDRPHY behind a DFIRateConverter (controller clock = PHY clock / ratio).
 
     With ratio=2 (1:4 controller:DRAM clocks): controller in `sys`, PHY logic (SCLK) in `sys2x`,
-    DDR edge clock (ECLK) in `sys4x`. The DFI has 4 phases (BL8 per controller cycle).
+    DDR edge clock (ECLK) in `sys4x`. The DFI has 4 phases (BL8 per controller cycle). The
+    converter uses the `RateCrossing` serializers (`ddrphy_rate` CSR).
     """
-    from litedram.phy.dfi import DFIRateConverter
-    wrapper_cls = DFIRateConverter.phy_wrapper(
+    assert ratio == 2
+    import litedram.phy.dfi as dfi
+    wrapper_cls = dfi.DFIRateConverter.phy_wrapper(
         phy_cls       = ECP5DDRPHY,
         ratio         = ratio,
         phy_attrs     = ["init", "datavalid"],
         clock_mapping = {"sys": f"sys{ratio}x", "sys2x": f"sys{2*ratio}x"},
     )
     def wrapper(pads, sys_clk_freq=100e6, **kwargs):
-        # PHY timings computed at the PHY clock (ratio x controller clock).
-        phy = wrapper_cls(pads, sys_clk_freq=ratio*sys_clk_freq, **kwargs)
-        # The generic wrapper read latency (PHY read latency // ratio + serializer + deserializer
-        # latencies) is one controller cycle late for the ECP5DDRPHY (validated on hardware at
-        # 1:4, DDR3-594: DFII write -> controller read exact with -1, BIST 64MB OK).
+        rate  = RateCrossing(clk=f"sys{ratio}x")
+        saved = (dfi.Serializer, dfi.Deserializer)
+        dfi.Serializer, dfi.Deserializer = rate.serializer_cls(), rate.deserializer_cls()
+        try:
+            # PHY timings computed at the PHY clock (ratio x controller clock).
+            phy = wrapper_cls(pads, sys_clk_freq=ratio*sys_clk_freq, **kwargs)
+        finally:
+            dfi.Serializer, dfi.Deserializer = saved
+        phy.submodules.rate = rate
+        phy.get_csrs = lambda: phy.phy.get_csrs() + rate.get_csrs()
+        # Read latency: the generic estimate (PHY read latency // ratio + serializer + deserializer
+        # latencies) with the maximum deserializer latency, `shift` aligns the read words at init.
         phy.settings.read_latency -= 1
         return phy
     return wrapper

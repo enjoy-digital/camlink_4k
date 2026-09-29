@@ -326,27 +326,61 @@ def main():
     if args.cmd == "init":
         # Init + leveling, verified with a short BIST; retried (after reads at bad settings, the
         # DQSBUF read path can need a few operations to resynchronize on hardware).
-        for attempt in range(5):
-            if attempt and hasattr(dram.regs, "main_crg_phase"):
-                # 1:4: other sys/sys2x phase (ALIGNWD slip + sys2x reset).
-                dram.regs.main_crg_phase.write(1)
-                dram.regs.main_crg_phase.write(0)
-                dram.regs.main_crg_phase.write(2)
-                dram.regs.main_crg_phase.write(0)
-                print(f"attempt {attempt}: sys2x ALIGNWD slip")
-            dram.init()
-            dram.warmup()
-            try:
-                dram.read_window(verbose=(attempt == 0))
-            except RuntimeError as e:
-                print(f"attempt {attempt}: {e}")
-                continue
-            dram.run([("generator", 0, 1 << 20)], sys_clk_freq)
-            errors = dram.run([("checker", 0, 1 << 20)], sys_clk_freq)["checker"][1]
-            print(f"attempt {attempt}: BIST check errors {errors}")
-            if errors == 0:
-                break
+        ok = False
+        if hasattr(dram.regs, "ddrphy_rate"):
+            # 1:4 with the RateCrossing: sys2x ALIGNWD phase x capture edge (DFII leveling), then
+            # read word alignment (controller BIST).
+            for attempt in range(8):
+                if attempt:
+                    # New CLKDIVF division phases: DDR PHY init sequence replay (resets sys).
+                    dram.regs.main_crg_phase.write(4)
+                    dram.regs.main_crg_phase.write(0)
+                    time.sleep(0.01)
+                for sel, pair in [(sel, pair) for sel in range(2) for pair in range(2)]:
+                    # pair: read word pairing (shift bit 0, needed by the DFII reads too).
+                    dram.regs.ddrphy_rate.write(sel | (pair << 1))
+                    dram.init()
+                    dram.warmup()
+                    try:
+                        dram.read_leveling(verbose=False)
+                    except RuntimeError:
+                        print(f"attempt {attempt} sel {sel} pair {pair}: no read window")
+                        continue
+                    for shift in (pair, pair + 2):
+                        dram.regs.ddrphy_rate.write(sel | (shift << 1))
+                        dram.run([("generator", 0, 1 << 20)], sys_clk_freq)
+                        errors = dram.run([("checker", 0, 1 << 20)], sys_clk_freq)["checker"][1]
+                        print(f"attempt {attempt} sel {sel} shift {shift}: BIST check errors {errors}")
+                        if errors == 0:
+                            ok = True
+                            break
+                    if ok:
+                        break
+                if ok:
+                    break
         else:
+            for attempt in range(5):
+                if attempt and hasattr(dram.regs, "main_crg_phase"):
+                    # 1:4: other sys/sys2x phase (ALIGNWD slip + sys2x reset).
+                    dram.regs.main_crg_phase.write(1)
+                    dram.regs.main_crg_phase.write(0)
+                    dram.regs.main_crg_phase.write(2)
+                    dram.regs.main_crg_phase.write(0)
+                    print(f"attempt {attempt}: sys2x ALIGNWD slip")
+                dram.init()
+                dram.warmup()
+                try:
+                    dram.read_window(verbose=(attempt == 0))
+                except RuntimeError as e:
+                    print(f"attempt {attempt}: {e}")
+                    continue
+                dram.run([("generator", 0, 1 << 20)], sys_clk_freq)
+                errors = dram.run([("checker", 0, 1 << 20)], sys_clk_freq)["checker"][1]
+                print(f"attempt {attempt}: BIST check errors {errors}")
+                if errors == 0:
+                    ok = True
+                    break
+        if not ok:
             raise RuntimeError("DRAM init failed.")
     if args.cmd == "leveling":
         dram.read_leveling()

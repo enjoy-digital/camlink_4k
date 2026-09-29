@@ -110,10 +110,12 @@ class BaseSoC(SoCCore):
                 self.crg_phase = CSRStorage(fields=[
                     CSRField("alignwd",   size=1, offset=0, description="sys2x CLKDIVF ALIGNWD (pulse: 1 then 0)."),
                     CSRField("sys2x_rst", size=1, offset=1, description="sys2x domain reset (pulse: 1 then 0)."),
+                    CSRField("phy_init",  size=1, offset=2, description="DDR PHY init sequence replay (pulse: 1 then 0, resets sys)."),
                 ])
                 self.comb += [
                     self.crg.alignwd.eq(self.crg_phase.fields.alignwd),
                     self.crg.sys2x_rst.eq(self.crg_phase.fields.sys2x_rst),
+                    self.crg.phy_init.eq(self.crg_phase.fields.phy_init),
                 ]
             self.add_sdram("sdram",
                 phy           = self.ddrphy,
