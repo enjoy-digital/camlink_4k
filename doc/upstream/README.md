@@ -1,8 +1,8 @@
 # Upstream Patches: ECP5 DDR3 1:4
 
-Submitted: LiteDRAM https://github.com/enjoy-digital/litedram/pull/408 (full test suite passes)
-and LiteX-Boards https://github.com/litex-hub/litex-boards/pull/866 (depends on the LiteDRAM PR).
-The patches below are the submitted commits (`git am` on a clean checkout of each repo):
+Merged: LiteDRAM https://github.com/enjoy-digital/litedram/pull/408 (full test suite passes)
+and LiteX-Boards https://github.com/litex-hub/litex-boards/pull/866 (1:4 PHY import only when used).
+The patches below are the merged commits (`git am` on a clean checkout of each repo):
 
 | Patch | Repo | Content |
 |---|---|---|
