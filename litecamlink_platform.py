@@ -79,14 +79,14 @@ _io = [
             "F18 C18 G16 E16")),
         # CTL0-5: FX3 GPIO17-22, CTL7: GPIO24, CTL11: GPIO28, CTL12: GPIO29.
         Subsignal("ctl", Pins("L17 M18 N16 M17 N18 P17 R17 T20 U20")),
-        Subsignal("reset_n", Pins("P20")), # FX3 RESET#.
+        Subsignal("reset_n", Pins("P20"), Misc("PULLMODE=UP")), # FX3 RESET# (FX3Watchdog).
         IOStandard("LVCMOS33"),
     ),
 
     # FX3 extra GPIOs.
     ("fx3_gpio", 0, Pins("D7"), IOStandard("LVCMOS33")), # FX3 GPIO26 (not direct, "TR?" in netlist).
     ("fx3_gpio", 1, Pins("C7"), IOStandard("LVCMOS33")), # FX3 GPIO27.
-    ("fx3_gpio", 2, Pins("C8"), IOStandard("LVCMOS33")), # FX3 GPIO45.
+    ("fx3_gpio", 2, Pins("C8"), IOStandard("LVCMOS33"), Misc("PULLMODE=DOWN")), # FX3 GPIO45 (heartbeat).
     # Note: GPIF dq/ctl/pclk and fx3_gpio 1/2 verified on hardware with PinTest (2026-09-28).
 
     # Shared I2C (FX3 GPIO58/59, IT6802 PCSCL/PCSDA).

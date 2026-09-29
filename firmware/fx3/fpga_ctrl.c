@@ -125,3 +125,40 @@ void fpga_audio_control(int enable, int test)
 {
     fpga_csr_write(CSR_AUDIO_CONTROL, (!!test << 1) | !!enable);
 }
+
+/* FX3 Watchdog (FPGA) --------------------------------------------------------------------------- */
+
+/* The FPGA resets the FX3 (RESET#) when the heartbeat (GPIO45 toggled from the main loop) stops for
+ * the watchdog period (4s FPGA default): recovers from any FX3 hang (the FX3 internal watchdog
+ * does not reset the chip on the Cam Link, its interrupt mode does not preempt IRQ handlers). */
+#define HEARTBEAT_GPIO 45
+
+static int heartbeat_on = 1;
+
+void fpga_watchdog_init(void)
+{
+    gpio_setup_output(HEARTBEAT_GPIO, 0);
+}
+
+void fpga_watchdog_service(void)
+{
+    static uint32_t calls;
+    static uint8_t  level;
+    if (heartbeat_on && (++calls & 0xffff) == 0) { /* ~25 toggles/s. */
+        level ^= 1;
+        gpio_set(HEARTBEAT_GPIO, level);
+    }
+}
+
+void fpga_watchdog_config(uint32_t period_ms)
+{
+    if (period_ms) {
+        fpga_csr_write(CSR_FX3_WATCHDOG_PERIOD, period_ms*(CSR_CONST_CONFIG_CLOCK_FREQUENCY/1000));
+        fpga_csr_write(CSR_FX3_WATCHDOG_CONTROL, 1);
+        heartbeat_on = 1;
+    } else {
+        /* Disabled before the heartbeat stops (intentional reboots). */
+        fpga_csr_write(CSR_FX3_WATCHDOG_CONTROL, 0);
+        heartbeat_on = 0;
+    }
+}

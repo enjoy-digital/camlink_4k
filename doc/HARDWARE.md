@@ -28,7 +28,15 @@ Rev.3 (`0x00A1`) are different designs and are not covered.
   (U3), GPIO52 -> `D0/MOSI` (W2), GPIO57 <- `D1/MISO` (V2). Bit-banged by the FX3
   (ktemkin/camlink-re: `0x79` refresh, `0xC6` ISC enable, `0x0E` erase, `0x46` set address,
   `0x7A` burst, poll DONE bit 8 of status).
-- **FX3 RESET#** is connected to FPGA `P20`.
+- **FX3 RESET#** is connected to FPGA `P20`: the FPGA watchdog (`gateware/watchdog.py`) resets the
+  FX3 when its heartbeat (GPIO45, toggled from the firmware main loop) stops.
+- **FX3 internal watchdog** (2026-09-29, measured): timer 0 counts at 32.768kHz (the backup divider
+  has no effect); the reset mode (MODE0=0) never resets nor flags an event (with any BITS0, the
+  counter just wraps); the interrupt mode (MODE0=1) sets INTR0 (write 1 to clear) on expiry and
+  raises VIC line 4. The timer is in the always-on domain: writes land after a few 32kHz cycles
+  and a TIMER0 write only lands while the timer is disabled (MODE0=3); the value survives FX3
+  resets. Routed to the FIQ with a hard reset handler, it recovered hangs in thread mode but not
+  a hang inside an IRQ handler (FIQ apparently not taken while an IRQ is serviced): not used.
 - **Extra GPIOs**: FX3 GPIO27 <-> `C7`, GPIO45 <-> `C8`. FX3 GPIO26 <-> `D7` is not a direct
   connection (FPGA output not seen by the FX3, netlist says "TR?, I2C sel?").
 

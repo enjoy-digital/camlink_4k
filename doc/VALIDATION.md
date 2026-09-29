@@ -27,14 +27,20 @@ Most checks below are scripted: `python3 software/validate.py` (all steps, PASS/
 | Signal loss | stream, `xrandr --output HDMI-0 --off`, then `--auto` | dark blue "no signal" pattern within ~0.3 s, HDMI back after re-probe, stream keeps running |
 | Mode change | stream, `xrandr --output HDMI-0 --mode 1280x720` | pattern (size mismatch) or HDMI, no hang |
 
-## 2. Hang recovery (watchdog, commit e4a7d6c)
+## 2. Hang recovery (FPGA watchdog)
 
-1. Calibration (Python, `from camlink import CamLink`): `CamLink().watchdog(0x100000, 1)`, read `watchdog_value()`
-   twice 1 s apart -> tick rate (backup clock divider semantics unknown).
-2. `CamLink().hang()` with the watchdog on: device must come back as `04b4:00f3` (flash block 0
-   erased) within the programmed period. If yes: enable it by default (~2 s) in `main.c`.
-3. Repeat the audio + video start/stop sequence that hung the FX3 (`uvc_raw.py` + `audio_check.py`
-   loops) and read `camlink.py stats` (fallbacks/PHY timeouts) if it survives.
+The FX3 internal watchdog does not recover a hang inside an IRQ handler (see `doc/HARDWARE.md`,
+2026-09-29: `hang()` with the FIQ watchdog lost the device until a replug). Replaced by the FPGA
+watchdog: heartbeat on FX3 GPIO45, FX3 RESET# driven by the FPGA (4s default, armed after 8
+heartbeat edges, disabled by the firmware before intentional reboots).
+
+1. After `camlink.py boot`: `camlink.py csr fx3_watchdog_status` -> armed (1), `fx3_watchdog_resets` 0.
+2. `camlink.py reboot`: bootloader `04b4:00f3` and no watchdog reset afterwards
+   (`fx3_watchdog_resets` still 0 after `boot`, the FPGA keeps its state across FX3 resets
+   until reloaded: read it before `boot` reloads the FPGA, e.g. with a `fx3-load` only).
+3. `CamLink().hang()` (hang in the USB IRQ handler): device back as `04b4:00f3` within ~4s.
+4. Then the audio + video start/stop sequence that hung the FX3 (`uvc_raw.py` + `audio_check.py`
+   loops), reading `camlink.py stats` (fallbacks/PHY timeouts) when it survives.
 
 ## 3. Audio (commit 01c02bd)
 

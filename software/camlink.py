@@ -123,7 +123,6 @@ VREQ_FPGA_BOOT     = 0x66
 VREQ_AUDIO_TEST    = 0x70
 VREQ_CROP          = 0x71
 VREQ_WATCHDOG      = 0x72
-VREQ_WATCHDOG_READ = 0x73
 VREQ_HANG          = 0x74
 VREQ_STATS         = 0x75
 VREQ_AUDIO_BATCH   = 0x76
@@ -308,12 +307,9 @@ class CamLink:
         """Inputs larger than the UVC frame: crop window at (x, y), or 2x downscale (x=None)."""
         self.vendor_out(VREQ_CROP, 0xffff if x is None else x, y)
 
-    def watchdog(self, ticks, divider=1):
-        """FX3 watchdog (reset mode): reload value (ticks, multiple of 256, 0 = off), backup divider."""
-        self.vendor_out(VREQ_WATCHDOG, ticks >> 8, divider)
-
-    def watchdog_value(self):
-        return struct.unpack("<I", self.vendor_in(VREQ_WATCHDOG_READ, length=4))[0]
+    def watchdog(self, period_ms):
+        """FPGA watchdog (resets the FX3 when its heartbeat stops): period in ms, 0 = off."""
+        self.vendor_out(VREQ_WATCHDOG, period_ms)
 
     def stats(self):
         names = ["main_loops", "usb_isrs", "ss_to_usb2_fallbacks", "ss_connects", "phy_cr_timeouts",

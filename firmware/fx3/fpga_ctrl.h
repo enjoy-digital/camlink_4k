@@ -34,6 +34,9 @@ void fpga_stream_start(const struct fpga_video *v);
 void fpga_stream_stop(void);
 /* GPIF streamer: video (thread 0) / audio (thread 1) enables (both off: GPIF logic in reset). */
 void fpga_payload_config(void);
+void fpga_watchdog_init(void);
+void fpga_watchdog_service(void);
+void fpga_watchdog_config(uint32_t period_ms); /* 0: off. */
 void fpga_gpif_control(int video, int audio, int audio_batch);
 /* Audio source: enable, test counter instead of I2S. */
 void fpga_audio_control(int enable, int test);

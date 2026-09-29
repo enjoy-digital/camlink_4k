@@ -12,6 +12,7 @@ import os
 import argparse
 
 from migen import *
+from migen.fhdl.specials import Tristate
 
 from litex.gen import *
 
@@ -40,6 +41,7 @@ from litecamlink.gateware.ioscan     import IOScan
 from litecamlink.gateware.audio      import AudioSource
 from litecamlink.gateware.color      import ColorAdjust
 from litecamlink.gateware.canvas     import Canvas
+from litecamlink.gateware.watchdog   import FX3Watchdog
 from litecamlink.gateware.ecp5ddrphy import ECP5DDRPHY, ecp5ddrphy_with_ratio
 from litecamlink.gateware.dram       import LiteDRAMNativePortBuffer, MT41K64M16_4Banks
 
@@ -143,6 +145,10 @@ class BaseSoC(SoCCore):
         fx3 = platform.request("fx3")
         if not with_pintest:
             self.fx3_clk_freq = FreqMeter(period=int(sys_clk_freq), clk=fx3.pclk)
+
+            # FX3 Watchdog (heartbeat: FX3 GPIO45, reset: FX3 RESET#) -------------------------------
+            self.fx3_watchdog = FX3Watchdog(platform.request("fx3_gpio", 2), sys_clk_freq)
+            self.specials += Tristate(fx3.reset_n, o=0, oe=self.fx3_watchdog.reset)
 
             # GPIF Streamer ------------------------------------------------------------------------
             self.gpif = GPIFStreamer(fx3, with_audio=True)

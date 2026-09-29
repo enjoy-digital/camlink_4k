@@ -49,8 +49,7 @@ enum {
     VREQ_FLASH_STATUS  = 0x64, /* IN : 1 while a deferred flash operation is pending. */
     VREQ_FLASH_RECOVER = 0x65, /* OUT: Erase block 0 (FX3 image) and reboot to the USB bootloader. */
     VREQ_AUDIO_TEST    = 0x70, /* OUT: Audio source, value = 0: HDMI (I2S), 1: test counter. */
-    VREQ_WATCHDOG      = 0x72, /* OUT: Watchdog, value = reload ticks >> 8 (0: off), index = backup clock divider. */
-    VREQ_WATCHDOG_READ = 0x73, /* IN : Watchdog timer value (calibration).         */
+    VREQ_WATCHDOG      = 0x72, /* OUT: FPGA watchdog period (ms, 0: off, heartbeat stopped). */
     VREQ_HANG          = 0x74, /* OUT: Debug: hang with interrupts off (watchdog test). */
     VREQ_STATS         = 0x75, /* IN : Debug counters (see vendor_request).          */
     VREQ_AUDIO_BATCH   = 0x76, /* OUT: Audio packets per GPIF thread switch (value, 1-8). */
@@ -265,10 +264,7 @@ static void vendor_request(const struct usb_setup *setup)
         usb_ep0_ack();
         return;
     case VREQ_WATCHDOG:
-        if (setup->value)
-            watchdog_start((uint32_t)setup->value << 8, setup->index);
-        else
-            watchdog_stop();
+        fpga_watchdog_config(setup->value);
         usb_ep0_ack();
         return;
     case VREQ_STATS: {
@@ -284,10 +280,6 @@ static void vendor_request(const struct usb_setup *setup)
         usb_ep0_in(ep0_buf, setup->length < 36 ? setup->length : 36);
         return;
     }
-    case VREQ_WATCHDOG_READ:
-        ((uint32_t *)ep0_buf)[0] = watchdog_value();
-        usb_ep0_in(ep0_buf, 4);
-        return;
     case VREQ_HANG:
         usb_ep0_ack();
         delay_us(1000);
@@ -424,6 +416,7 @@ int main(void)
     gpio_init_clock();
     fpga_init();
     spi_flash_init();
+    fpga_watchdog_init();
     i2c_init(400000);
     /* Standalone boot: LiteCamLink bitstream from flash (if present), then HDMI receiver init. */
     fpga_boot_status = fpga_boot_from_flash();
@@ -437,7 +430,7 @@ int main(void)
 
     for (;;) {
         main_loops++;
-        watchdog_kick();
+        fpga_watchdog_service();
         uvc_service();
         it6802_service();
         if (flash_erase_request) {
@@ -450,6 +443,7 @@ int main(void)
         }
         if (flash_recover_request) {
             /* Invalidate the FX3 image: the boot ROM falls back to USB boot. */
+            fpga_watchdog_config(0);
             spi_flash_erase_block(FLASH_FX3_IMAGE);
             delay_us(10000);
             gctl_hard_reset();
@@ -463,15 +457,16 @@ int main(void)
             if (r & 0x100) {
                 fpga_payload_config();
                 gpif_stream_start(r & 1, (r >> 1) & 1);
-            }
-            else
+            } else {
                 gpif_stream_stop();
+            }
         }
         if (hdmi_init_request) {
             hdmi_init_request = 0;
             it6802_init();
         }
         if (reboot_request) {
+            fpga_watchdog_config(0);
             delay_us(10000);
             gctl_hard_reset();
         }
