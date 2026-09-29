@@ -277,10 +277,16 @@ class CamLink:
             raise IOError("Flash verify failed.")
 
     def flash_bitstream(self, filename):
+        """Bitstream then header (header page left erased until the bitstream is verified: an
+        interrupted write leaves no valid header, the firmware then skips the flash boot)."""
         bitstream = open(filename, "rb").read()
         size   = len(bitstream)
         header = struct.pack("<III", size, ~size & 0xffffffff, FLASH_BITSTREAM_MAGIC).ljust(256, b"\xff")
-        self.flash_write(FLASH_BITSTREAM_HDR, header + bitstream)
+        self.flash_write(FLASH_BITSTREAM_HDR, b"\xff"*256 + bitstream)
+        self.dev.ctrl_transfer(0x40, VREQ_FLASH_PROGRAM, FLASH_BITSTREAM_HDR & 0xffff,
+            FLASH_BITSTREAM_HDR >> 16, header, timeout=5000)
+        if self.flash_read(FLASH_BITSTREAM_HDR, 256) != header:
+            raise IOError("Flash header verify failed.")
 
     def flash_recover(self):
         """Erase the FX3 image (block 0) and reboot to the USB bootloader."""

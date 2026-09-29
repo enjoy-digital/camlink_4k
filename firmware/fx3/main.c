@@ -418,8 +418,11 @@ int main(void)
     spi_flash_init();
     fpga_watchdog_init();
     i2c_init(400000);
-    /* Standalone boot: LiteCamLink bitstream from flash (if present), then HDMI receiver init. */
+    /* Standalone boot: LiteCamLink bitstream from flash (if present), then HDMI receiver init
+     * (`make NO_FLASH_BOOT=1`: skipped, e.g. to recover from a bad flash bitstream). */
+#ifndef NO_FLASH_BOOT
     fpga_boot_status = fpga_boot_from_flash();
+#endif
     if ((fpga_boot_status & FPGA_STATUS_DONE) && !(fpga_boot_status & FPGA_STATUS_FAIL))
         hdmi_init_request = 1;
     irq_enable();
