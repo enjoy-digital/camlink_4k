@@ -1,4 +1,4 @@
-From d092a09ad5abda8e3c0311ca00c95fb582fdbac6 Mon Sep 17 00:00:00 2001
+From b8829f9f0c6d91049f94f27780def881139a7402 Mon Sep 17 00:00:00 2001
 From: Florent Kermarrec <florent@enjoy-digital.fr>
 Date: Tue, 29 Sep 2026 13:55:14 +0200
 Subject: [PATCH] targets/camlink_4k: add DDR3 1:4 option (--sdram-rate 1:4).
@@ -15,19 +15,14 @@ LiteCamLink gateware: LiteX BIOS read leveling + memtest at DDR3-594, BIST 64MB 
 
 Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>
 ---
- litex_boards/targets/camlink_4k.py | 94 +++++++++++++++++++++++-------
- 1 file changed, 73 insertions(+), 21 deletions(-)
+ litex_boards/targets/camlink_4k.py | 97 +++++++++++++++++++++++-------
+ 1 file changed, 76 insertions(+), 21 deletions(-)
 
 diff --git a/litex_boards/targets/camlink_4k.py b/litex_boards/targets/camlink_4k.py
-index 5d9128f2..d621876a 100755
+index 5d9128f2..ca6d0c53 100755
 --- a/litex_boards/targets/camlink_4k.py
 +++ b/litex_boards/targets/camlink_4k.py
-@@ -20,21 +20,26 @@ from litex.soc.cores.led import LedChaser
- 
- from litedram.modules import MT41K64M16
- from litedram.phy import ECP5DDRPHY
-+from litedram.phy.ecp5ddrphy import ecp5ddrphy_with_ratio
- 
+@@ -24,17 +24,21 @@ from litedram.phy import ECP5DDRPHY
  # CRG ----------------------------------------------------------------------------------------------
  
  class _CRG(LiteXModule):
@@ -51,7 +46,7 @@ index 5d9128f2..d621876a 100755
  
          # clk / rst
          clk27 = platform.request("clk27")
-@@ -50,43 +55,88 @@ class _CRG(LiteXModule):
+@@ -50,43 +54,92 @@ class _CRG(LiteXModule):
          self.pll = pll = ECP5PLL()
          self.comb += pll.reset.eq(~por_done | self.rst)
          pll.register_clkin(clk27, 27e6)
@@ -145,7 +140,11 @@ index 5d9128f2..d621876a 100755
          if not self.integrated_main_ram_size:
 -            self.ddrphy = ECP5DDRPHY(
 +            # 1:2: DDR3 at 2x sys (DDR3-324 at 81MHz). 1:4: DDR3 at 4x sys (DDR3-600 at 75MHz).
-+            phy_cls = ECP5DDRPHY if sdram_rate == "1:2" else ecp5ddrphy_with_ratio(2)
++            if sdram_rate == "1:2":
++                phy_cls = ECP5DDRPHY
++            else:
++                from litedram.phy.ecp5ddrphy import ecp5ddrphy_with_ratio
++                phy_cls = ecp5ddrphy_with_ratio(2)
 +            self.ddrphy = phy_cls(
                  platform.request("ddram"),
                  sys_clk_freq=sys_clk_freq)
@@ -159,7 +158,7 @@ index 5d9128f2..d621876a 100755
                  l2_cache_size = kwargs.get("l2_size", 8192)
              )
  
-@@ -103,11 +153,13 @@ def main():
+@@ -103,11 +156,13 @@ def main():
      from litex.build.parser import LiteXArgumentParser
      parser = LiteXArgumentParser(platform=camlink_4k.Platform, description="LiteX SoC on Cam Link 4K.")
      parser.add_target_argument("--sys-clk-freq",        default=81e6, type=float, help="System clock frequency.")
