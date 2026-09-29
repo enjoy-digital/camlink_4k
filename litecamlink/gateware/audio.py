@@ -75,7 +75,9 @@ class AudioSource(LiteXModule):
     """48kHz stereo 16-bit samples (L16 | R16 << 16) from the I2S receiver or a test counter.
 
     Samples are presented for one cycle (no backpressure): samples not accepted are counted as
-    overflow. Packetization is done in the GPIF domain (see GPIFStreamer)."""
+    overflow. Packetization is done in the GPIF domain (see GPIFStreamer). Without I2S samples for
+    more than 2 sample periods (source without audio, IT6802 audio muted), silence is generated at
+    48kHz from the sys clock (the host always receives audio packets: no capture I/O errors)."""
     def __init__(self, pads, sys_clk_freq):
         self.source = source = stream.Endpoint([("data", 32)])
 
@@ -111,6 +113,19 @@ class AudioSource(LiteXModule):
             If(tick, counter.eq(counter + 1)),
         ]
 
+        # I2S activity: silence when no I2S sample for more than 2 sample periods.
+        i2s_idle = Signal(max=3*period + 1)
+        silence  = Signal()
+        self.sync += If(i2s.source.valid,
+            i2s_idle.eq(0),
+        ).Elif(~silence,
+            i2s_idle.eq(i2s_idle + 1),
+        )
+        self.comb += silence.eq(i2s_idle == 3*period)
+        self.silences = CSRStatus(32, description="Silence samples generated (no I2S).")
+        silences = Signal(32)
+        self.comb += self.silences.status.eq(silences)
+
         # Output.
         samples  = Signal(32)
         overflow = Signal(32)
@@ -120,6 +135,10 @@ class AudioSource(LiteXModule):
                 If(test,
                     source.valid.eq(tick),
                     source.data.eq(Cat(counter, ~counter)),
+                ).Elif(silence,
+                    source.valid.eq(tick),
+                    source.data.eq(0),
+                    If(tick, silences.eq(silences + 1)),
                 ).Else(
                     source.valid.eq(i2s.source.valid),
                     source.data.eq(i2s.source.data),

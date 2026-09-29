@@ -80,3 +80,45 @@ def test_audio_source_test_counter():
     counters = [d & 0xffff for d in out]
     assert all((b - a) & 0xffff == 1 for a, b in zip(counters, counters[1:]))
     assert all(((d >> 16) ^ d) & 0xffff == 0xffff for d in out)
+
+def test_audio_source_silence_without_i2s():
+    # No I2S: zero samples at the 48kHz rate after 2 sample periods; I2S samples when active.
+    pads = I2SPads()
+    dut  = AudioSource(pads, sys_clk_freq=48000*8)
+    out  = []
+
+    def generator():
+        yield dut.control.fields.enable.eq(1)
+        yield dut.source.ready.eq(1)
+        for i in range(8*20):
+            yield
+            if (yield dut.source.valid):
+                out.append((i, (yield dut.source.data)))
+
+    run_simulation(dut, generator())
+    assert len(out) >= 15 and all(d == 0 for _, d in out)
+    assert out[0][0] < 8*5
+
+def test_audio_source_i2s_after_silence():
+    pads    = I2SPads()
+    dut     = AudioSource(pads, sys_clk_freq=48000*400) # 400 cycles/sample (I2S model: 384).
+    samples = [(0x1111*(i + 1) & 0xffff, 0x2222) for i in range(6)]
+    out     = []
+
+    def generator():
+        yield dut.control.fields.enable.eq(1)
+        yield dut.source.ready.eq(1)
+        for _ in range(400*6):
+            yield
+        yield from i2s_transmit(pads, samples)
+
+    @passive
+    def monitor():
+        while True:
+            yield
+            if (yield dut.source.valid):
+                out.append((yield dut.source.data))
+
+    run_simulation(dut, [generator(), monitor()])
+    assert 0 in out[:3]
+    assert out[-3:] == [l | (r << 16) for l, r in samples][-3:]
