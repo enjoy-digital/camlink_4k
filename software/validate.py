@@ -115,8 +115,12 @@ def step_capture(ctx):
     st = ctx.get("hdmi") or CamLink().hdmi_status()
     fps = 60 if (st.get("fps") or 0) > 45 and st["vactive"] <= 1080 else 30
     r = capture_stats(1920, 1080, fps)
-    ok = r["gaps"] == 0 and r["short"] == 0 and r["errors"] == 0 and r["fps"] > 0.9*(st.get("fps") or fps)
-    return ok, f"requested 1080p{fps}: {r}"
+    # Inputs smaller than 1080p are letterboxed (canvas): the output can skip every other input
+    # frame when the borders do not fit in the input blanking.
+    canvas = st["hactive"] < 1920 or st["vactive"] < 1080
+    min_fps = (0.45 if canvas else 0.9)*(st.get("fps") or fps)
+    ok = r["gaps"] == 0 and r["short"] == 0 and r["errors"] == 0 and r["fps"] > min_fps
+    return ok, f"requested 1080p{fps}{' (letterbox)' if canvas else ''}: {r}"
 
 def step_first_frame(ctx):
     """Raw UVC stream (uvcvideo detached): no payload header errors (first frame fix)."""

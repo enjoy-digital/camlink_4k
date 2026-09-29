@@ -44,7 +44,7 @@ def raw_capture(frame=1, fps=30, seconds=4, format_index=1, dump=0, payload_size
     uvc_commit(reader.handle, frame, fps, format_index)
 
     state = {"frame": 0, "frames": [], "fid": None, "errors": 0, "dumps": 0, "payloads": 0,
-        "short": []}
+        "short": [], "error_at": []}
     def on_transfer(chunk):
         for off in range(0, len(chunk), payload_size):
             payload = chunk[off:off + payload_size]
@@ -62,6 +62,7 @@ def raw_capture(frame=1, fps=30, seconds=4, format_index=1, dump=0, payload_size
             fid = info & 1
             if state["fid"] is not None and fid != state["fid"] and state["frame"]:
                 state["errors"] += 1
+                state["error_at"].append((len(state["frames"]), state["frame"]))
                 state["frame"] = 0
             state["fid"] = fid
             state["frame"] += len(payload) - 12
@@ -85,6 +86,8 @@ def raw_capture(frame=1, fps=30, seconds=4, format_index=1, dump=0, payload_size
         "frames":        len(sizes),
         "good_frames":   sum(1 for s in sizes if s == frame_size),
         "bad_sizes":     [s for s in sizes if s != frame_size][:8],
+        "bad_index":     [i for i, s in enumerate(sizes) if s != frame_size][:8],
+        "error_at":      state["error_at"][:8], # (frame index, bytes received) on FID errors.
         "fps":           len(sizes)/max(duration, 1e-3),
         "payloads":      state["payloads"],
         "header_errors": state["errors"],

@@ -375,18 +375,19 @@ static int streams_audio_batch(void)
 }
 
 /* (Re)start the GPIF with the active streams: FPGA sources and GPIF logic off (reset), FX3 GPIF
- * restart, then FPGA sources and GPIF enables for the active streams. */
+ * restart, then FPGA GPIF enables and sources for the active streams (GPIF first: a disabled FPGA
+ * GPIF drains its input, the canvas top border produced before the GPIF enable was lost). */
 static void streams_apply(void)
 {
     fpga_audio_control(0, 0);
     fpga_stream_stop();
     fpga_gpif_control(0, 0, audio_batch);
     gpif_stream_start(streaming, audio_on);
+    fpga_gpif_control(streaming, audio_on, streams_audio_batch());
     if (streaming)
         video_start();
     if (audio_on)
         fpga_audio_control(1, audio_test);
-    fpga_gpif_control(streaming, audio_on, streams_audio_batch());
 }
 
 void uvc_audio_set_interface(uint8_t alt)
