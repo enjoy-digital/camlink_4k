@@ -116,3 +116,10 @@ EEPROM write-protect path. Keep 0xC0=0x07 / 0x87=0 until then.
 
 Re-flash the final images (`camlink.py flash-bitstream`, `flash-fx3`), cold boot, `flash-recover`
 test, re-run `bench.py` for both firmwares with the screen unlocked, update `doc/BENCHMARK.md`.
+
+## Standalone images (2026-09-29)
+
+Flashed: bitstream (header written last, verified) + FX3 image fdbd1ad at block 0. Reset -> SS
+enumeration in ~3s, FPGA from flash, validate.py 12/12 PASS (4K30 input). Dev loop from here:
+`camlink.py flash-recover` (erases block 0, back to the USB bootloader), then `camlink.py boot`.
+Boot watchdog: the device resets every 10s while nothing configures it (e.g. USB charger).
