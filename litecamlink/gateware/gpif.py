@@ -230,7 +230,7 @@ class GPIFStreamer(LiteXModule):
             NextValue(count, 0),
             NextValue(gcount, 0),
             If(audio_ready & (flag | ~enable | xflag_off) & (last_audio | switch_ok),
-                NextState("ASEL"),
+                NextState("APRE"),
             # An audio packet is ready after video: no new video burst, the switch guard elapses and
             # audio goes next (back to back video bursts starved audio: FIFO overflow per frame).
             ).Elif(enable & flag & fifo.source.valid & (audio_flag | ~audio_enable | xflag_off) & (~last_audio | switch_ok) &
@@ -266,7 +266,7 @@ class GPIFStreamer(LiteXModule):
         audio_sel   = Signal()
         audio_sel_d = Signal()
         self.comb += [
-            audio_sel.eq(asel | (last_audio & ~fsm.ongoing("BURST") & ~fsm.ongoing("EOP"))),
+            audio_sel.eq(asel | fsm.ongoing("APRE") | (last_audio & ~fsm.ongoing("BURST") & ~fsm.ongoing("EOP"))),
             If(audio_sel,
                 data.eq(audio_source.data),
                 src_valid.eq(audio_source.valid),
@@ -325,6 +325,16 @@ class GPIFStreamer(LiteXModule):
         audio_sent_batch = Signal(4)
         idle_count       = Signal(16)
         audio_sent       = Signal(32)
+        # APRE: DQ presents the first audio word before ASEL (the FX3 captures DQ as the first word of
+        # its thread 1 buffer at the thread switch: with DQ changing on the ASEL edge, a slow DQ
+        # line lost the first sample of the audio packets on a build, DQ[29] at 2.3ns).
+        fsm.act("APRE",
+            NextValue(gcount, gcount + 1),
+            If(gcount == 1,
+                NextValue(gcount, 0),
+                NextState("ASEL"),
+            )
+        )
         fsm.act("ASEL",
             asel.eq(1),
             NextValue(gcount, gcount + 1),

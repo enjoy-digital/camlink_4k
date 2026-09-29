@@ -237,12 +237,16 @@ class NV12FrameBuffer(LiteXModule):
         out_have  = Signal()
         out_first = Signal()
         out_next  = Signal() # Last 32-bit word of the current port word output.
-        pending   = Signal(max=2**aw) # Reads requested, data not received yet.
+        pending   = Signal(max=rd_depth + 2) # Reads requested, data not received yet.
+        rd_issue  = Signal() # Registered request/data strobes (timing: the output ready chain).
+        rd_done   = Signal()
         rd_burst  = Signal(max=burst + 1) # Reads left in the current read burst.
         fsm_read  = Signal()
-        self.sync += pending.eq(pending
-            + (reader.sink.valid & reader.sink.ready)
-            - (reader.source.valid & reader.source.ready))
+        self.sync += [
+            rd_issue.eq(reader.sink.valid & reader.sink.ready),
+            rd_done.eq(reader.source.valid & reader.source.ready),
+            pending.eq(pending + rd_issue - rd_done),
+        ]
         # Read bursts: started when `burst` reservations are free.
         self.sync += [
             If(rd_burst == 0,
@@ -315,7 +319,7 @@ class NV12FrameBuffer(LiteXModule):
         fsm.act("FLUSH",
             # Frame done or stopped: drain the outstanding reads, then release the slot.
             reader.source.ready.eq(1),
-            If(pending == 0,
+            If((pending == 0) & ~rd_issue & ~rd_done,
                 NextValue(reading, 0),
                 NextState("IDLE"),
             )
