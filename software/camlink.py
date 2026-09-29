@@ -481,9 +481,10 @@ def uvc_raw_test(cl, bus, width=1920, height=1080, fps=30, frames=60, clk_div_x2
 def term(bus, cmds=None, duration=None):
     """BIOS console over the UART crossover CSRs. Scripted if cmds/duration are given."""
     import select, termios, tty
-    def rx():
+    def rx(limit=64):
+        # Bounded bursts: a BIOS printing continuously outpaces the I2C reads.
         out = bytearray()
-        while not bus.regs.uart_xover_rxempty.read():
+        while len(out) < limit and not bus.regs.uart_xover_rxempty.read():
             out.append(bus.regs.uart_xover_rxtx.read() & 0xff)
         return bytes(out)
     def tx(data):

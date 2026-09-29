@@ -496,5 +496,10 @@ def ecp5ddrphy_with_ratio(ratio=2):
     )
     def wrapper(pads, sys_clk_freq=100e6, **kwargs):
         # PHY timings computed at the PHY clock (ratio x controller clock).
-        return wrapper_cls(pads, sys_clk_freq=ratio*sys_clk_freq, **kwargs)
+        phy = wrapper_cls(pads, sys_clk_freq=ratio*sys_clk_freq, **kwargs)
+        # The generic wrapper read latency (PHY read latency // ratio + serializer + deserializer
+        # latencies) is one controller cycle late for the ECP5DDRPHY (validated on hardware at
+        # 1:4, DDR3-594: DFII write -> controller read exact with -1, BIST 64MB OK).
+        phy.settings.read_latency -= 1
+        return phy
     return wrapper

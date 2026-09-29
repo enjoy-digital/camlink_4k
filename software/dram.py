@@ -171,19 +171,29 @@ class DRAM:
                 return False
         return True
 
-    # ECP5 read leveling.
+    # ECP5 read leveling (module selected only around delay/bitslip actions, as the BIOS does:
+    # tests with a module left selected always failed on hardware).
     def select(self, module):
-        self.regs.ddrphy_dly_sel.write(1 << module)
+        self.module = module
+
+    def action(self, fn):
+        self.regs.ddrphy_dly_sel.write(1 << self.module)
+        fn()
+        self.regs.ddrphy_dly_sel.write(0)
 
     def set_delay(self, delay):
-        self.regs.ddrphy_rdly_dq_rst.write(1)
-        for _ in range(delay):
-            self.regs.ddrphy_rdly_dq_inc.write(1)
+        def fn():
+            self.regs.ddrphy_rdly_dq_rst.write(1)
+            for _ in range(delay):
+                self.regs.ddrphy_rdly_dq_inc.write(1)
+        self.action(fn)
 
     def set_bitslip(self, bitslip):
-        self.regs.ddrphy_rdly_dq_bitslip_rst.write(1)
-        for _ in range(bitslip):
-            self.regs.ddrphy_rdly_dq_bitslip.write(1)
+        def fn():
+            self.regs.ddrphy_rdly_dq_bitslip_rst.write(1)
+            for _ in range(bitslip):
+                self.regs.ddrphy_rdly_dq_bitslip.write(1)
+        self.action(fn)
 
     def read_leveling(self, verbose=True):
         p = self.phy
@@ -220,6 +230,12 @@ class DRAM:
             results[module] = best
             if verbose:
                 print(f"  -> bitslip {best[0]}, delay {best[1]} (window {best[2]})")
+        # Re-apply all modules (1:4 on hardware: a module's settings were lost while the next
+        # module was scanned; re-writing them, which pauses its DQSBUFM, restores it).
+        for module, (bitslip, delay, _) in results.items():
+            self.select(module)
+            self.set_bitslip(bitslip)
+            self.set_delay(delay)
         self.regs.ddrphy_dly_sel.write(0)
         self.hardware_control()
         return results

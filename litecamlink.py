@@ -58,6 +58,7 @@ class BaseSoC(SoCCore):
         sdram_sys_phase   = 0,
         with_sdram_bist   = False,
         sdram_banks       = 8,
+        sdram_lat_adj     = (0, 0),
         with_pintest = False,
         with_ioscan  = False,
         ):
@@ -91,6 +92,12 @@ class BaseSoC(SoCCore):
         if with_sdram:
             phy_cls = ECP5DDRPHY if sdram_rate == "1:2" else ecp5ddrphy_with_ratio(2)
             self.ddrphy = phy_cls(platform.request("ddram"), sys_clk_freq=sys_clk_freq)
+            # Debug: controller read/write latency offsets (sys cycles) and write phase offset (1:4
+            # bring-up).
+            self.ddrphy.settings.read_latency  += sdram_lat_adj[0]
+            self.ddrphy.settings.write_latency += sdram_lat_adj[1]
+            if len(sdram_lat_adj) > 2:
+                self.ddrphy.settings.wrphase   += sdram_lat_adj[2]
             self.comb += [
                 self.crg.stop.eq(self.ddrphy.init.stop),
                 self.crg.reset.eq(self.ddrphy.init.reset),
@@ -227,6 +234,7 @@ def main():
     parser.add_argument("--with-sdram",   action="store_true",       help="Enable DDR3 SDRAM.")
     parser.add_argument("--sdram-rate",   default="1:2", choices=["1:2", "1:4"], help="Controller:DRAM clock ratio.")
     parser.add_argument("--sdram-sys-clk-src", default="clkdivf", choices=["clkdivf", "pll"], help="1:4 sys clock source.")
+    parser.add_argument("--sdram-lat-adj",     default="0,0",       help="Debug: controller read,write latency offsets (sys cycles)[,wrphase offset].")
     parser.add_argument("--sdram-sys-phase",   default=0, type=float, help="1:4 sys clock phase (degrees, pll source).")
     parser.add_argument("--with-sdram-bist",   action="store_true",   help="Add DRAM BIST generator/checker.")
     parser.add_argument("--sdram-banks",       default=8, type=int, choices=[4, 8], help="DRAM banks used (4: BA2=0, 64MB, timing).")
@@ -244,6 +252,7 @@ def main():
         sdram_sys_phase   = args.sdram_sys_phase,
         with_sdram_bist   = args.with_sdram_bist,
         sdram_banks       = args.sdram_banks,
+        sdram_lat_adj     = tuple(int(x) for x in args.sdram_lat_adj.split(",")),
         with_pintest = args.with_pintest,
         with_ioscan  = args.with_ioscan,
     )
