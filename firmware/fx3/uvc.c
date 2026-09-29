@@ -19,6 +19,7 @@
 #include "gpif.h"
 #include "fpga_ctrl.h"
 #include "it6802.h"
+#include "sdram.h"
 
 #include "generated/fpga_csr.h"
 
@@ -346,8 +347,8 @@ static void video_start(void)
      * - window (YUY2): the input clipped to the frame size, cropped from the input when larger
      *   (at the crop mode position, else centered) and centered in black borders when smaller
      *   (per axis: e.g. 1600x1200 -> centered 1600x1080 region, pillarboxed in 1920x1080).
-     * M420 inputs of another size: test pattern. */
-    if (signal && direct) {
+     * M420 inputs of another size, NV12 without a working DRAM: test pattern. */
+    if (signal && direct && (!nv12 || sdram_ok())) {
         v.hdmi = 1;
         v.nv12 = nv12; /* NV12: through the DRAM frame buffer. */
     } else if (signal && !m420 && half && !crop_mode) {

@@ -186,6 +186,18 @@ def test_video_policy(fx3, inp, fmt, frame, crop, expected):
         assert v.crop_x % 2 == 0
         assert v.crop_x + v.in_width <= inp[0] and v.crop_y + v.in_height <= inp[1]
 
+@pytest.mark.parametrize("dram_ok", [True, False])
+def test_nv12_needs_dram(fx3, dram_ok):
+    # NV12 (DRAM frame buffer): 4K input through the frame buffer, test pattern when the firmware
+    # DRAM init failed.
+    if "CSR_FRAMEBUFFER_BASE" not in fx3.csr:
+        pytest.skip("gateware without the frame buffer")
+    fx3.var("sdram_status").value = 2 if dram_ok else 3 # state (first byte): OK / failed.
+    fx3.set_input(3840, 2160)
+    fx3.commit(3, 1, 30)
+    v = fx3.video
+    assert (v.hdmi, v.nv12, v.m420) == ((1, 1, 1) if dram_ok else (0, 0, 1))
+
 def test_input_change_restarts_video(fx3):
     fx3.set_input(1920, 1080)
     fx3.commit(1, 1, 60)

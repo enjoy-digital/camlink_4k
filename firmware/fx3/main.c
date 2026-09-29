@@ -18,6 +18,7 @@
 #include "it6802.h"
 #include "spi_flash.h"
 #include "fpga_ctrl.h"
+#include "sdram.h"
 
 #include "generated/fpga_csr.h"
 
@@ -56,6 +57,8 @@ enum {
     VREQ_RANGE         = 0x77, /* OUT: RGB input range, value = 0: auto, 1: limited, 2: full. */
     VREQ_CROP          = 0x71, /* OUT: Crop mode, value = x (0xffff: off, downscale), index = y. */
     VREQ_FPGA_BOOT     = 0x66, /* OUT: Load the FPGA from the flash bitstream (deferred, status via FLASH_STATUS). */
+    VREQ_SDRAM_INIT    = 0x78, /* OUT: DRAM init + leveling + BIST check (deferred, a few seconds). */
+    VREQ_SDRAM_STATUS  = 0x79, /* IN : DRAM init status (struct sdram_status).      */
 };
 
 #define EP0_BUF_SIZE 4096
@@ -79,6 +82,7 @@ static volatile uint32_t flash_erase_addr;
 static volatile int      flash_erase_request;
 static volatile int      flash_recover_request;
 static volatile int      fpga_boot_request;
+static volatile int      sdram_init_request;
 static volatile uint32_t fpga_boot_status;
 static uint8_t           flash_buf[4096] __attribute__((aligned(32)));
 
@@ -305,6 +309,17 @@ static void vendor_request(const struct usb_setup *setup)
         fpga_boot_request = 1;
         usb_ep0_ack();
         return;
+    case VREQ_SDRAM_INIT:
+        /* value: 0 = full init, 0x100 | rate = debug single try at a rate crossing setting. */
+        sdram_init_request = 0x1000 | setup->value;
+        usb_ep0_ack();
+        return;
+    case VREQ_SDRAM_STATUS: {
+        uint16_t len = sizeof(sdram_status) < setup->length ? sizeof(sdram_status) : setup->length;
+        memcpy(ep0_buf, (const void *)&sdram_status, sizeof(sdram_status));
+        usb_ep0_in(ep0_buf, len);
+        return;
+    }
     case VREQ_REBOOT:
         usb_ep0_ack();
         reboot_request = 1;
@@ -425,8 +440,10 @@ int main(void)
 #ifndef NO_FLASH_BOOT
     fpga_boot_status = fpga_boot_from_flash();
 #endif
-    if ((fpga_boot_status & FPGA_STATUS_DONE) && !(fpga_boot_status & FPGA_STATUS_FAIL))
-        hdmi_init_request = 1;
+    if ((fpga_boot_status & FPGA_STATUS_DONE) && !(fpga_boot_status & FPGA_STATUS_FAIL)) {
+        hdmi_init_request  = 1;
+        sdram_init_request = 1; /* DRAM builds (frame buffer), no-op otherwise. */
+    }
     irq_enable();
 
     uvc_init();
@@ -450,6 +467,16 @@ int main(void)
         if (fpga_boot_request) {
             fpga_boot_status  = fpga_boot_from_flash();
             fpga_boot_request = 0;
+            if ((fpga_boot_status & FPGA_STATUS_DONE) && !(fpga_boot_status & FPGA_STATUS_FAIL))
+                sdram_init_request = 1;
+        }
+        if (sdram_init_request) {
+            int r = sdram_init_request;
+            sdram_init_request = 0;
+            if (r & 0x100)
+                sdram_init_rate(r & 0xff);
+            else
+                sdram_init();
         }
         if (flash_recover_request) {
             /* Invalidate the FX3 image: the boot ROM falls back to USB boot. */

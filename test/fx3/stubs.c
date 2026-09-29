@@ -16,6 +16,7 @@
 #include "gpif.h"
 #include "fpga_ctrl.h"
 #include "it6802.h"
+#include "sdram.h"
 
 /* EP0 ------------------------------------------------------------------------------------------- */
 
@@ -124,3 +125,6 @@ const struct it6802_status *it6802_get_status(void) { return &stub_hdmi; }
 void delay_us(uint32_t us) { (void)us; }
 
 uint32_t fpga_hdmi_frame_period(void) { return stub_csr_read_value; }
+
+/* DRAM (frame buffer): OK unless a test changes it. */
+struct sdram_status sdram_status = {.state = SDRAM_STATE_OK};

@@ -127,11 +127,20 @@ The FX3 firmware must match the CSR map of the loaded bitstream:
 python3 litecamlink.py --build --with-sdram --sdram-rate 1:4 --sdram-banks 4 --with-sdram-bist \
     --sys-clk-freq 74.25e6 --video-clk-freq 99e6 --with-framebuffer --output-dir build_nv12
 make -C firmware/fx3 clean && make -C firmware/fx3 CSR_CSV=../../build_nv12/csr.csv
-python3 software/camlink.py boot --bit build_nv12/gateware/litecamlink.bit
-python3 software/dram.py --build build_nv12 init     # PHY crossing search, leveling, BIST.
-python3 software/dram.py --build build_nv12 bandwidth
+python3 software/camlink.py boot --bit build_nv12/gateware/litecamlink.bit  # FPGA + HDMI + DRAM init.
+python3 software/camlink.py sdram-status
+python3 software/dram.py --build build_nv12 bandwidth                        # Optional (host tools).
 ```
 
-Then capture NV12 (uvcvideo, format 3). The DRAM init is host driven for now (to port to the FX3
-firmware for standalone operation). Restore the video firmware afterwards:
+The FX3 firmware initializes the DRAM (`firmware/fx3/sdram.c`, ~4s over the I2C CSR bridge):
+after a flash boot, and on `VREQ_SDRAM_INIT` (`camlink.py boot`/`sdram-init`). Same flow as
+`dram.py init`: DFII init sequence (`generated/sdram_init.h` from the gateware `sdram_phy.h`), rate
+crossing capture edge x read pairing validated by the read leveling, read word shift validated by a
+1MB BIST, PHY init sequence replay retries. NV12 falls back to the test pattern if the DRAM init
+failed. Leveling scans one module at a time (the other one at its current setting): scanning both
+together through the bad delays found the same settings but left the controller read path failing
+(DFII still OK). `software/dram.py` stays for bring-up/debug (do not run it while the firmware init
+runs: shared CSRs).
+
+Restore the video firmware afterwards:
 `make -C firmware/fx3 clean && make -C firmware/fx3`.

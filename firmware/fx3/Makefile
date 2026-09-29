@@ -23,7 +23,7 @@ DMA_BUF_SIZE ?= 32768
 CFLAGS += -DGPIF_DMA_BUF_SIZE=$(DMA_BUF_SIZE)
 LDFLAGS = -nostartfiles -static -T fx3.ld -Wl,--gc-sections -Wl,-Map,$(BUILD)/fx3.map
 
-OBJS = start.o fx3.o usb.o usb_desc.o fpga.o i2c.o gpif.o fpga_ctrl.o uvc.o it6802.o spi_flash.o main.o
+OBJS = start.o fx3.o usb.o usb_desc.o fpga.o i2c.o gpif.o fpga_ctrl.o sdram.o uvc.o it6802.o spi_flash.o main.o
 OBJS := $(addprefix $(BUILD)/,$(OBJS))
 
 all: $(BUILD)/fx3.img
@@ -41,13 +41,20 @@ generated/fpga_csr.h: $(CSR_CSV) csr2h.py
 	mkdir -p generated
 	python3 csr2h.py $< $@
 
+# DRAM PHY settings/init sequence from the same gateware build (empty for builds without DRAM).
+SDRAM_PHY_H = $(dir $(CSR_CSV))software/include/generated/sdram_phy.h
+
+generated/sdram_init.h: $(CSR_CSV) gen_sdram.py ../../software/sdram_phy.py
+	mkdir -p generated
+	python3 gen_sdram.py $(SDRAM_PHY_H) $@
+
 generated/edid.h: gen_edid.py ../../software/edid.py
 	mkdir -p generated
 	python3 gen_edid.py $@
 
 $(BUILD)/it6802.o: generated/edid.h
 
-$(OBJS): generated/fpga_csr.h generated/edid.h
+$(OBJS): generated/fpga_csr.h generated/edid.h generated/sdram_init.h
 
 $(BUILD)/%.o: %.c | $(BUILD)
 	$(CC) $(CFLAGS) -c -o $@ $<

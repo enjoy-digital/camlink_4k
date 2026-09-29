@@ -127,6 +127,10 @@ VREQ_HANG          = 0x74
 VREQ_STATS         = 0x75
 VREQ_AUDIO_BATCH   = 0x76
 VREQ_RANGE         = 0x77
+VREQ_SDRAM_INIT    = 0x78
+VREQ_SDRAM_STATUS  = 0x79
+
+SDRAM_STATES = ["idle", "running", "ok", "failed", "none"]
 
 FLASH_BLOCK_SIZE      = 0x10000
 FLASH_BITSTREAM_HDR   = 0x100000
@@ -321,6 +325,34 @@ class CamLink:
         names = ["main_loops", "usb_isrs", "ss_to_usb2_fallbacks", "ss_connects", "phy_cr_timeouts",
             "uvc_commits", "uvc_halts", "stream_starts", "stream_stops"]
         return dict(zip(names, struct.unpack("<9I", self.vendor_in(VREQ_STATS, length=36))))
+
+    def sdram_status(self):
+        """DRAM init status from the firmware (struct sdram_status)."""
+        d = self.vendor_in(VREQ_SDRAM_STATUS, length=40)
+        state, attempts, rate, modules = d[:4]
+        st = {"state": SDRAM_STATES[state] if state < len(SDRAM_STATES) else state,
+            "attempts": attempts, "sel": rate & 1, "shift": rate >> 1}
+        st["leveling"] = [(d[4 + m], d[8 + m], d[12 + m]) for m in range(min(modules, 4))] # bitslip, delay, window.
+        st["bist_errors"], st["csr_errors"] = struct.unpack("<II", d[16:24])
+        if len(d) >= 40:
+            st["scan"] = [f"{v:08x}" for v in struct.unpack("<4I", d[24:40])]
+        return st
+
+    def sdram_init(self, timeout=60, rate=None):
+        """DRAM init by the firmware (DRAM bitstreams, no-op otherwise), returns the status (debug:
+        single try at a rate crossing setting `rate` = sel | pair << 1)."""
+        self.vendor_out(VREQ_SDRAM_INIT, 0 if rate is None else 0x100 | rate)
+        time.sleep(0.2)
+        t0 = time.time()
+        while time.time() - t0 < timeout:
+            try:
+                st = self.sdram_status()
+                if st["state"] != "running":
+                    return st
+            except usb.core.USBError:
+                pass # Busy (main loop in the init).
+            time.sleep(0.2)
+        raise TimeoutError("DRAM init timeout.")
 
     def audio_batch(self, packets):
         """Audio packets (1ms) sent per GPIF thread switch."""
@@ -629,6 +661,8 @@ def main():
     sub.add_parser("list",   help="List Cam Link related USB devices.")
     sub.add_parser("ident",  help="Show LiteCamLink firmware identification.")
     sub.add_parser("reboot", help="Reboot the FX3 (back to the USB bootloader).")
+    sub.add_parser("sdram-init",   help="DRAM init by the firmware (init, leveling, BIST check).")
+    sub.add_parser("sdram-status", help="Show the firmware DRAM init status.")
     p = sub.add_parser("peek", help="Read FX3 memory (32-bit).")
     p.add_argument("addr", type=lambda x: int(x, 0))
     p.add_argument("--count", type=int, default=1)
@@ -651,9 +685,18 @@ def main():
                 print(cl.ident())
                 cl.fpga_load(args.bit)
                 cl.hdmi_init()
+                st = cl.sdram_init()
+                if st["state"] != "none":
+                    print(f"DRAM: {st}")
                 break
             except usb.core.USBError:
                 time.sleep(0.5)
+
+    if args.cmd == "sdram-init":
+        print(CamLink().sdram_init())
+
+    if args.cmd == "sdram-status":
+        print(CamLink().sdram_status())
 
     if args.cmd == "fpga-load":
         CamLink().fpga_load(args.bitstream)
