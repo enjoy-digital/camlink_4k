@@ -40,10 +40,22 @@ heartbeat edges, disabled by the firmware before intentional reboots).
    watchdog reset). OK. (The resets counter cannot be read after an FX3 reset: the firmware
    reloads the flash bitstream at startup.)
 3. `CamLink().hang()` (hang in the USB IRQ handler): device back as `04b4:00f3` after ~5s. OK.
-4. Then the audio + video start/stop sequence that hung the FX3 (`uvc_raw.py` + `audio_check.py`
+4. Not covered: FX3 main loop alive but USB dead (2026-09-29, audio+video stall below: EP0 stopped
+   answering, the host dropped the device, heartbeat still running). Next: gate the heartbeat on
+   USB liveness (frame counter `PROT_FRAMECNT`/`DEV_FRAMECNT` advancing unless suspended/U3, see
+   `LNK_LTSSM_STATE`): measure these registers with `camlink.py peek` while streaming, idle and
+   autosuspended before implementing it.
+5. Then the audio + video start/stop sequence that hung the FX3 (`uvc_raw.py` + `audio_check.py`
    loops), reading `camlink.py stats` (fallbacks/PHY timeouts) when it survives.
 
 ## 3. Audio (commit 01c02bd)
+
+2026-09-29: FPGA counter audio alone PASS (144000 samples, bit exact). Audio (counter) streaming
+then a 1080p video start (4K input, downscale): exactly one video frame sent (127 x 32KB bursts,
+1 EOP), then the GPIF stalls: video FLAG ready, audio FLAG low with 93 words queued, HDMI FIFO
+overflowing, `arecord` I/O error, EP0 dead a few seconds later, device dropped by the host (needs a
+replug). Deterministic (3/3). Video first then audio (HDMI source, audio not enabled): OK.
+Suspect: FX3 GPIF thread switch after the video EOP commit (COMMIT/EOP_WAIT -> audio thread).
 
 | Check | Command | Expected |
 |---|---|---|
