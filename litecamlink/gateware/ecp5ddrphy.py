@@ -126,7 +126,8 @@ class ECP5DDRPHY(Module, AutoCSR):
         clk_polarity = 0,
         dm_remapping = None,
         with_dm      = True,
-        csr_cdc      = None):
+        csr_cdc      = None,
+        io_rst_init  = False):
         assert isinstance(cmd_delay, int) and cmd_delay < 128
         pads        = PHYPadsCombiner(pads)
         memtype     = "DDR3"
@@ -142,6 +143,13 @@ class ECP5DDRPHY(Module, AutoCSR):
 
         # Init -------------------------------------------------------------------------------------
         self.submodules.init = ECP5DDRPHYInit()
+
+        # IO gearing (IOLOGIC/DQSBUFM) reset: the sys reset by default. With `io_rst_init`, the init
+        # sequence reset pulse, released while the edge clock is stopped: all the IOLOGIC gearboxes
+        # restart on the same ECLK edge. A reset released with ECLK running reached the IOLOGICs
+        # with up to ~2.5ns of skew (> 1 ECLK period at DDR3-594 when routed far): pins came out of
+        # reset on different ECLK edges (commands/data misaligned, DRAM dead on some placements).
+        io_rst = self.init.reset if io_rst_init else ResetSignal("sys")
 
         # Parameters -------------------------------------------------------------------------------
         cl  = get_default_cl( memtype, tck) if cl  is None else cl
@@ -209,7 +217,7 @@ class ECP5DDRPHY(Module, AutoCSR):
             for i in range(len(pads.clk_p)):
                 pad_oddrx2f = Signal()
                 self.specials += Instance("ODDRX2F",
-                    i_RST  = ResetSignal("sys"),
+                    i_RST  = io_rst,
                     i_SCLK = ClockSignal("sys"),
                     i_ECLK = ClockSignal("sys2x"),
                     **{f"i_D{n}": (clk_pattern >> n) & 0b1 for n in range(4)},
@@ -243,7 +251,7 @@ class ECP5DDRPHY(Module, AutoCSR):
                 for i in range(len(pad)):
                     pad_oddrx2f = Signal()
                     self.specials += Instance("ODDRX2F",
-                        i_RST  = ResetSignal("sys"),
+                        i_RST  = io_rst,
                         i_SCLK = ClockSignal("sys"),
                         i_ECLK = ClockSignal("sys2x"),
                         **{f"i_D{n}": getattr(dfi.phases[n//2], dfi_name)[i] for n in range(4)},
@@ -281,7 +289,7 @@ class ECP5DDRPHY(Module, AutoCSR):
                 p_DQS_LO_DEL_ADJ = "MINUS",
                 p_DQS_LO_DEL_VAL = 4,
                 # Clocks / Reset
-                i_RST            = ResetSignal("sys"),
+                i_RST            = io_rst,
                 i_SCLK           = ClockSignal("sys"),
                 i_ECLK           = ClockSignal("sys2x"),
                 i_DDRDEL         = self.init.delay,
@@ -323,7 +331,7 @@ class ECP5DDRPHY(Module, AutoCSR):
             dqs_oe_n = Signal()
             self.specials += [
                 Instance("ODDRX2DQSB",
-                    i_RST  = ResetSignal("sys"),
+                    i_RST  = io_rst,
                     i_SCLK = ClockSignal("sys"),
                     i_ECLK = ClockSignal("sys2x"),
                     i_DQSW = dqsw,
@@ -331,7 +339,7 @@ class ECP5DDRPHY(Module, AutoCSR):
                     o_Q    = dqs
                 ),
                 Instance("TSHX2DQSA",
-                    i_RST  = ResetSignal("sys"),
+                    i_RST  = io_rst,
                     i_SCLK = ClockSignal("sys"),
                     i_ECLK = ClockSignal("sys2x"),
                     i_DQSW = dqsw,
@@ -355,7 +363,7 @@ class ECP5DDRPHY(Module, AutoCSR):
                 dm_bl8_cases[1] = dm_o_data_muxed.eq(dm_o_data_d[4:])
                 self.sync += Case(bl8_chunk, dm_bl8_cases)
                 self.specials += Instance("ODDRX2DQA",
-                    i_RST     = ResetSignal("sys"),
+                    i_RST     = io_rst,
                     i_SCLK    = ClockSignal("sys"),
                     i_ECLK    = ClockSignal("sys2x"),
                     i_DQSW270 = dqsw270,
@@ -385,7 +393,7 @@ class ECP5DDRPHY(Module, AutoCSR):
                 self.sync += Case(bl8_chunk, dq_bl8_cases)
                 self.specials += [
                     Instance("ODDRX2DQA",
-                        i_RST     = ResetSignal("sys"),
+                        i_RST     = io_rst,
                         i_SCLK    = ClockSignal("sys"),
                         i_ECLK    = ClockSignal("sys2x"),
                         i_DQSW270 = dqsw270,
@@ -405,7 +413,7 @@ class ECP5DDRPHY(Module, AutoCSR):
                         o_Z        = dq_i_delayed
                     ),
                     Instance("IDDRX2DQA",
-                        i_RST     = ResetSignal("sys"),
+                        i_RST     = io_rst,
                         i_SCLK    = ClockSignal("sys"),
                         i_ECLK    = ClockSignal("sys2x"),
                         i_DQSR90  = dqsr90,
@@ -422,7 +430,7 @@ class ECP5DDRPHY(Module, AutoCSR):
                     self.comb += dfi.phases[n//4].rddata[n%4*databits+j].eq(dq_i_data[n])
                 self.specials += [
                     Instance("TSHX2DQA",
-                        i_RST     = ResetSignal("sys"),
+                        i_RST     = io_rst,
                         i_SCLK    = ClockSignal("sys"),
                         i_ECLK    = ClockSignal("sys2x"),
                         i_DQSW270 = dqsw270,
@@ -590,7 +598,7 @@ def ecp5ddrphy_with_ratio(ratio=2):
         dfi.Serializer, dfi.Deserializer = rate.serializer_cls(), rate.deserializer_cls()
         try:
             # PHY timings computed at the PHY clock (ratio x controller clock).
-            phy = wrapper_cls(pads, sys_clk_freq=ratio*sys_clk_freq, **kwargs)
+            phy = wrapper_cls(pads, sys_clk_freq=ratio*sys_clk_freq, io_rst_init=True, **kwargs)
         finally:
             dfi.Serializer, dfi.Deserializer = saved
         phy.submodules.rate = rate

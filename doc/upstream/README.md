@@ -25,6 +25,31 @@ not reachable on this board without the LiteCamLink I2C/UART bridge).
 
 ## Notes / Open Items
 
+- sys/sys2x crossing of the DFI rate converter (fixed locally, to upstream): `Serializer` samples
+  each sys word on both sys2x edges (combinational slice select) and `Deserializer` hands the last
+  slice to sys on the next edge. With the ECP5 CLKDIVF clocks (edges coincident or a quarter sys
+  period apart, set at each PHY init), one sample is a hold race or has ~3.4ns of setup, and
+  nextpnr does not check these cross-domain paths: DRAM worked on ~1 of 8 frame buffer builds
+  (DFII writes did not land). `RateCrossing` (`litecamlink/gateware/ecp5ddrphy.py`) captures each
+  word once per sys cycle on a CSR-selected sys2x edge and aligns the read words with a runtime
+  shift: 8/8 loads OK on 2 builds. Candidate for `DFIRateConverter` (optional safe crossing).
+- ECP5DDRPHY IO gearing reset (fixed locally with `io_rst_init`, to upstream): the IOLOGIC/DQSBUFM
+  `RST` pins use the sys reset, released after the edge clock restarts. Routed to the IOLOGICs with
+  up to ~2.5ns of skew (> 1 ECLK period at DDR3-594 on some placements), the pins' gearboxes came
+  out of reset on different ECLK edges: commands/data misaligned, DRAM dead on ~1 of 5 builds even
+  with the robust crossing (nextpnr detailed net timing: LSR 1.1-3.5ns on the failing build, 1.1-1.8ns
+  on a working one). Driving them from the init sequence reset pulse (released while ECLK is
+  stopped, as Lattice's sequence intends): 9/9 FPGA loads OK on 3 seeds. Probably also relevant at
+  1:2 on other ECP5 boards (random DRAM failures with some builds).
+- LiteDRAM bank machine lock with `cmd_buffer_buffered=True` (to upstream): `lock` is
+  `cmd_buffer_lookahead.source.valid | cmd_buffer.source.valid`; with the buffered lookahead FIFO
+  a just accepted command is not visible on `source.valid` for a cycle, so when the requesting
+  master pauses (e.g. moves to another bank) the crossbar can re-grant the bank to another master,
+  and the read data of that command is routed to the new master (`master_rdata_valids` uses the
+  grant at issue time). Seen on hardware: a video-domain reader (CDC) lost 128 reads while a
+  writer shared the banks (sys-side counters: 128 reads accepted by the crossbar, never answered).
+  Fix: `lock` from the FIFO level (`level != 0`); worked around here with unbuffered buffers.
+
 - Read latency: the controller read latency is one cycle lower than the generic
   `DFIRateConverter.phy_wrapper` estimate for the ECP5DDRPHY (found on hardware by writing with
   DFII and reading through the controller, then confirmed with BIST and random accesses). Fabric
