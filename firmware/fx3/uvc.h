@@ -133,6 +133,8 @@ void uvc_audio_set_interface(uint8_t alt);
 uint8_t uvc_audio_get_interface(void);
 /* Scaling of inputs larger than the frame: 2x downscale (default) or crop window at (x, y). */
 void uvc_set_crop(int enable, uint16_t x, uint16_t y);
+/* RGB input range: 0 = auto (AVI InfoFrame, full when default), 1 = limited, 2 = full. */
+void uvc_set_range(int range);
 /* Audio source: 0 = HDMI (I2S), 1 = test counter. */
 void uvc_audio_set_test(int test);
 /* Audio packets (1ms) per GPIF thread switch (1-8, latency vs video bandwidth). */

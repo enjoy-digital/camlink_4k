@@ -55,7 +55,7 @@ def ddr_source(pads, frames):
                 yield pads.qe_fall.eq(pixel(f, 2*x + 1, y) if active else 0)
                 yield
 
-def run(ready_pattern, frames=6, ddr=False, downscale=False, crop=None, source=None, m420=False):
+def run(ready_pattern, frames=6, ddr=False, downscale=False, crop=None, source=None, m420=False, rgb=False):
     pads = Pads()
     dut  = HDMIIn(pads, fifo_depth=64, idle_timeout=64, sim=True)
     out  = []
@@ -69,6 +69,7 @@ def run(ready_pattern, frames=6, ddr=False, downscale=False, crop=None, source=N
         yield dut.control.fields.downscale.eq(downscale)
         yield dut.admit_level.storage.eq(40)
         yield dut.control.fields.m420.eq(m420)
+        yield dut.control.fields.rgb.eq(rgb)
         if crop is not None:
             yield dut.control.fields.crop.eq(1)
             for csr, v in zip((dut.crop_x, dut.crop_y, dut.crop_w, dut.crop_h), crop):
@@ -220,3 +221,40 @@ def test_hdmi_in_ddr_m420_backpressure():
     for frame in frames:
         f = ((frame[0] & 0xff) - 0xa0) % 256 // 16
         assert frame == expected_m420(f)
+
+def rgb_pixel(f, x, y):
+    """RGB test pixel: lane 0 = B, lane 1 = G, lane 2 = R."""
+    r, g, b = (0x20 + 16*f + 5*x) & 0xff, (0xa0 + 7*y + 3*x) & 0xff, (0x40 + 11*x) & 0xff
+    return (r << 16) | (g << 8) | b
+
+def test_hdmi_in_ddr_rgb():
+    from test_csc import model
+    from litecamlink.gateware.csc import bt709_coefficients
+    def source(pads, frames):
+        for f in range(frames):
+            for y in range(VACT + VBLANK):
+                for x in range(HACT//2 + HBLANK):
+                    active = (y < VACT) and (x < HACT//2)
+                    yield pads.de.eq(active)
+                    yield pads.vsync.eq(y == VACT + 1)
+                    yield pads.qe.eq(rgb_pixel(f, 2*x, y) if active else 0)
+                    yield pads.qe_fall.eq(rgb_pixel(f, 2*x + 1, y) if active else 0)
+                    yield
+    dut, frames = run(lambda cycle: 1, ddr=True, rgb=True, source=source)
+    coefs = bt709_coefficients(True)
+    split = lambda v: ((v >> 16) & 0xff, (v >> 8) & 0xff, v & 0xff)
+    assert len(frames) >= 3
+    matched = 0
+    for frame in frames:
+        for f in range(6):
+            words = []
+            for y in range(VACT):
+                for x in range(0, HACT, 2):
+                    y0, y1, cb, cr = model(split(rgb_pixel(f, x, y)), split(rgb_pixel(f, x + 1, y)), coefs)
+                    words.append(y0 | (cb << 8) | (y1 << 16) | (cr << 24))
+            if frame == words:
+                matched += 1
+                break
+        else:
+            assert False, "RGB frame does not match any source frame."
+    assert matched == len(frames)

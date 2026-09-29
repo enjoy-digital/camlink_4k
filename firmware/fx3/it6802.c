@@ -21,7 +21,7 @@
 #include "generated/edid.h"
 #include "generated/fpga_csr.h"
 
-#define IT6802_ADDR    0x49 /* PCADR high. */
+#define IT6802_ADDR    IT6802_I2C_ADDR
 #define IT6802_EDID    0x50 /* EDID RAM address on the PC bus (programmed in reg 0x87). */
 
 #define REG_BANK       0x0f
@@ -38,6 +38,11 @@ static struct it6802_status status;
 
 static uint8_t current_bank = 0xff;
 
+void it6802_invalidate_bank(void)
+{
+    current_bank = 0xff;
+}
+
 static int it6802_bank(uint8_t bank)
 {
     int ret = 0;
@@ -48,18 +53,29 @@ static int it6802_bank(uint8_t bank)
     return ret;
 }
 
+/* Bank select + access are atomic (host I2C tunnel accesses run in the USB interrupt). */
 int it6802_write(uint8_t bank, uint8_t reg, uint8_t value)
 {
-    if (it6802_bank(bank))
-        return -1;
-    return i2c_write(IT6802_ADDR, &reg, 1, &value, 1);
+    uint32_t irq = irq_save();
+    int ret = it6802_bank(bank);
+    if (!ret)
+        ret = i2c_write(IT6802_ADDR, &reg, 1, &value, 1);
+    if (bank != 0)
+        it6802_bank(0); /* Bank 0 at rest (host tools expect it). */
+    irq_restore(irq);
+    return ret;
 }
 
 int it6802_read(uint8_t bank, uint8_t reg, uint8_t *value)
 {
-    if (it6802_bank(bank))
-        return -1;
-    return i2c_read(IT6802_ADDR, &reg, 1, value, 1);
+    uint32_t irq = irq_save();
+    int ret = it6802_bank(bank);
+    if (!ret)
+        ret = i2c_read(IT6802_ADDR, &reg, 1, value, 1);
+    if (bank != 0)
+        it6802_bank(0); /* Bank 0 at rest (host tools expect it). */
+    irq_restore(irq);
+    return ret;
 }
 
 /* Configuration --------------------------------------------------------------------------------- */
@@ -170,7 +186,10 @@ static uint16_t it6802_read16(uint8_t lo, uint8_t hi, uint8_t hi_mask, uint8_t h
 }
 
 /* Input color space from the AVI InfoFrame (bank 2 0x15 = PB1, Y[6:5]: 0 = RGB, 1 = YCbCr 4:2:2,
- * 2 = YCbCr 4:4:4): RGB -> YUV CSC for RGB sources, bypass for YCbCr sources. */
+ * 2 = YCbCr 4:4:4) and RGB quantization range (0x17 = PB3, Q[3:2]: 0 = default, 1 = limited,
+ * 2 = full). YCbCr sources: CSC bypass, YCbCr 4:2:2 16-bit output. RGB sources: RGB 4:4:4 24-bit
+ * output (lanes B/G/R), converted to YCbCr by the FPGA (the IT6802 RGB -> YUV CSC output lacks the
+ * chroma offset with the default matrix, validated with a PC RGB source). */
 static void it6802_update_colorspace(int force)
 {
     uint8_t avi_pb1 = 0;
@@ -183,7 +202,13 @@ static void it6802_update_colorspace(int force)
     if (colorspace == status.colorspace && !force)
         return;
     status.colorspace = colorspace;
-    it6802_write(0, 0x65, colorspace ? 0x10 : 0x12);
+    status.quant_range = 0;
+    if (colorspace == 0) {
+        uint8_t avi_pb3 = 0;
+        if (!it6802_read(2, 0x17, &avi_pb3))
+            status.quant_range = (avi_pb3 >> 2) & 0x3;
+    }
+    it6802_write(0, 0x65, colorspace ? 0x10 : 0x00);
 }
 
 /* Input change tracking: a change of (stable, size, color space) settled for 4 polls (~200ms)

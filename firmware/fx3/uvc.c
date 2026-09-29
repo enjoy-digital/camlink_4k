@@ -50,6 +50,7 @@ enum { STREAM_IDLE = 0, STREAM_START, STREAM_STOP };
 static volatile int stream_request;
 static int streaming;
 
+static volatile int      range_override; /* 0: auto (AVI), 1: limited, 2: full. */
 static volatile int      crop_mode;     /* 0: downscale, 1: crop (inputs larger than the frame). */
 static volatile uint16_t crop_x, crop_y; /* Crop window position (pixels, lines). */
 static volatile int      settings_request; /* Settings changed: re-apply if a stream is active. */
@@ -327,6 +328,10 @@ static void video_start(void)
         .fps       = 10000000UL/commit.dwFrameInterval,
         .ddr       = 1, /* IT6802 always in 0.5x PCLK DDR output mode (see it6802.c). */
         .c_swap    = hdmi->colorspace != 0,
+        /* RGB sources: FPGA CSC. Range: AVI Q when explicit, else full (PC sources with a default
+         * Q send full range, e.g. NVIDIA), unless overridden (uvc_set_range). */
+        .rgb        = hdmi->colorspace == 0,
+        .full_range = range_override ? (range_override == 2) : (hdmi->quant_range != 1),
         .m420      = m420,
         .no_signal = !signal,
     };
@@ -393,6 +398,12 @@ void uvc_audio_set_interface(uint8_t alt)
 uint8_t uvc_audio_get_interface(void)
 {
     return audio_alt;
+}
+
+void uvc_set_range(int range)
+{
+    range_override   = range;
+    settings_request = 1;
 }
 
 void uvc_set_crop(int enable, uint16_t x, uint16_t y)

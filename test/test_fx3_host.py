@@ -28,7 +28,7 @@ class HDMIStatus(ctypes.Structure):
     _fields_ = [("present", ctypes.c_uint8), ("sys_status", ctypes.c_uint8), ("hpd", ctypes.c_uint8),
         ("stable", ctypes.c_uint8), ("htotal", ctypes.c_uint16), ("hactive", ctypes.c_uint16),
         ("vtotal", ctypes.c_uint16), ("vactive", ctypes.c_uint16), ("pclk_reg", ctypes.c_uint8),
-        ("video_mode", ctypes.c_uint8), ("colorspace", ctypes.c_uint8), ("reserved", ctypes.c_uint8),
+        ("video_mode", ctypes.c_uint8), ("colorspace", ctypes.c_uint8), ("quant_range", ctypes.c_uint8),
         ("generation", ctypes.c_uint32), ("frame_period", ctypes.c_uint32)]
 
 class Video(ctypes.Structure):
@@ -36,7 +36,8 @@ class Video(ctypes.Structure):
         ("hdmi", ctypes.c_uint8), ("ddr", ctypes.c_uint8), ("downscale", ctypes.c_uint8),
         ("crop", ctypes.c_uint8), ("crop_x", ctypes.c_uint16), ("crop_y", ctypes.c_uint16),
         ("c_swap", ctypes.c_uint8), ("m420", ctypes.c_uint8), ("no_signal", ctypes.c_uint8),
-        ("canvas", ctypes.c_uint8), ("in_width", ctypes.c_uint16), ("in_height", ctypes.c_uint16)]
+        ("canvas", ctypes.c_uint8), ("rgb", ctypes.c_uint8), ("full_range", ctypes.c_uint8),
+        ("in_width", ctypes.c_uint16), ("in_height", ctypes.c_uint16)]
 
 PROBE_FMT = "<HBBIHHHHHIIIBBBB" # UVC 1.1 probe/commit (34 bytes).
 
@@ -78,9 +79,9 @@ class FX3:
     def video(self):
         return Video.in_dll(self.lib, "stub_video")
 
-    def set_input(self, w=0, h=0, stable=True, colorspace=0):
+    def set_input(self, w=0, h=0, stable=True, colorspace=0, quant_range=0):
         s = self.hdmi
-        s.stable, s.hactive, s.vactive, s.colorspace = int(stable), w, h, colorspace
+        s.stable, s.hactive, s.vactive, s.colorspace, s.quant_range = int(stable), w, h, colorspace, quant_range
         s.generation += 1
 
     def request(self, request_type, request, value, index, length, data=b""):
@@ -316,3 +317,21 @@ def test_audio_batch_4k(fx3):
     fx3.lib.uvc_audio_set_batch(6)
     fx3.lib.uvc_service()
     assert fx3.var("stub_gpif_batch", ctypes.c_int32).value == 6
+
+@pytest.mark.parametrize("colorspace, quant, override, rgb, full", [
+    (0, 0, None, 1, 1),        # RGB, default range: full (PC sources).
+    (0, 2, None, 1, 1),
+    (0, 1, None, 1, 0),        # RGB, explicit limited.
+    (0, 1, "full", 1, 1),      # Override.
+    (0, 0, "limited", 1, 0),
+    (1, 0, None, 0, 1),        # YCbCr: IT6802 bypass, no FPGA CSC.
+])
+def test_rgb_range_policy(fx3, colorspace, quant, override, rgb, full):
+    if override is not None:
+        fx3.lib.uvc_set_range({"limited": 1, "full": 2}[override])
+    fx3.set_input(1920, 1080, colorspace=colorspace, quant_range=quant)
+    fx3.commit(1, 1, 60)
+    v = fx3.video
+    assert (v.rgb, v.c_swap) == (rgb, int(colorspace != 0))
+    if rgb:
+        assert v.full_range == full

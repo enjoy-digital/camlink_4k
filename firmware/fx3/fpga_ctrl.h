@@ -25,6 +25,8 @@ struct fpga_video {
     uint8_t  m420;            /* M420 output (YUV 4:2:0), else YUY2.                      */
     uint8_t  no_signal;       /* Pattern: "no signal" mode.                               */
     uint8_t  canvas;          /* Window centered in the frame (black borders).            */
+    uint8_t  rgb;             /* RGB 4:4:4 input converted by the FPGA CSC (BT.709).      */
+    uint8_t  full_range;      /* RGB input full range (0-255), else limited (16-235).     */
     uint16_t in_width, in_height; /* Window size (crop/canvas), 0: frame size.            */
 };
 

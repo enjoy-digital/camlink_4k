@@ -30,6 +30,8 @@ from litex.gen import *
 from litex.soc.interconnect.csr import *
 from litex.soc.interconnect     import stream
 
+from litecamlink.gateware.csc import RGB2YCbCr422, bt709_coefficients
+
 # M420 Packer --------------------------------------------------------------------------------------
 
 class M420Packer(LiteXModule):
@@ -244,6 +246,22 @@ class HDMIIn(LiteXModule):
             CSRField("downscale", size=1, offset=14, description="2x downscale (2x2 box filter, DDR modes)."),
             CSRField("crop",      size=1, offset=15, description="Crop window (DDR modes, no downscale)."),
             CSRField("m420",      size=1, offset=16, description="M420 output (YUV 4:2:0, DDR modes, no downscale/crop)."),
+            CSRField("rgb",       size=1, offset=17, description="RGB 4:4:4 input (lanes B/G/R), converted by the CSC (DDR modes)."),
+        ])
+        # CSC (RGB -> YCbCr 4:2:2): Q1.10 coefficients (r, g, b per row), offsets. Reset: BT.709 full
+        # range input.
+        ky, kcb, kcr, y_off, c_off, in_off = bt709_coefficients(full_range_input=True)
+        self.csc_coefs = []
+        for row, k in (("y", ky), ("cb", kcb), ("cr", kcr)):
+            for comp, v in zip("rgb", k):
+                csr = CSRStorage(12, reset=v & 0xfff, name=f"csc_{row}_{comp}",
+                    description=f"CSC {row.upper()} {comp.upper()} coefficient (signed Q1.10).")
+                setattr(self, f"csc_{row}_{comp}", csr)
+                self.csc_coefs.append(csr)
+        self.csc_offsets = CSRStorage(fields=[
+            CSRField("y_off",  size=8, offset=0,  reset=y_off,  description="Y offset."),
+            CSRField("c_off",  size=8, offset=8,  reset=c_off,  description="Cb/Cr offset."),
+            CSRField("in_off", size=8, offset=16, reset=in_off, description="RGB input offset (limited range: 16)."),
         ])
         self.crop_x = CSRStorage(16, description="Crop window X (words, 2 pixels per word).")
         self.crop_y = CSRStorage(16, description="Crop window Y (lines).")
@@ -328,21 +346,20 @@ class HDMIIn(LiteXModule):
                 i_RST  = 0,
                 o_Q0   = de_r,
             )
-        self.sync.hdmi += vs.eq(pads.vsync)
+        vs_s = Signal()
+        self.sync.hdmi += vs_s.eq(pads.vsync)
 
         # Pipeline alignment (sample stage): pixel data/DE of the current clock.
         qe0 = Signal(24) # First pixel (SDR: the pixel, DDR: first of the pair).
         qe1 = Signal(24) # Second pixel (DDR only).
-        de  = Signal()
-        de_next = Signal()
+        de_s  = Signal()
         self.sync.hdmi += [
             qe0.eq(Mux(ddr_swap, qe_f, qe_r)),
             qe1.eq(Mux(ddr_swap, qe_r, qe_f)),
-            de.eq(de_r),
+            de_s.eq(de_r),
         ]
-        self.comb += de_next.eq(de_r)
         self.debug_qe = qe0 # Debug (IOScan).
-        self.debug_de = de
+        self.debug_de = de_s
 
         # Lanes.
         def lanes(qe):
@@ -353,8 +370,44 @@ class HDMIIn(LiteXModule):
                 Case(c_lane, {0: c.eq(qe[0:8]), 1: c.eq(qe[8:16]), "default": c.eq(qe[16:24])}),
             ]
             return y, c
-        ya, ca = lanes(qe0)
-        yb, cb = lanes(qe1)
+        ya_s, ca_s = lanes(qe0)
+        yb_s, cb_s = lanes(qe1)
+
+        # CSC (RGB input: lane 0 = B, lane 1 = G, lane 2 = R) and uniform pipeline latency: the lane
+        # path, DE and VS are delayed by the CSC latency in all modes.
+        rgb = Signal()
+        self.specials += MultiReg(self.control.fields.rgb, rgb, "hdmi")
+        self.csc = csc = ClockDomainsRenamer("hdmi")(RGB2YCbCr422(sim=sim))
+        for csr, sig in zip(self.csc_coefs, csc.ky + csc.kcb + csc.kcr):
+            self.specials += MultiReg(csr.storage, sig, "hdmi")
+        self.specials += [
+            MultiReg(self.csc_offsets.fields.y_off,  csc.y_off,  "hdmi"),
+            MultiReg(self.csc_offsets.fields.c_off,  csc.c_off,  "hdmi"),
+            MultiReg(self.csc_offsets.fields.in_off, csc.in_off, "hdmi"),
+        ]
+        self.comb += [
+            csc.b0.eq(qe0[0:8]), csc.g0.eq(qe0[8:16]), csc.r0.eq(qe0[16:24]),
+            csc.b1.eq(qe1[0:8]), csc.g1.eq(qe1[8:16]), csc.r1.eq(qe1[16:24]),
+        ]
+        def delay(x, n):
+            for _ in range(n):
+                d = Signal.like(x)
+                self.sync.hdmi += d.eq(x)
+                x = d
+            return x
+        L = RGB2YCbCr422.LATENCY
+        ya = Signal(8)
+        ca = Signal(8)
+        yb = Signal(8)
+        cb = Signal(8)
+        self.comb += If(rgb,
+            ya.eq(csc.y0), ca.eq(csc.cb), yb.eq(csc.y1), cb.eq(csc.cr),
+        ).Else(
+            ya.eq(delay(ya_s, L)), ca.eq(delay(ca_s, L)), yb.eq(delay(yb_s, L)), cb.eq(delay(cb_s, L)),
+        )
+        de      = delay(de_s, L)
+        de_next = delay(de_r, L) # One clock ahead of de.
+        vs      = delay(vs_s, L)
 
         # Timing measurement (DE/VS): hres in DE clocks (pixels in SDR, pixel pairs in DDR).
         de_d     = Signal()

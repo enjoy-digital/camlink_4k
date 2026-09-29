@@ -54,6 +54,7 @@ enum {
     VREQ_HANG          = 0x74, /* OUT: Debug: hang with interrupts off (watchdog test). */
     VREQ_STATS         = 0x75, /* IN : Debug counters (see vendor_request).          */
     VREQ_AUDIO_BATCH   = 0x76, /* OUT: Audio packets per GPIF thread switch (value, 1-8). */
+    VREQ_RANGE         = 0x77, /* OUT: RGB input range, value = 0: auto, 1: limited, 2: full. */
     VREQ_CROP          = 0x71, /* OUT: Crop mode, value = x (0xffff: off, downscale), index = y. */
     VREQ_FPGA_BOOT     = 0x66, /* OUT: Load the FPGA from the flash bitstream (deferred, status via FLASH_STATUS). */
 };
@@ -177,6 +178,8 @@ static void vendor_request(const struct usb_setup *setup)
         if (!setup->length)
             usb_ep0_ack();
         /* Errors are reported through VREQ_I2C_READ/status only (data stage already acked). */
+        if (addr == IT6802_I2C_ADDR)
+            it6802_invalidate_bank(); /* Host access may change the IT6802 register bank. */
         i2c_status = i2c_write(addr, ep0_buf, prefix_len, ep0_buf + prefix_len,
             setup->length - prefix_len);
         return;
@@ -187,6 +190,8 @@ static void vendor_request(const struct usb_setup *setup)
         uint8_t prefix[2]  = {setup->index & 0xff, setup->index >> 8};
         if (setup->length > EP0_BUF_SIZE || prefix_len > 2)
             break;
+        if (addr == IT6802_I2C_ADDR)
+            it6802_invalidate_bank();
         i2c_status = i2c_read(addr, prefix, prefix_len, ep0_buf, setup->length);
         if (i2c_status)
             break;
@@ -288,6 +293,10 @@ static void vendor_request(const struct usb_setup *setup)
         delay_us(1000);
         irq_disable();
         for (;;);
+    case VREQ_RANGE:
+        uvc_set_range(setup->value & 3);
+        usb_ep0_ack();
+        return;
     case VREQ_CROP:
         uvc_set_crop(setup->value != 0xffff, setup->value, setup->index);
         usb_ep0_ack();

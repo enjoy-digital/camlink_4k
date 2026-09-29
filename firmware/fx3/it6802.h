@@ -22,7 +22,7 @@ struct it6802_status {
     uint8_t  pclk_reg;     /* Reg 0x9A (pixel clock measurement).  */
     uint8_t  video_mode;   /* Reg 0x99.                            */
     uint8_t  colorspace;   /* AVI InfoFrame Y: 0 = RGB, 1 = YCbCr 4:2:2, 2 = YCbCr 4:4:4. */
-    uint8_t  reserved;
+    uint8_t  quant_range;  /* AVI InfoFrame RGB range Q: 0 = default, 1 = limited, 2 = full. */
     uint32_t generation;   /* Incremented on each settled input change (mode, colorspace, loss). */
     uint32_t frame_period; /* Input frame period (FPGA sys clock cycles, filled on request). */
 };
@@ -32,5 +32,9 @@ void it6802_service(void);
 const struct it6802_status *it6802_get_status(void);
 int  it6802_read(uint8_t bank, uint8_t reg, uint8_t *value);
 int  it6802_write(uint8_t bank, uint8_t reg, uint8_t value);
+#define IT6802_I2C_ADDR 0x49 /* 7-bit I2C address (PCADR high). */
+
+/* Register bank cache invalidation (host accesses through the I2C tunnel). */
+void it6802_invalidate_bank(void);
 
 #endif /* IT6802_H */
