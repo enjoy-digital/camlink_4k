@@ -54,6 +54,29 @@ reset: before it, sys2x never left reset.)
 
 (VexRiscv limits CPU builds to ~85 MHz, hence the 75 MHz bring-up variants.)
 
+## Hardware Results (2026-09-29)
+
+| Config | sys | DRAM | Result | Write | Read | Concurrent |
+|---|---|---|---|---|---|---|
+| 1:2 | 75 MHz | DDR3-300 | BIOS + BIST OK | 495 MB/s | 512 MB/s | 395 MB/s |
+| 1:4 | 74.25 MHz | DDR3-594 | BIOS + BIST 64MB OK | 1027 MB/s | 1048 MB/s | 861 MB/s |
+| 1:4 | 87.75 MHz | DDR3-700 | BIST 64MB OK | 1212 MB/s | 1233 MB/s | 1024 MB/s |
+| 1:4 | 99.56 MHz | DDR3-796 | no read window | - | - | - |
+
+Findings:
+- 1:4 needed the controller read latency one cycle lower than the generic `DFIRateConverter`
+  wrapper estimate (isolated with DFII write -> controller read, latency sweep builds).
+- Leveling from the host: select the module only around delay/bitslip actions (as the BIOS), and
+  re-apply all modules at the end (a module's setting was lost while the next was scanned).
+- Read windows are narrow (3-4 of the 8 READCLKSEL steps) and move right with the frequency. At
+  DDR3-796 no setting works, even with the added read window calibration (`rdly_re`: DQSBUF READ
+  pulse offset, `rdly_data`: read data delay, scanned by `dram.py init`): data comes back with wrong
+  beats, burst detection on one module only. The -8 ECP5 and the stock Lattice IP do DDR3-800 on this
+  board: next steps are the DQSBUFM fine read delay (RDLOADN/RDMOVE, unused by LiteDRAM) and the
+  write DQS timing at 400 MHz (the Gowin GW5 1:4 PHY is a good reference).
+- DDR3-700 is enough for the 4K30 NV12 frame buffer (37% margin), with the video pipeline in its
+  own 100 MHz domain (4K30 M420/NV12 needs ~93 Mwords/s, more than a 87.75 MHz sys).
+
 ## Bring-up Procedure (tomorrow)
 
 The FX3 firmware must match the CSR map of the loaded bitstream:

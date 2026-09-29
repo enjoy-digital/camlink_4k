@@ -53,16 +53,33 @@ class Canvas(LiteXModule):
         last_y  = Signal()
         in_x    = Signal()
         in_y    = Signal()
-        x1      = Signal(16)
-        y1      = Signal(16)
+        # Window bounds registered from the (static) CSRs; reset_less: valid right after a path
+        # reset. The window flags are registers updated with the counters from equality checks
+        # (timing: magnitude comparators on the counters limited the sys clock).
+        x1   = Signal(16, reset_less=True)
+        y1   = Signal(16, reset_less=True)
+        x0m1 = Signal(16, reset_less=True)
+        y0m1 = Signal(16, reset_less=True)
+        x1m1 = Signal(16, reset_less=True)
+        y1m1 = Signal(16, reset_less=True)
+        x0z  = Signal(reset_less=True)
+        y0z  = Signal(reset_less=True)
+        self.sync += [
+            x1.eq(self.x0.storage + self.in_hwords.storage),
+            y1.eq(self.y0.storage + self.in_vres.storage),
+            x0m1.eq(self.x0.storage - 1),
+            y0m1.eq(self.y0.storage - 1),
+            x1m1.eq(x1 - 1),
+            y1m1.eq(y1 - 1),
+            x0z.eq(self.x0.storage == 0),
+            y0z.eq(self.y0.storage == 0),
+        ]
         self.comb += [
             last_x.eq(x == (self.out_hwords.storage - 1)),
             last_y.eq(y == (self.out_vres.storage - 1)),
-            x1.eq(self.x0.storage + self.in_hwords.storage),
-            y1.eq(self.y0.storage + self.in_vres.storage),
-            in_x.eq((x >= self.x0.storage) & (x < x1)),
-            in_y.eq((y >= self.y0.storage) & (y < y1)),
         ]
+        started = Signal()  # Window flags computed for (0, 0).
+        settle  = Signal(2) # Cycles for the registered bounds to follow the CSRs.
 
         window = Signal()
         self.comb += window.eq(in_x & in_y & ~in_done)
@@ -82,6 +99,15 @@ class Canvas(LiteXModule):
                 NextValue(y, 0),
                 NextValue(in_done, 0),
                 NextValue(synced, 0),
+                NextValue(started, 0),
+                NextValue(settle, 0),
+            ).Elif(~started,
+                NextValue(settle, settle + 1),
+                If(settle == 3,
+                    NextValue(in_x, x0z),
+                    NextValue(in_y, y0z),
+                    NextValue(started, 1),
+                ),
             ).Elif(in_x & in_y & ~synced,
                 # First window word: wait for an input frame start.
                 NextState("SYNC"),
@@ -102,15 +128,19 @@ class Canvas(LiteXModule):
                     ),
                     If(last_x,
                         NextValue(x, 0),
+                        NextValue(in_x, x0z),
                         NextValue(y, y + 1),
+                        NextValue(in_y, Mux(in_y, y != y1m1, y == y0m1)),
                         If(last_y,
                             # Next output frame.
                             NextValue(y, 0),
+                            NextValue(in_y, y0z),
                             NextValue(in_done, 0),
                             NextValue(synced, 0),
                         )
                     ).Else(
                         NextValue(x, x + 1),
+                        NextValue(in_x, Mux(in_x, x != x1m1, x == x0m1)),
                     )
                 )
             )

@@ -195,7 +195,34 @@ class DRAM:
                 self.regs.ddrphy_rdly_dq_bitslip.write(1)
         self.action(fn)
 
-    def read_leveling(self, verbose=True):
+    def read_window(self, verbose=True):
+        """Scan the PHY read window calibration (DQSBUF READ offset x read data delay, global) with
+        per-module leveling, keep the setting with the widest worst-module window."""
+        if not hasattr(self.regs, "ddrphy_rdly_re"):
+            return self.read_leveling(verbose)
+        best = None
+        for re in range(3):
+            for data in range(3):
+                self.regs.ddrphy_rdly_re.write(re)
+                self.regs.ddrphy_rdly_data.write(data)
+                try:
+                    results = self.read_leveling(verbose=False, tries=1)
+                except RuntimeError:
+                    results = None
+                score = min(r[2] for r in results.values()) if results else 0
+                if verbose:
+                    print(f"  rdly_re {re} rdly_data {data}: {results if results else '-'}")
+                if score and (best is None or score > best[0]):
+                    best = (score, re, data)
+        if best is None:
+            raise RuntimeError("Read window calibration failed.")
+        self.regs.ddrphy_rdly_re.write(best[1])
+        self.regs.ddrphy_rdly_data.write(best[2])
+        if verbose:
+            print(f"  -> rdly_re {best[1]}, rdly_data {best[2]}")
+        return self.read_leveling(verbose)
+
+    def read_leveling(self, verbose=True, tries=4):
         p = self.phy
         self.software_control()
         results = {}
@@ -209,7 +236,7 @@ class DRAM:
                 scores = []
                 for delay in range(p.delays):
                     self.set_delay(delay)
-                    scores.append(self.module_ok(module))
+                    scores.append(self.module_ok(module, tries=tries))
                 if verbose:
                     print(f"  bitslip {bitslip}: " + "".join("1" if s else "0" for s in scores))
                 # Longest passing window.
@@ -281,7 +308,7 @@ def main():
 
     if args.cmd == "init":
         dram.init()
-        dram.read_leveling()
+        dram.read_window()
     if args.cmd == "leveling":
         dram.read_leveling()
     if args.cmd == "memtest":

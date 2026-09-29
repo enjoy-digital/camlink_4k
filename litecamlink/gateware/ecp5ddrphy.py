@@ -160,6 +160,14 @@ class ECP5DDRPHY(Module, AutoCSR):
         self._burstdet_clr  = CSR()
         self._burstdet_seen = CSRStatus(databits//8)
 
+        # Read window calibration (PHY cycles): DQSBUF READ pulse offset and read data delay. The
+        # read path is `rdly_max` cycles longer than the stock PHY: defaults (0, rdly_max) = stock
+        # timing. Needed at higher DRAM clocks (the fixed read round trip spans more PHY cycles:
+        # no read window at DDR3-796 with the stock timing, on hardware).
+        rdly_max = 2
+        self._rdly_re   = CSRStorage(2, reset=0,        description="DQSBUF READ pulse offset (PHY cycles).")
+        self._rdly_data = CSRStorage(2, reset=rdly_max, description="Read data delay (PHY cycles).")
+
         # CSR write strobes in the PHY clock domain (identity when the PHY runs in the CSR domain).
         csr_cdc = csr_cdc or (lambda i: i)
         rdly_dq_rst         = csr_cdc(self._rdly_dq_rst.wr_stb)
@@ -185,7 +193,7 @@ class ECP5DDRPHY(Module, AutoCSR):
             wrphase       = wrphase,
             cl            = cl,
             cwl           = cwl,
-            read_latency  = cl_sys_latency + 10,
+            read_latency  = cl_sys_latency + 10 + rdly_max,
             write_latency = cwl_sys_latency,
             read_leveling = True,
             bitslips      = 4,
@@ -195,6 +203,7 @@ class ECP5DDRPHY(Module, AutoCSR):
 
         # DFI Interface ----------------------------------------------------------------------------
         self.dfi = dfi = Interface(addressbits, bankbits, nranks, 4*databits, nphases)
+        rddata_raw = [Signal(4*databits) for _ in range(nphases)] # Read data before calibration delay.
 
         # # #
 
@@ -419,7 +428,7 @@ class ECP5DDRPHY(Module, AutoCSR):
                 self.sync += dq_i_bitslip_o_d.eq(dq_i_bitslip.o)
                 self.comb += dq_i_data.eq(Cat(dq_i_bitslip_o_d, dq_i_bitslip.o))
                 for n in range(8):
-                    self.comb += dfi.phases[n//4].rddata[n%4*databits+j].eq(dq_i_data[n])
+                    self.comb += rddata_raw[n//4][n%4*databits+j].eq(dq_i_data[n])
                 self.specials += [
                     Instance("TSHX2DQA",
                         i_RST     = ResetSignal("sys"),
@@ -452,7 +461,17 @@ class ECP5DDRPHY(Module, AutoCSR):
         self.submodules += rddata_en
 
         self.comb += [phase.rddata_valid.eq(rddata_en.output) for phase in dfi.phases]
-        self.comb += dqs_re.eq(rddata_en.taps[rdtap] | rddata_en.taps[rdtap + 1])
+        taps = Array(rddata_en.taps)
+        self.comb += dqs_re.eq(taps[rdtap + self._rdly_re.storage] | taps[rdtap + self._rdly_re.storage + 1])
+
+        # Read data calibration delay (0 to rdly_max cycles).
+        for n in range(nphases):
+            stages = [rddata_raw[n]]
+            for _ in range(rdly_max):
+                d = Signal(4*databits)
+                self.sync += d.eq(stages[-1])
+                stages.append(d)
+            self.comb += dfi.phases[n].rddata.eq(Array(stages)[self._rdly_data.storage])
 
         # Write Control Path -----------------------------------------------------------------------
         wrtap = cwl_sys_latency
