@@ -32,8 +32,11 @@ packet is available, and that word stays on DQ during the guard time after the p
 
 from migen import *
 from migen.genlib.cdc import MultiReg
+from migen.fhdl.specials import Tristate
 
 from litex.gen import *
+
+from litex.build.io import SDROutput, SDRTristate
 
 from litex.soc.interconnect.csr import *
 from litex.soc.interconnect     import stream
@@ -42,7 +45,7 @@ from litex.soc.interconnect     import stream
 
 class GPIFStreamer(LiteXModule):
     def __init__(self, pads, clk_freq=100e6, fifo_depth=512, max_delay=4,
-        with_audio=False, audio_packet_words=48, audio_fifo_depth=512, sim=False):
+        with_audio=False, audio_packet_words=48, audio_fifo_depth=512, io_regs=("ctl",), sim=False):
         # `next` (on payload last words): first word of the following payload (UVCPacketizer).
         self.sink       = sink = stream.Endpoint([("data", 32), ("next", 32)])
         self.audio_sink = audio_sink = stream.Endpoint([("data", 32)]) # Audio samples (sys domain).
@@ -125,16 +128,35 @@ class GPIFStreamer(LiteXModule):
         ]
 
         # CTL: per-bit tristate (CTL0 = VALID, CTL2 = EOP, CTL3 = ASEL outputs, CTL1 = FLAG,
-        # CTL4 = audio FLAG inputs).
-        self.ctl = ctl = TSTriple(len(pads.ctl))
-        if not sim:
-            self.specials += ctl.get_tristate(pads.ctl)
-        self.comb += ctl.oe.eq(0b01101)
+        # CTL4 = audio FLAG inputs). On hardware, CTL is registered in the IO cells (`io_regs`):
+        # fixed clock-to-out/sampling. DQ stays in fabric registers: IO registered, DQ switched too
+        # early after PCLK for the FX3 (video gaps/errors on hardware, most likely its input hold).
+        # `ctl_o`: next output values, `ctl_i`: registered inputs.
+        # Per-pin output enables (a TSTriple has a single `oe`: 0b01101 was truncated to 1 and the
+        # FPGA drove all the CTL pins, FX3 FLAG outputs included: bus contention).
+        self.ctl = ctl = TSTriple(len(pads.ctl)) # Simulation interface (o, i).
+        ctl_o  = Signal(len(pads.ctl))
+        ctl_i  = Signal(len(pads.ctl))
+        ctl_oe = Signal(len(pads.ctl))
+        self.comb += ctl_oe.eq(0b01101)
+        if sim:
+            self.sync.gpif += [ctl.o.eq(ctl_o), ctl_i.eq(ctl.i)]
+        elif "ctl" not in io_regs:
+            # Debug: fabric registers.
+            ctl_o_r = Signal(len(pads.ctl))
+            ctl_i_r = Signal(len(pads.ctl))
+            self.sync.gpif += [ctl_o_r.eq(ctl_o), ctl_i.eq(ctl_i_r)]
+            self.specials += Tristate(pads.ctl, ctl_o_r, ctl_oe, ctl_i_r)
+            self.comb += ctl.o.eq(ctl_o_r)
+        else:
+            self.specials += SDRTristate(io=pads.ctl, o=ctl_o, oe=ctl_oe, i=ctl_i,
+                clk=ClockSignal("gpif"))
+            self.comb += ctl.o.eq(ctl_o)
 
         # FLAG input.
         flag_i = Signal()
         flag   = Signal()
-        self.sync.gpif += flag_i.eq(ctl.i[1])
+        self.comb += flag_i.eq(ctl_i[1])
         self.comb += flag.eq(flag_i ^ flag_invert)
         self.specials += MultiReg(flag, self._status.fields.flag)
 
@@ -151,7 +173,7 @@ class GPIFStreamer(LiteXModule):
             MultiReg(self._control.fields.audio_lead,   audio_lead,   "gpif"),
             MultiReg(self._control.fields.audio_batch,  audio_batch,  "gpif"),
         ]
-        self.sync.gpif += audio_flag_i.eq(ctl.i[4])
+        self.comb += audio_flag_i.eq(ctl_i[4])
         self.comb += audio_flag.eq(audio_flag_i ^ flag_invert)
         self.specials += MultiReg(audio_flag, self._audio_status.fields.flag)
         if with_audio:
@@ -412,22 +434,27 @@ class GPIFStreamer(LiteXModule):
         # DQ output register without reset: while the streaming logic is held in reset (GPIF
         # restart), DQ already presents the next video word (next UVC header word), which the FX3
         # captures as the first word of its first DMA buffer.
-        self.sync.gpif_cdc += [
+        dq_o = Signal(32)
+        self.comb += [
             If(force,
-                pads.dq.eq(force_value),
+                dq_o.eq(force_value),
             ).Elif(fsm.ongoing("EOP"),
                 # The FX3 latches DQ at commit and uses it as the first word of its next buffer.
-                pads.dq.eq(video_next),
+                dq_o.eq(video_next),
             ).Elif(dq_cycles & fsm.ongoing("WAIT"),
-                pads.dq.eq(0x80000000 | cycles),
+                dq_o.eq(0x80000000 | cycles),
             ).Else(
-                pads.dq.eq(data_o),
+                dq_o.eq(data_o),
             ),
         ]
-        self.sync.gpif += [
-            ctl.o[0].eq(valid),
-            ctl.o[2].eq(eop),
-            ctl.o[3].eq(asel),
+        if sim or "dq" not in io_regs:
+            self.sync.gpif_cdc += pads.dq.eq(dq_o)
+        else:
+            self.specials += SDROutput(i=dq_o, o=pads.dq, clk=ClockSignal("gpif_cdc"))
+        self.comb += [
+            ctl_o[0].eq(valid),
+            ctl_o[2].eq(eop),
+            ctl_o[3].eq(asel),
         ]
 
 # Pattern Generator --------------------------------------------------------------------------------

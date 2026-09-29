@@ -61,6 +61,7 @@ class BaseSoC(SoCCore):
         sdram_banks       = 8,
         sdram_lat_adj     = (0, 0),
         video_clk_freq    = None,
+        gpif_io_regs      = ("ctl",),
         with_framebuffer  = False,
         with_pintest = False,
         with_ioscan  = False,
@@ -189,7 +190,7 @@ class BaseSoC(SoCCore):
             self.specials += Tristate(fx3.reset_n, o=0, oe=self.fx3_watchdog.reset)
 
             # GPIF Streamer ------------------------------------------------------------------------
-            self.gpif = VR(GPIFStreamer(fx3, with_audio=True))
+            self.gpif = VR(GPIFStreamer(fx3, with_audio=True, io_regs=gpif_io_regs))
 
             # Audio (IT6802 I2S) -> GPIF thread 1.
             self.audio = VR(AudioSource(platform.request("i2s"), vfreq))
@@ -305,6 +306,7 @@ def main():
     parser.add_argument("--sdram-rate",   default="1:2", choices=["1:2", "1:4"], help="Controller:DRAM clock ratio.")
     parser.add_argument("--sdram-sys-clk-src", default="clkdivf", choices=["clkdivf", "pll"], help="1:4 sys clock source.")
     parser.add_argument("--with-framebuffer",  action="store_true", help="NV12 DRAM frame buffer (needs --with-sdram and --video-clk-freq).")
+    parser.add_argument("--gpif-io-regs",      default="ctl",       help="Debug: GPIF signal groups registered in the IO cells (dq,ctl).")
     parser.add_argument("--video-clk-freq",    default=None, type=float, help="Video pipeline clock (own domain, DRAM builds with a slow sys).")
     parser.add_argument("--sdram-lat-adj",     default="0,0",       help="Debug: controller read,write latency offsets (sys cycles)[,wrphase offset].")
     parser.add_argument("--sdram-sys-phase",   default=0, type=float, help="1:4 sys clock phase (degrees, pll source).")
@@ -326,6 +328,7 @@ def main():
         sdram_banks       = args.sdram_banks,
         sdram_lat_adj     = tuple(int(x) for x in args.sdram_lat_adj.split(",")),
         video_clk_freq    = args.video_clk_freq,
+        gpif_io_regs      = tuple(x for x in args.gpif_io_regs.split(",") if x),
         with_framebuffer  = args.with_framebuffer,
         with_pintest = args.with_pintest,
         with_ioscan  = args.with_ioscan,
