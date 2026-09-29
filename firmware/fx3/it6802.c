@@ -33,6 +33,7 @@
 #define SYS_SCDT       (1 << 7)
 
 static struct it6802_status status;
+static uint8_t hpd_hold; /* Polls (~50ms) before HPD may go high after an init. */
 
 /* Register Access ------------------------------------------------------------------------------- */
 
@@ -168,7 +169,10 @@ int it6802_init(void)
     if (!status.present)
         return -1;
 
+    /* HPD low for >= 500ms: shorter pulses were missed by a NVIDIA source (no video lock after a
+     * reboot until a mode change on the PC). */
     it6802_hpd(0);
+    hpd_hold = 10;
     for (unsigned i = 0; i < sizeof(config)/sizeof(config[0]); i++)
         ret |= it6802_write(config[i].bank, config[i].reg, config[i].value);
     ret |= it6802_load_edid();
@@ -276,8 +280,10 @@ void it6802_service(void)
         return;
     status.sys_status = sys;
 
-    /* HPD follows the source 5V. */
-    if ((sys & SYS_5V_DET) && !status.hpd)
+    /* HPD follows the source 5V (after the post-init hold). */
+    if (hpd_hold)
+        hpd_hold--;
+    else if ((sys & SYS_5V_DET) && !status.hpd)
         it6802_hpd(1);
     if (!(sys & SYS_5V_DET) && status.hpd)
         it6802_hpd(0);
