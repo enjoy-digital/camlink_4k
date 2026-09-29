@@ -95,6 +95,8 @@ void fpga_audio_control(int enable, int test)
 /* GPIF ------------------------------------------------------------------------------------------ */
 
 uint32_t stub_gpif_starts;
+int32_t  stub_gpif_running;
+uint32_t stub_thread_restarts[2];
 int32_t  stub_gpif_start_video = -1;
 int32_t  stub_gpif_start_audio = -1;
 
@@ -103,9 +105,12 @@ void gpif_stream_start(int video, int audio)
     stub_gpif_starts++;
     stub_gpif_start_video = video;
     stub_gpif_start_audio = audio;
+    stub_gpif_running     = video || audio;
 }
 
-void gpif_stream_stop(void) {}
+void gpif_stream_stop(void) { stub_gpif_running = 0; }
+int  gpif_stream_running(void) { return stub_gpif_running; }
+void gpif_thread_restart(int thread, int enable) { (void)enable; stub_thread_restarts[thread & 1]++; }
 void gpif_stream_status(uint32_t *status) { (void)status; }
 
 /* IT6802 ---------------------------------------------------------------------------------------- */
@@ -113,3 +118,7 @@ void gpif_stream_status(uint32_t *status) { (void)status; }
 struct it6802_status stub_hdmi; /* Filled by the test. */
 
 const struct it6802_status *it6802_get_status(void) { return &stub_hdmi; }
+
+/* Timing ---------------------------------------------------------------------------------------- */
+
+void delay_us(uint32_t us) { (void)us; }

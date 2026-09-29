@@ -250,5 +250,6 @@ void usb_enable_in_ep(uint8_t ep, enum usb_ep_type type, uint16_t pktsize, uint8
 void usb_flush_in_ep(uint8_t ep);
 void usb_reset_in_ep(uint8_t ep);
 enum usb_speed usb_get_speed(void);
+int  usb_alive(void); /* Link/host alive (see usb.c). */
 
 #endif /* FX3_H */

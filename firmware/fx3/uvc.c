@@ -374,20 +374,48 @@ static int streams_audio_batch(void)
     return audio_batch;
 }
 
-/* (Re)start the GPIF with the active streams: FPGA sources and GPIF logic off (reset), FX3 GPIF
- * restart, then FPGA GPIF enables and sources for the active streams (GPIF first: a disabled FPGA
- * GPIF drains its input, the canvas top border produced before the GPIF enable was lost). */
-static void streams_apply(void)
+/* Apply the stream states. GPIF not running (or no stream left): full (re)start, FPGA sources and
+ * GPIF logic off (reset), FX3 GPIF restart, then FPGA GPIF enables and sources for the active
+ * streams (GPIF first: a disabled FPGA GPIF drains its input, the canvas top border produced before
+ * the GPIF enable was lost). GPIF running: only the changed stream's FPGA thread and FX3 DMA/endpoint
+ * are restarted, the other stream keeps running (a full restart reset the other endpoint under the
+ * host: video stalled after one frame when audio started, audio lost when video started). */
+static void streams_apply(int video_changed, int audio_changed)
 {
-    fpga_audio_control(0, 0);
-    fpga_stream_stop();
-    fpga_gpif_control(0, 0, audio_batch);
-    gpif_stream_start(streaming, audio_on);
+    if (!gpif_stream_running() || (!streaming && !audio_on)) {
+        fpga_audio_control(0, 0);
+        fpga_stream_stop();
+        fpga_gpif_control(0, 0, audio_batch);
+        gpif_stream_start(streaming, audio_on);
+        fpga_gpif_control(streaming, audio_on, streams_audio_batch());
+        if (streaming)
+            video_start();
+        if (audio_on)
+            fpga_audio_control(1, audio_test);
+        return;
+    }
+    if (video_changed) {
+        /* FPGA video thread off (drained) before its FX3 DMA is restarted. */
+        fpga_stream_stop();
+        fpga_gpif_control(0, audio_on, streams_audio_batch());
+        delay_us(1000);
+        gpif_thread_restart(0, streaming);
+        if (streaming) {
+            fpga_gpif_control(1, audio_on, streams_audio_batch());
+            video_start();
+        }
+    }
+    if (audio_changed) {
+        fpga_audio_control(0, 0);
+        fpga_gpif_control(streaming, 0, streams_audio_batch());
+        delay_us(1000);
+        gpif_thread_restart(1, audio_on);
+        if (audio_on)
+            fpga_gpif_control(streaming, 1, streams_audio_batch());
+    }
+    /* Settings (audio batch/test source) refreshed without restarting the running streams. */
     fpga_gpif_control(streaming, audio_on, streams_audio_batch());
-    if (streaming)
-        video_start();
-    if (audio_on)
-        fpga_audio_control(1, audio_test);
+    fpga_audio_control(audio_on, audio_test);
 }
 
 void uvc_audio_set_interface(uint8_t alt)
@@ -470,7 +498,8 @@ void uvc_service(void)
      * stream is active. */
     if (request == STREAM_START || streaming != was_streaming || audio_on != was_audio_on ||
         (settings && (streaming || audio_on)))
-        streams_apply();
+        streams_apply(request == STREAM_START || streaming != was_streaming || (settings && streaming),
+            audio != 0);
 }
 
 /* Init ------------------------------------------------------------------------------------------ */

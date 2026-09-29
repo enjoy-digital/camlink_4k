@@ -115,10 +115,15 @@ void fpga_payload_config(void)
 void fpga_gpif_control(int video, int audio, int audio_batch)
 {
     /* Burst = one FX3 DMA buffer. Head lead 4, FLAGs inverted (active low), audio lead 8, audio
-     * packets per thread switch. */
+     * packets per thread switch, threads independent of the other thread's FLAG (xflag_off: the
+     * audio ring is full in steady state, video gated on the audio FLAG starved; no audio word
+     * corruption without the gating, validated on hardware). */
     fpga_csr_write(CSR_GPIF_BURST, GPIF_DMA_BUF_SIZE/4);
+    /* Thread switch guard: 256 cycles (1024 overflowed the video FIFO with audio at 4K30 M420,
+     * 64 still OK on hardware). */
+    fpga_csr_write(CSR_GPIF_SWITCH_GUARD, 256);
     fpga_csr_write(CSR_GPIF_CONTROL, ((uint32_t)(audio_batch & 0xf) << 24) | (8UL << 20) |
-        ((uint32_t)!!audio << 16) | (4 << 8) | 0x2 | !!video);
+        ((uint32_t)!!audio << 16) | (1UL << 13) | (4 << 8) | 0x2 | !!video);
 }
 
 void fpga_audio_control(int enable, int test)
@@ -144,7 +149,13 @@ void fpga_watchdog_service(void)
 {
     static uint32_t calls;
     static uint8_t  level;
+    static uint8_t  dead;
     if (heartbeat_on && (++calls & 0xffff) == 0) { /* ~25 toggles/s. */
+        /* USB dead for ~3s (e.g. host gave up on the device): heartbeat stopped, the FPGA resets
+         * the FX3 (the main loop can be alive with a dead USB). */
+        dead = usb_alive() ? 0 : (dead < 255 ? dead + 1 : dead);
+        if (dead > 75)
+            return;
         level ^= 1;
         gpio_set(HEARTBEAT_GPIO, level);
     }

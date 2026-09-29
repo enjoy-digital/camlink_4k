@@ -184,6 +184,42 @@ static void dma_setup_ring(uint16_t *desc, uint8_t *buf, int count, uint32_t siz
 /* Stream ---------------------------------------------------------------------------------------- */
 
 static int gpif_running;
+static int gpif_threads; /* Bit 0: video (thread 0) DMA active, bit 1: audio (thread 1). */
+
+/* Thread DMA: PIB socket -> ring -> UIB socket (EP). Stopped: sockets aborted, EP flushed. */
+static void gpif_thread_dma(int thread, int enable)
+{
+    uint8_t ep = thread ? USB_DESC_EP_AUDIO : USB_DESC_EP_STREAM;
+    if (gpif_threads & (1 << thread)) {
+        dma_abort_socket(DMA_PIB_SCK(thread));
+        dma_abort_socket(DMA_UIB_SCK(ep));
+        usb_flush_in_ep(ep);
+        gpif_threads &= ~(1 << thread);
+    }
+    if (!enable)
+        return;
+    if (thread)
+        dma_setup_ring(audio_desc, &audio_buf[0][0], GPIF_AUDIO_BUF_COUNT, GPIF_AUDIO_BUF_SIZE,
+            DMA_PIB_SCK(1), DMA_UIB_SCK(USB_DESC_EP_AUDIO));
+    else
+        dma_setup_ring(dma_desc, &dma_buf[0][0], GPIF_DMA_BUF_COUNT, GPIF_DMA_BUF_SIZE,
+            DMA_PIB_SCK(0), DMA_UIB_SCK(USB_DESC_EP_STREAM));
+    gpif_threads |= 1 << thread;
+}
+
+int gpif_stream_running(void)
+{
+    return gpif_running;
+}
+
+/* (Re)start one thread while the GPIF runs with the other one (the FPGA must not send words on
+ * this thread meanwhile): the other thread's DMA and endpoint are untouched (a full restart resets
+ * the other endpoint under the host: video stalled after one frame / audio iso endpoint lost). */
+void gpif_thread_restart(int thread, int enable)
+{
+    if (gpif_running)
+        gpif_thread_dma(thread, enable);
+}
 
 void gpif_stream_stop(void)
 {
@@ -194,12 +230,8 @@ void gpif_stream_stop(void)
     delay_us(10);
     reg_write(FX3_GPIF_WAVEFORM_CTRL_STAT, 0);
     reg_write(FX3_GPIF_CONFIG, 0);
-    dma_abort_socket(DMA_PIB_SCK(0));
-    dma_abort_socket(DMA_UIB_SCK(USB_DESC_EP_STREAM));
-    usb_flush_in_ep(USB_DESC_EP_STREAM);
-    dma_abort_socket(DMA_PIB_SCK(1));
-    dma_abort_socket(DMA_UIB_SCK(USB_DESC_EP_AUDIO));
-    usb_flush_in_ep(USB_DESC_EP_AUDIO);
+    gpif_thread_dma(0, 0);
+    gpif_thread_dma(1, 0);
     pib_stop();
     gpif_running = 0;
 }
@@ -282,12 +314,8 @@ void gpif_stream_start(int video, int audio)
      * DQ as the first word of the first buffer when the producer starts, the FPGA DQ register
      * (clocked by PCLK) must already present the first UVC header word. */
     delay_us(10);
-    if (video)
-        dma_setup_ring(dma_desc, &dma_buf[0][0], GPIF_DMA_BUF_COUNT, GPIF_DMA_BUF_SIZE,
-            DMA_PIB_SCK(0), DMA_UIB_SCK(USB_DESC_EP_STREAM));
-    if (audio)
-        dma_setup_ring(audio_desc, &audio_buf[0][0], GPIF_AUDIO_BUF_COUNT, GPIF_AUDIO_BUF_SIZE,
-            DMA_PIB_SCK(1), DMA_UIB_SCK(USB_DESC_EP_AUDIO));
+    gpif_thread_dma(0, video);
+    gpif_thread_dma(1, audio);
     gpif_running = 1;
 }
 

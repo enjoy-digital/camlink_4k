@@ -54,13 +54,14 @@ class GPIFStreamer(LiteXModule):
             CSRField("data_delay", size=2, offset=4,  description="DQ delay (cycles) relative to VALID."),
             CSRField("head_lead",  size=3, offset=8,  reset=2, description="Cycles a word is presented on DQ before VALID after a gap."),
             CSRField("dq_cycles",  size=1, offset=12, description="Debug: drive a cycle counter on DQ outside bursts."),
+            CSRField("xflag_off",  size=1, offset=13, description="Do not require the other thread's FLAG before using a thread (experiment)."),
             CSRField("audio_enable", size=1, offset=16, description="Enable audio (GPIF thread 1)."),
             CSRField("audio_lead",   size=4, offset=20, reset=8, description="Cycles between ASEL and the first audio word."),
             CSRField("audio_batch",  size=4, offset=24, reset=1, description="Audio packets sent per thread switch (min available)."),
         ])
         self._burst      = CSRStorage(32, reset=16384//4, description="Burst length (32-bit words).")
         self._guard      = CSRStorage(8,  reset=32,       description="Guard cycles after a burst.")
-        self._switch_guard = CSRStorage(16, reset=1024,   description="Minimum idle cycles before a thread switch (video <-> audio).")
+        self._switch_guard = CSRStorage(16, reset=256,   description="Minimum idle cycles before a thread switch (video <-> audio).")
         self._status     = CSRStatus(fields=[
             CSRField("flag",   size=1, offset=0, description="FLAG (CTL1) level."),
         ])
@@ -108,6 +109,7 @@ class GPIFStreamer(LiteXModule):
 
         enable      = Signal()
         flag_invert = Signal()
+        xflag_off   = Signal()
         data_delay  = Signal(2)
         burst       = Signal(32)
         guard       = Signal(8)
@@ -115,6 +117,7 @@ class GPIFStreamer(LiteXModule):
         self.specials += [
             MultiReg(self._control.fields.enable,      enable,      "gpif"),
             MultiReg(self._control.fields.flag_invert, flag_invert, "gpif"),
+            MultiReg(self._control.fields.xflag_off,   xflag_off,   "gpif"),
             MultiReg(self._control.fields.data_delay,  data_delay,  "gpif"),
             MultiReg(self._burst.storage,              burst,       "gpif"),
             MultiReg(self._guard.storage,              guard,       "gpif"),
@@ -204,9 +207,12 @@ class GPIFStreamer(LiteXModule):
             fifo.source.ready.eq(video_drain),
             NextValue(count, 0),
             NextValue(gcount, 0),
-            If(audio_ready & (flag | ~enable) & (last_audio | switch_ok),
+            If(audio_ready & (flag | ~enable | xflag_off) & (last_audio | switch_ok),
                 NextState("ASEL"),
-            ).Elif(enable & flag & fifo.source.valid & (audio_flag | ~audio_enable) & (~last_audio | switch_ok),
+            # An audio packet is ready after video: no new video burst, the switch guard elapses and
+            # audio goes next (back to back video bursts starved audio: FIFO overflow per frame).
+            ).Elif(enable & flag & fifo.source.valid & (audio_flag | ~audio_enable | xflag_off) & (~last_audio | switch_ok) &
+                ~(audio_ready & ~last_audio),
                 NextValue(last_audio, 0),
                 NextState("BURST"),
             )

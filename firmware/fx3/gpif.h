@@ -28,6 +28,8 @@
 
 void gpif_stream_start(int video, int audio);
 void gpif_stream_stop(void);
+int  gpif_stream_running(void);
+void gpif_thread_restart(int thread, int enable); /* 0: video, 1: audio. */
 void gpif_stream_status(uint32_t *status);
 
 #endif /* GPIF_H */

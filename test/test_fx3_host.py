@@ -204,10 +204,16 @@ def test_audio_interface_and_bus_reset(fx3):
     fx3.commit(1, 1, 60)
     assert fx3.var("stub_gpif_start_video", ctypes.c_int32).value == 1
     assert fx3.var("stub_gpif_start_audio", ctypes.c_int32).value == 0
+    starts   = fx3.var("stub_gpif_starts").value
+    restarts = fx3.var("stub_thread_restarts", ctypes.c_uint32*2)
+    video_restarts = restarts[0]
     fx3.lib.uvc_audio_set_interface(1)
     fx3.lib.uvc_service()
-    assert fx3.var("stub_gpif_start_video", ctypes.c_int32).value == 1
-    assert fx3.var("stub_gpif_start_audio", ctypes.c_int32).value == 1
+    # Audio joins the running video: only the audio thread is (re)started.
+    assert fx3.var("stub_gpif_starts").value == starts
+    assert restarts[1] == 1 and restarts[0] == video_restarts
+    assert fx3.var("stub_gpif_video", ctypes.c_int32).value == 1
+    assert fx3.var("stub_gpif_audio", ctypes.c_int32).value == 1
     assert fx3.var("stub_audio_enable", ctypes.c_int32).value == 1
     assert fx3.lib.uvc_audio_get_interface() == 1
     fx3.lib.uvc_audio_set_batch(4)

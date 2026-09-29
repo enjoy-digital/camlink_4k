@@ -25,6 +25,27 @@ enum usb_speed usb_get_speed(void)
     return usb_speed;
 }
 
+/* USB liveness, polled periodically (~40ms): SuperSpeed link in U0 with the ITP frame counter
+ * advancing, or in U1/U2/U3 (low power/suspended), or no VBUS. LTSSM encodings measured on
+ * hardware: 0x08-0x0a polling, 0x10 U0, 0x13 U3 (autosuspend), 0x18-0x19 recovery. USB2 mode
+ * (SS fallback): not monitored. */
+int usb_alive(void)
+{
+    static uint32_t last_framecnt;
+    uint32_t ltssm, framecnt;
+
+    if (!(reg_read(FX3_GCTL_IOPOWER) & FX3_GCTL_IOPOWER_VBUS) || usb_speed != USB_SUPER_SPEED)
+        return 1;
+    ltssm    = reg_read(FX3_LNK_LTSSM_STATE) & 0x3f;
+    framecnt = reg_read(FX3_PROT_FRAMECNT);
+    if (ltssm == 0x10) {
+        int alive = framecnt != last_framecnt;
+        last_framecnt = framecnt;
+        return alive;
+    }
+    return ltssm >= 0x11 && ltssm <= 0x13;
+}
+
 /* Helpers --------------------------------------------------------------------------------------- */
 
 static void usb_set_uib_clock(uint32_t pclk_src, uint32_t epmclk_src)
