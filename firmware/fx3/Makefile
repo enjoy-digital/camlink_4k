@@ -56,6 +56,12 @@ $(BUILD)/it6802.o: generated/edid.h
 
 $(OBJS): generated/fpga_csr.h generated/edid.h generated/sdram_init.h
 
+# Objects embedding the git version rebuilt when it changes.
+$(BUILD)/version.txt: FORCE | $(BUILD)
+	@echo "$(VERSION)" | cmp -s - $@ || echo "$(VERSION)" > $@
+
+$(BUILD)/main.o: $(BUILD)/version.txt
+
 $(BUILD)/%.o: %.c | $(BUILD)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
@@ -70,4 +76,6 @@ clean:
 
 -include $(OBJS:.o=.d)
 
-.PHONY: all clean
+.PHONY: all clean FORCE
+
+FORCE:
