@@ -56,6 +56,13 @@ then a 1080p video start (4K input, downscale): exactly one video frame sent (12
 overflowing, `arecord` I/O error, EP0 dead a few seconds later, device dropped by the host (needs a
 replug). Deterministic (3/3). Video first then audio (HDMI source, audio not enabled): OK.
 Suspect: FX3 GPIF thread switch after the video EOP commit (COMMIT/EOP_WAIT -> audio thread).
+Root causes and fixes (commit 433490f): full GPIF restarts reset the running stream's endpoint
+(per-thread restarts now), video gated on the audio FLAG while the audio ring is full in steady
+state (xflag_off), audio starved by back to back video bursts (audio priority), switch guard
+1024 -> 256. Result: validate.py 12/12, 4K30 M420 + audio 30s 0 gaps, bit-exact audio.
+HDMI audio (PC, `speaker-test -D hw:0,3` = the Cam Link ELD device): 1000Hz on the right
+channel only with `-s 2`, left with `-s 1`; needs an IT6802 audio reset (0x10 bit 1) each time
+the source (re)starts its audio stream, done by the firmware (0xB3 bit 3 rising edge).
 
 | Check | Command | Expected |
 |---|---|---|

@@ -211,6 +211,28 @@ static void it6802_update_colorspace(int force)
     it6802_write(0, 0x65, colorspace ? 0x10 : 0x00);
 }
 
+/* HDMI audio: after the source stops/restarts its audio stream, the I2S output stays silent until
+ * an audio reset (0x10 bit 1 pulse, validated on hardware: I2S samples back). Reset on each rising
+ * edge of the audio packet presence (0xB3 bit 3: 0x07 without, 0x0f with audio from a PC source). */
+#define REG_RST_CTRL   0x10
+#define RST_AUDIO      (1 << 1)
+#define REG_AUD_STATUS 0xb3
+#define AUD_PRESENT    (1 << 3)
+
+static void it6802_update_audio(void)
+{
+    static uint8_t present;
+    uint8_t aud = 0;
+
+    if (it6802_read(0, REG_AUD_STATUS, &aud))
+        return;
+    if ((aud & AUD_PRESENT) && !present) {
+        it6802_write(0, REG_RST_CTRL, RST_AUDIO);
+        it6802_write(0, REG_RST_CTRL, 0);
+    }
+    present = !!(aud & AUD_PRESENT);
+}
+
 /* Input change tracking: a change of (stable, size, color space) settled for 4 polls (~200ms)
  * increments the generation (active streams are then re-evaluated). */
 static void it6802_track_changes(void)
@@ -280,6 +302,7 @@ void it6802_service(void)
         it6802_read(0, REG_PCLK,     &status.pclk_reg);
         it6802_read(0, REG_VID_MODE, &status.video_mode);
         it6802_update_colorspace(0);
+        it6802_update_audio();
     }
     it6802_track_changes();
 }
