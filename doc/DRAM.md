@@ -114,6 +114,18 @@ Findings:
   init sequence (released while ECLK is stopped): 9/9 FPGA loads OK on 3 seeds, first attempt.
 - `cmd_buffer_buffered=True` lost reads (crossbar lock window, see `doc/upstream/README.md`):
   unbuffered bank machine command buffers.
+- NV12 build regressions (audio test counter bit errors, M420 4K30 gaps; the main build passed):
+  the FPGA drove all 9 GPIF CTL pins (single TSTriple `oe`), FX3 FLAG outputs included (bus
+  contention next to DQ), and the first audio word changed on DQ with the ASEL edge (a slow DQ line,
+  DQ[29], lost it at the FX3 thread switch). Per-pin CTL enables + CTL IO registers + first audio
+  word before ASEL: validate.py 12/12 on both builds. DQ must stay in fabric registers (IO
+  registered DQ switched too early for the FX3: video gaps).
+- Timing closure of the NV12 build (video 99 MHz, HDMI 148.5 MHz): frame buffer read counter
+  (registered strobes, reservation depth width) and M420 UV line buffer (one memory per bank,
+  yosys `no_rw_check`): all clocks met with margin.
+- Standalone: `flash-bitstream` + `flash-fx3` of the NV12 build and its firmware: boot from flash,
+  DRAM init by the firmware (first attempt), NV12 4K30 29.85 fps, validate.py 11/12 (5851a2d:
+  audio + video bit errors, fixed by the first audio word before ASEL).
 - `software/uvc_raw.py` (Python, libusb) tops out at ~44 MB/s when the host is loaded: use uvcvideo
   (`validate.capture_stats`) for 4K throughput.
 - DDR3-700 (sys 87.75 MHz) needs video at 100.29 MHz (VCO 702 MHz): builds missed timing on video
