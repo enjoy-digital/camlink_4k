@@ -68,6 +68,44 @@ void gctl_hard_reset(void)
     for (;;);
 }
 
+/* Boot Watchdog --------------------------------------------------------------------------------- */
+
+/* FX3 watchdog timer 0 (32.768kHz, always-on domain: a write lands after a few 32kHz cycles and a
+ * TIMER0 write only lands while the timer is disabled, MODE0=3). The reset mode never resets on the
+ * Cam Link: interrupt mode (MODE0=1) routed to the FIQ, whose handler hard resets the chip (back
+ * to the USB bootloader with the flash block 0 erased). Recovers hangs in thread mode (not inside
+ * IRQ handlers): used until the host configures the device (the FPGA watchdog covers the rest). */
+#define WATCHDOG_CS(mode) (FX3_GCTL_WATCHDOG_CS_BACKUP_CLK | ((uint32_t)(mode) << FX3_GCTL_WATCHDOG_CS_MODE0_SHIFT))
+
+void __attribute__((interrupt("FIQ"))) fiq_handler(void)
+{
+    gctl_hard_reset();
+}
+
+static void watchdog_write(uint32_t addr, uint32_t value, uint32_t mask)
+{
+    reg_write(addr, value);
+    for (int i = 0; i < 1000 && (reg_read(addr) & mask) != (value & mask); i++)
+        delay_us(1);
+}
+
+void boot_watchdog_start(uint32_t ticks)
+{
+    reg_write(FX3_VIC_INT_CLEAR, 1UL << IRQ_WATCHDOG);
+    watchdog_write(FX3_GCTL_WATCHDOG_CS, WATCHDOG_CS(3) | FX3_GCTL_WATCHDOG_CS_INTR0, FX3_GCTL_WATCHDOG_CS_MODE0_MASK);
+    watchdog_write(FX3_GCTL_WATCHDOG_TIMER0, ticks, ~0UL);
+    watchdog_write(FX3_GCTL_WATCHDOG_CS, WATCHDOG_CS(1), FX3_GCTL_WATCHDOG_CS_MODE0_MASK);
+    reg_set(FX3_VIC_INT_SELECT, 1UL << IRQ_WATCHDOG); /* FIQ. */
+    reg_write(FX3_VIC_INT_ENABLE, 1UL << IRQ_WATCHDOG);
+    fiq_enable();
+}
+
+void boot_watchdog_stop(void)
+{
+    reg_write(FX3_VIC_INT_CLEAR, 1UL << IRQ_WATCHDOG);
+    watchdog_write(FX3_GCTL_WATCHDOG_CS, WATCHDOG_CS(3) | FX3_GCTL_WATCHDOG_CS_INTR0, FX3_GCTL_WATCHDOG_CS_MODE0_MASK);
+}
+
 /* Caches ---------------------------------------------------------------------------------------- */
 
 void cache_enable(void)

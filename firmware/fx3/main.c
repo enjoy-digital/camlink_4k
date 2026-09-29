@@ -411,6 +411,8 @@ int main(void)
 {
     cache_enable();
     irq_init();
+    /* Boot watchdog: back to the USB bootloader if not configured by the host within 10s. */
+    boot_watchdog_start(10*32768);
     gctl_init_clock();
     gctl_init_iomatrix(IOMATRIX_GPIF32BIT_UART_I2S);
     gpio_init_clock();
@@ -432,7 +434,12 @@ int main(void)
     usb_connect();
 
     for (;;) {
+        static int boot_watchdog = 1;
         main_loops++;
+        if (boot_watchdog && configuration) {
+            boot_watchdog_stop();
+            boot_watchdog = 0;
+        }
         fpga_watchdog_service();
         uvc_service();
         it6802_service();

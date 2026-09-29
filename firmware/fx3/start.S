@@ -25,10 +25,12 @@ _start:
 1:  b   1b                       /* Data abort.                */
 1:  b   1b                       /* Reserved.                  */
     ldr pc, vectors - 0x100      /* IRQ: VIC vectored address. */
-1:  b   1b                       /* FIQ.                       */
+    ldr pc, fiq_addr             /* FIQ: boot watchdog.        */
 
 reset_addr:
     .word reset
+fiq_addr:
+    .word fiq_handler
 
 /* Copy the vectors to ITCM (address 0). */
 irq_install_vectors:

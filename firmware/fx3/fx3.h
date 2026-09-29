@@ -79,6 +79,7 @@ void cache_enable(void);
 
 enum {
     IRQ_GCTL_CORE  = 0,
+    IRQ_WATCHDOG   = 4, /* Boot watchdog (FIQ). */
     IRQ_GPIF_DMA   = 6,
     IRQ_GPIF_CORE  = 7,
     IRQ_USB_DMA    = 8,
@@ -93,6 +94,13 @@ static inline void irq_enable(void)
     uint32_t cpsr;
     __asm__ __volatile__("mrs %0, cpsr" : "=r"(cpsr));
     __asm__ __volatile__("msr cpsr_c, %0" : : "r"(cpsr & 0x3f));
+}
+
+static inline void fiq_enable(void)
+{
+    uint32_t cpsr;
+    __asm__ __volatile__("mrs %0, cpsr" : "=r"(cpsr));
+    __asm__ __volatile__("msr cpsr_c, %0" : : "r"(cpsr & ~0x40));
 }
 
 static inline void irq_disable(void)
@@ -117,6 +125,7 @@ static inline void irq_restore(uint32_t cpsr)
 #else
 /* Host builds (firmware unit tests, test/fx3): no interrupts. */
 static inline void irq_enable(void) {}
+static inline void fiq_enable(void) {}
 static inline void irq_disable(void) {}
 static inline uint32_t irq_save(void) { return 0; }
 static inline void irq_restore(uint32_t cpsr) { (void)cpsr; }
@@ -138,6 +147,8 @@ enum {
 void gctl_init_clock(void);
 void gctl_init_iomatrix(uint32_t alt_func);
 void gctl_hard_reset(void) __attribute__((noreturn));
+void boot_watchdog_start(uint32_t ticks); /* 32.768kHz ticks. */
+void boot_watchdog_stop(void);
 void delay_us(uint32_t us);
 
 /* GPIO ------------------------------------------------------------------------------------------ */
