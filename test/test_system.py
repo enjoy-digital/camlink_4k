@@ -31,11 +31,11 @@ BURST_WORDS   = 32
 # System -------------------------------------------------------------------------------------------
 
 class System(LiteXModule):
-    def __init__(self):
+    def __init__(self, fifo_depth=256, gate=True):
         self.hdmi_pads = HDMIPads()
         self.fx3_pads  = FX3Pads()
 
-        self.hdmi_in = hdmi_in = HDMIIn(self.hdmi_pads, fifo_depth=256, idle_timeout=256, sim=True)
+        self.hdmi_in = hdmi_in = HDMIIn(self.hdmi_pads, fifo_depth=fifo_depth, idle_timeout=256, sim=True)
         self.hdmi_buf = hdmi_buf = ResetInserter()(stream.Buffer([("data", 32)], pipe_valid=True, pipe_ready=True))
         self.canvas  = canvas = ResetInserter()(Canvas())
         self.color   = color  = ResetInserter()(ColorAdjust())
@@ -54,6 +54,7 @@ class System(LiteXModule):
             canvas.reset.eq(~hdmi_in.control.fields.enable),
             color.reset.eq(~hdmi_in.control.fields.enable),
             gpif.eop_data.eq(uvc.next_header0),
+            hdmi_in.admit.eq(canvas.admit | ~gate),
             hdmi_in.source.connect(hdmi_buf.sink),
             hdmi_buf.source.connect(canvas.sink),
             canvas.source.connect(color.sink),
@@ -99,8 +100,9 @@ def ddr_source(pads, frames):
                 yield pads.qe_fall.eq(pixel(f, 2*x + 1, y) if active else 0)
                 yield
 
-def run(frame_words, frames=8, downscale=False, m420=False, canvas=None, drain=(80, 150)):
-    dut = System()
+def run(frame_words, frames=8, downscale=False, m420=False, canvas=None, drain=(80, 150),
+    fifo_depth=256, admit_level=64, gate=True):
+    dut = System(fifo_depth=fifo_depth, gate=gate)
     fx3 = FX3Model(dut, buf_words=(BURST_WORDS, 48), drain=drain, dma_start=20)
 
     def config():
@@ -110,7 +112,7 @@ def run(frame_words, frames=8, downscale=False, m420=False, canvas=None, drain=(
         yield h.ddr.eq(1)
         yield h.downscale.eq(downscale)
         yield h.m420.eq(m420)
-        yield dut.hdmi_in.admit_level.storage.eq(64)
+        yield dut.hdmi_in.admit_level.storage.eq(admit_level)
         if canvas is not None:
             out_w, out_h, in_w, in_h, x0, y0 = canvas
             for csr, v in ((dut.canvas.enable, 1), (dut.canvas.out_hwords, out_w), (dut.canvas.out_vres, out_h),
@@ -175,3 +177,16 @@ def test_system_canvas():
     for words in frames:
         # Frame index from the first window word.
         assert words == expected(frame_index([words[12 + 2]]))
+
+def test_system_canvas_overflow(gate=True):
+    # Input FIFO smaller than a frame and tall borders (the input FIFO would overflow during the
+    # top border): frames starting during the borders are skipped, the others are complete.
+    frames, errors = run(frame_words=8*20, canvas=(8, 20, 8, 4, 0, 8), frames=24, fifo_depth=24,
+        admit_level=8, gate=gate)
+    def expected(f):
+        src = expected_frame(f)
+        return [src[(y - 8)*8 + x] if 8 <= y < 12 else 0x80108010 for y in range(20) for x in range(8)]
+    assert errors == 0 and len(frames) >= 2
+    for words in frames:
+        # Frame index from the first window word.
+        assert words == expected(frame_index([words[8*8]]))

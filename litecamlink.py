@@ -195,6 +195,8 @@ class BaseSoC(SoCCore):
                     ],
                 }),
                 gpif_buf.source.connect(self.gpif.sink),
+                # HDMI frames only admitted when the canvas can consume them from their start.
+                self.hdmi_in.admit.eq((self.source_sel.storage != 3) | self.canvas.admit),
             ]
             platform.add_period_constraint(fx3.pclk, 1e9/100.8e6) # FX3 PLL at 403.2MHz (4K30).
             platform.add_false_path_constraints(self.crg.cd_sys.clk, self.gpif.cd_gpif.clk)

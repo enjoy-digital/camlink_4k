@@ -235,6 +235,7 @@ class M420Packer(LiteXModule):
 class HDMIIn(LiteXModule):
     def __init__(self, pads, fifo_depth=2048, max_line_words=1024, idle_timeout=2**20, sim=False):
         self.source = source = stream.Endpoint([("data", 32)])
+        self.admit  = Signal(reset=1) # Consumer ready for a new frame (else frames are dropped).
 
         self.control = CSRStorage(fields=[
             CSRField("enable",  size=1, offset=0, description="Enable capture."),
@@ -663,7 +664,7 @@ class HDMIIn(LiteXModule):
         self.sync += [
             # Registered (timing): one cycle old level, conservative for admission.
             # (No subtraction: the buffered FIFO level can exceed fifo_depth by one.)
-            admit_ok.eq((fifo.level + self.admit_level.storage) <= fifo_depth),
+            admit_ok.eq(((fifo.level + self.admit_level.storage) <= fifo_depth) & self.admit),
             If(sink.valid & sink.first,
                 If(admit_ok,
                     in_frame.eq(1),
