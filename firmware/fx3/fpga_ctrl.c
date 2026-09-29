@@ -30,7 +30,8 @@ int fpga_csr_read(uint32_t addr, uint32_t *value)
 {
     uint8_t a[4] = {addr >> 24, addr >> 16, addr >> 8, addr};
     uint8_t d[4];
-    int ret = i2c_write(FPGA_I2C_ADDR, a, 4, 0, 0);
+    /* Address as data (a preamble-only write with no data phase does not complete). */
+    int ret = i2c_write(FPGA_I2C_ADDR, 0, 0, a, 4);
     if (!ret)
         ret = i2c_read(FPGA_I2C_ADDR, 0, 0, d, 4);
     if (!ret)

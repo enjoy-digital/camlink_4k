@@ -89,12 +89,14 @@ def enum_formats():
 
 def step_enum(ctx):
     """Enumeration: LiteCamLink firmware, SuperSpeed, UVC formats, UAC card."""
-    ident = CamLink().ident()
+    cl    = CamLink()
+    ident = cl.ident()
+    speed = {3: "HighSpeed", 4: "SuperSpeed"}.get(cl.dev.speed, cl.dev.speed)
     fmts  = enum_formats()
     card  = any("LiteCamLink" in l for l in open("/proc/asound/cards"))
-    ok = ("SuperSpeed" in ident and "YUYV" in fmts and "M420" in fmts and (3840, 2160) in fmts["M420"]
+    ok = (speed == "SuperSpeed" and "YUYV" in fmts and "M420" in fmts and (3840, 2160) in fmts["M420"]
         and card)
-    return ok, f"{ident}; formats {fmts}; sound card {card}"
+    return ok, f"{ident} ({speed}); formats {fmts}; sound card {card}"
 
 def step_stats(ctx):
     """FX3 debug counters: no USB3 PHY timeouts / link fallbacks."""

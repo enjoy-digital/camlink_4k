@@ -29,6 +29,8 @@ class FX3Model:
     `drain` cycles. Buffer switch quirk seen on hardware: when a thread's next buffer becomes current
     (immediately after a buffer is filled/committed if one is free, later otherwise), DQ is captured
     as its first word and the first word pushed into it is dropped. FLAGs = current buffer available.
+    Stream start: hardware writes the GPIF input register (loaded on IDLE entry, see gpif.c), which
+    holds the DQ presented by the FPGA streaming logic in reset (modelled as a DQ capture).
     Early sampling quirk (why the FPGA presents a word `head_lead` cycles before VALID): the first
     word after a gap (VALID low) is sampled one cycle early (previous cycle's DQ).
     """

@@ -88,9 +88,11 @@ static const uint16_t functions[] = {
     [FUNC_NFA_NFC]  = 0x0505, /* !Fa & !Fc.   */
 };
 
-/* IDLE: left -> DATA_A on VALID & !ASEL, right -> DECIDE on EOP | ASEL. */
+/* IDLE: left -> DATA_A on VALID & !ASEL, right -> DECIDE on EOP | ASEL. Samples DQ on entry: the
+ * first push into a new DMA buffer writes the input register (not the bus), stale (0 after reset)
+ * at stream start otherwise (first UVC header word lost, validated on hardware with a forced DQ). */
 static const uint32_t state_idle[3] = GPIF_STATE(STATE_IDLE, LAMBDA_CTL0, LAMBDA_CTL2, LAMBDA_CTL3, 0,
-    FUNC_FA_NFC, FUNC_FB_OR_FC, 0, 0, BETA_THREAD_0, 0, 0);
+    FUNC_FA_NFC, FUNC_FB_OR_FC, ALPHA_SAMPLE_DIN, ALPHA_SAMPLE_DIN, BETA_THREAD_0, 0, 0);
 
 /* DECIDE: left -> AIDLE on ASEL, right -> COMMIT otherwise (EOP). */
 static const uint32_t state_decide[3] = GPIF_STATE(STATE_DECIDE, LAMBDA_CTL0, LAMBDA_CTL2, LAMBDA_CTL3, 0,
@@ -263,15 +265,6 @@ void gpif_stream_start(int video, int audio)
         FX3_GPIF_CONFIG_CLK_OUT         |
         FX3_GPIF_CONFIG_CLK_SOURCE);
 
-    /* DMA. */
-    if (video)
-        dma_setup_ring(dma_desc, &dma_buf[0][0], GPIF_DMA_BUF_COUNT, GPIF_DMA_BUF_SIZE,
-            DMA_PIB_SCK(0), DMA_UIB_SCK(USB_DESC_EP_STREAM));
-    if (audio)
-        dma_setup_ring(audio_desc, &audio_buf[0][0], GPIF_AUDIO_BUF_COUNT, GPIF_AUDIO_BUF_SIZE,
-            DMA_PIB_SCK(1), DMA_UIB_SCK(USB_DESC_EP_AUDIO));
-    gpif_running = 1;
-
     /* Start the waveform at START. */
     reg_set(FX3_GPIF_WAVEFORM_CTRL_STAT, FX3_GPIF_WAVEFORM_CTRL_STAT_WAVEFORM_VALID);
     reg_write(FX3_GPIF_WAVEFORM_SWITCH,
@@ -283,6 +276,18 @@ void gpif_stream_start(int video, int audio)
         ((uint32_t)STATE_START << FX3_GPIF_WAVEFORM_SWITCH_DESTINATION_STATE_SHIFT));
     reg_set(FX3_GPIF_WAVEFORM_SWITCH,
         FX3_GPIF_WAVEFORM_SWITCH_SWITCH_NOW | FX3_GPIF_WAVEFORM_SWITCH_WAVEFORM_SWITCH);
+
+    /* DMA, once PCLK runs (the FPGA streaming logic is held in reset, VALID low): the FX3 captures
+     * DQ as the first word of the first buffer when the producer starts, the FPGA DQ register
+     * (clocked by PCLK) must already present the first UVC header word. */
+    delay_us(10);
+    if (video)
+        dma_setup_ring(dma_desc, &dma_buf[0][0], GPIF_DMA_BUF_COUNT, GPIF_DMA_BUF_SIZE,
+            DMA_PIB_SCK(0), DMA_UIB_SCK(USB_DESC_EP_STREAM));
+    if (audio)
+        dma_setup_ring(audio_desc, &audio_buf[0][0], GPIF_AUDIO_BUF_COUNT, GPIF_AUDIO_BUF_SIZE,
+            DMA_PIB_SCK(1), DMA_UIB_SCK(USB_DESC_EP_AUDIO));
+    gpif_running = 1;
 }
 
 void gpif_stream_status(uint32_t *status)
