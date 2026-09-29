@@ -84,15 +84,17 @@ void __attribute__((interrupt("FIQ"))) fiq_handler(void)
 
 static void watchdog_write(uint32_t addr, uint32_t value, uint32_t mask)
 {
+    /* Read-back wait bounded by iterations (used before the clock setup, delay_us uncalibrated). */
     reg_write(addr, value);
-    for (int i = 0; i < 1000 && (reg_read(addr) & mask) != (value & mask); i++)
-        delay_us(1);
+    for (uint32_t i = 0; i < 1000000 && (reg_read(addr) & mask) != (value & mask); i++);
 }
 
 void boot_watchdog_start(uint32_t ticks)
 {
     reg_write(FX3_VIC_INT_CLEAR, 1UL << IRQ_WATCHDOG);
-    watchdog_write(FX3_GCTL_WATCHDOG_CS, WATCHDOG_CS(3) | FX3_GCTL_WATCHDOG_CS_INTR0, FX3_GCTL_WATCHDOG_CS_MODE0_MASK);
+    watchdog_write(FX3_GCTL_WATCHDOG_CS, WATCHDOG_CS(3), FX3_GCTL_WATCHDOG_CS_MODE0_MASK);
+    watchdog_write(FX3_GCTL_WATCHDOG_CS, WATCHDOG_CS(3) | FX3_GCTL_WATCHDOG_CS_INTR0, 0); /* INTR0: write 1 to clear. */
+    for (uint32_t i = 0; i < 1000000 && (reg_read(FX3_GCTL_WATCHDOG_CS) & FX3_GCTL_WATCHDOG_CS_INTR0); i++);
     watchdog_write(FX3_GCTL_WATCHDOG_TIMER0, ticks, ~0UL);
     watchdog_write(FX3_GCTL_WATCHDOG_CS, WATCHDOG_CS(1), FX3_GCTL_WATCHDOG_CS_MODE0_MASK);
     reg_set(FX3_VIC_INT_SELECT, 1UL << IRQ_WATCHDOG); /* FIQ. */
