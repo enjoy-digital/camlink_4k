@@ -427,11 +427,12 @@ def uvc_raw_test(cl, bus, width=1920, height=1080, fps=30, frames=60, clk_div_x2
     bus.regs.pattern_enable.write(1)
 
     frame_size = width*height*2
+    payload_size = bus.regs.uvc_payload_words.read()*4 + 12 # One FX3 DMA buffer.
     state = {"frame": bytearray(), "frames": [], "fid": None, "errors": 0, "pts": []}
     def on_transfer(chunk):
-        # Payloads are 16KB (header + data) except the last one of a frame (short packet).
-        for off in range(0, len(chunk), 16384):
-            payload = chunk[off:off + 16384]
+        # Payloads are one FX3 buffer (header + data) except the last one of a frame (short packet).
+        for off in range(0, len(chunk), payload_size):
+            payload = chunk[off:off + payload_size]
             hlen, info = payload[0], payload[1]
             if hlen != 12 or not (info & 0x80):
                 state["errors"] += 1

@@ -11,11 +11,16 @@
 #include <stdint.h>
 
 #ifndef GPIF_DMA_BUF_SIZE
-#define GPIF_DMA_BUF_SIZE  16384 /* One UVC payload per buffer (make DMA_BUF_SIZE=32768 to test). */
+#define GPIF_DMA_BUF_SIZE  32768 /* One UVC payload per buffer (host URB size with uvcvideo: 32KB halves
+                                  * the URB rate vs 16KB, fewer drops under host load). */
 #endif
-#define GPIF_DMA_BUF_COUNT 8
+#ifndef GPIF_DMA_BUF_COUNT
+/* 320KB of video buffering (~0.9ms at the 4K30 M420 rate): absorbs host/xHCI scheduling stalls
+ * (the FPGA only has a 8KB FIFO without DRAM). */
+#define GPIF_DMA_BUF_COUNT (320*1024/GPIF_DMA_BUF_SIZE)
+#endif
 
-#define GPIF_CLK_DIV_X2    8   /* PIB clock = SYS_CLK*2/8 = 96MHz (100.8MHz with FX3_PLL_FBDIV=21). */
+#define GPIF_CLK_DIV_X2    8   /* PIB clock = SYS_CLK*2/8 = 100.8MHz (96MHz with FX3_PLL_FBDIV=20). */
 #define GPIF_FLAG_OMEGA    16  /* EMPTY_FULL_TH0 (active low in the FPGA). */
 #define GPIF_AFLAG_OMEGA   17  /* EMPTY_FULL_TH1 (audio, active low in the FPGA). */
 #define GPIF_AUDIO_BUF_SIZE  192 /* 1ms of 48kHz stereo 16-bit. */

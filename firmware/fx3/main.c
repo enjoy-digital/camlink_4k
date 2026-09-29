@@ -460,8 +460,10 @@ int main(void)
             r = debug_stream_request;
             debug_stream_request = 0;
             irq_enable();
-            if (r & 0x100)
+            if (r & 0x100) {
+                fpga_payload_config();
                 gpif_stream_start(r & 1, (r >> 1) & 1);
+            }
             else
                 gpif_stream_stop();
         }

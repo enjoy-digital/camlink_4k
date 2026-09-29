@@ -105,6 +105,13 @@ void fpga_stream_stop(void)
     fpga_csr_write(CSR_HDMI_IN_CONTROL, 0);
 }
 
+/* Payload/burst = one FX3 DMA buffer (the FPGA resets assume 16KB buffers). */
+void fpga_payload_config(void)
+{
+    fpga_csr_write(CSR_UVC_PAYLOAD_WORDS, (UVC_PAYLOAD_SIZE - 12)/4);
+    fpga_csr_write(CSR_GPIF_BURST,        GPIF_DMA_BUF_SIZE/4);
+}
+
 void fpga_gpif_control(int video, int audio, int audio_batch)
 {
     /* Burst = one FX3 DMA buffer. Head lead 4, FLAGs inverted (active low), audio lead 8, audio

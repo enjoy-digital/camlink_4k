@@ -63,10 +63,11 @@ def capture(cl, bus, width, height, y_lane, c_lane, c_swap=0, ddr=0, ddr_swap=0,
     cl.stream_start()
     bus.regs.gpif_control.write((4 << 8) | 3)
     frame_size = width*height*2
+    payload_size = bus.regs.uvc_payload_words.read()*4 + 12 # One FX3 DMA buffer.
     state = {"frame": bytearray(), "frames": []}
     def on_transfer(chunk):
-        for off in range(0, len(chunk), 16384):
-            payload = chunk[off:off + 16384]
+        for off in range(0, len(chunk), payload_size):
+            payload = chunk[off:off + payload_size]
             if len(payload) < 12 or payload[0] != 12:
                 state["frame"] = bytearray()
                 continue

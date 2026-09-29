@@ -47,4 +47,5 @@ SECTIONS
     }
 
     _end = .;
+    ASSERT(_end <= 0x40080000, "Image does not fit in the 512KB SRAM.")
 }

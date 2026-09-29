@@ -13,10 +13,10 @@ CFLAGS  = -std=gnu11 -mcpu=arm926ej-s -marm -Os -g
 CFLAGS += -Wall -Wextra -Werror -ffunction-sections -fdata-sections -fno-stack-protector
 CFLAGS += -I. -MMD -MP -DGIT_VERSION=\"$(VERSION)\"
 # FX3 PLL: 20 = 384MHz (default), 21 = 403.2MHz (GPIF at 100.8MHz for 4K30 M420).
-PLL_FBDIV ?= 20
+PLL_FBDIV ?= 21
 CFLAGS += -DFX3_PLL_FBDIV=$(PLL_FBDIV)
 # FX3 DMA buffer / UVC payload size (bytes).
-DMA_BUF_SIZE ?= 16384
+DMA_BUF_SIZE ?= 32768
 CFLAGS += -DGPIF_DMA_BUF_SIZE=$(DMA_BUF_SIZE)
 LDFLAGS = -nostartfiles -static -T fx3.ld -Wl,--gc-sections -Wl,-Map,$(BUILD)/fx3.map
 

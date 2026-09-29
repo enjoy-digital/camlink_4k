@@ -19,9 +19,10 @@ import argparse
 from usb_stream import USBStreamReader
 
 UVC_SET_CUR = 0x01
+UVC_GET_CUR = 0x81
 UVC_VS_PROBE_CONTROL  = 0x01
 UVC_VS_COMMIT_CONTROL = 0x02
-PAYLOAD_SIZE = 16384
+PAYLOAD_SIZE = 32768 # Default (negotiated value used when available).
 
 FRAMES = {
     1: {1: (1920, 1080), 2: (1280, 720), 3: (640, 480)}, # YUY2.
@@ -34,14 +35,18 @@ def uvc_commit(handle, frame_index, fps, format_index=1):
         0, 0, 0, 0, 1, 1, 1)
     for selector in (UVC_VS_PROBE_CONTROL, UVC_VS_COMMIT_CONTROL):
         handle.controlWrite(0x21, UVC_SET_CUR, selector << 8, 1, probe)
+    # Negotiated dwMaxPayloadTransferSize (one FX3 DMA buffer per payload).
+    cur = handle.controlRead(0xa1, UVC_GET_CUR, UVC_VS_COMMIT_CONTROL << 8, 1, len(probe))
+    return struct.unpack_from("<I", bytes(cur), 22)[0]
 
-def raw_capture(frame=1, fps=30, seconds=4, format_index=1, dump=0, payload_size=PAYLOAD_SIZE):
+def raw_capture(frame=1, fps=30, seconds=4, format_index=1, dump=0, payload_size=None):
     """Raw UVC capture (uvcvideo detached), returns statistics (frames, header errors...)."""
     width, height = FRAMES[format_index][frame]
     frame_size = width*height*BPP[format_index]//8
 
     reader = USBStreamReader()
-    uvc_commit(reader.handle, frame, fps, format_index)
+    max_payload = uvc_commit(reader.handle, frame, fps, format_index)
+    payload_size = payload_size or max_payload or PAYLOAD_SIZE
 
     state = {"frame": 0, "frames": [], "fid": None, "errors": 0, "dumps": 0, "payloads": 0,
         "short": [], "error_at": []}
