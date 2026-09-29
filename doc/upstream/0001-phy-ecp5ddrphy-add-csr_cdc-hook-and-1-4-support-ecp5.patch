@@ -1,0 +1,233 @@
+From 6cbb71a37d62d1e552dffca1ab53c1812e2e60e7 Mon Sep 17 00:00:00 2001
+From: Florent Kermarrec <florent@enjoy-digital.fr>
+Date: Tue, 29 Sep 2026 13:52:28 +0200
+Subject: [PATCH] phy/ecp5ddrphy: add csr_cdc hook and 1:4 support
+ (ecp5ddrphy_with_ratio).
+
+- ECP5DDRPHY: optional csr_cdc (CSR write strobes into the PHY clock domain), as the S7 PHYs.
+- ecp5ddrphy_with_ratio: ECP5DDRPHY behind DFIRateConverter (controller in sys with 4 DFI phases,
+  PHY in sys2x, ECLK in sys4x) to run DDR3 at 4x the controller clock (DDR3-800 with a ~100MHz
+  controller instead of ~400MT/s at 1:2).
+- Controller read latency one cycle lower than the generic wrapper estimate (hardware).
+- test/test_ecp5ddrphy.py: 1:4 wrapper settings/CSRs, 1:2 write burst beat order.
+
+Validated on hardware (Elgato Cam Link 4K: ECP5 LFE5U-25F-8, MT41K64M16, LiteX BIOS and host BIST):
+DDR3-594 (74.25MHz sys): BIOS read leveling + memtest, BIST 64MB: write 1027MB/s, read 1048MB/s,
+write+read 861MB/s; DDR3-700 (87.75MHz sys): BIST 64MB: write 1212MB/s, read 1233MB/s, write+read
+1024MB/s; random accesses OK. DDR3-796: no read window yet with the READCLKSEL-only read leveling.
+
+Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>
+---
+ litedram/phy/ecp5ddrphy.py |  55 +++++++++++++++++---
+ test/test_ecp5ddrphy.py    | 101 +++++++++++++++++++++++++++++++++++++
+ 2 files changed, 150 insertions(+), 6 deletions(-)
+ create mode 100644 test/test_ecp5ddrphy.py
+
+diff --git a/litedram/phy/ecp5ddrphy.py b/litedram/phy/ecp5ddrphy.py
+index 5a81eaf..0b18a42 100644
+--- a/litedram/phy/ecp5ddrphy.py
++++ b/litedram/phy/ecp5ddrphy.py
+@@ -120,7 +120,8 @@ class ECP5DDRPHY(Module, AutoCSR):
+         cmd_delay    = 0,
+         clk_polarity = 0,
+         dm_remapping = None,
+-        with_dm      = True):
++        with_dm      = True,
++        csr_cdc      = None):
+         assert isinstance(cmd_delay, int) and cmd_delay < 128
+         pads        = PHYPadsCombiner(pads)
+         memtype     = "DDR3"
+@@ -154,6 +155,15 @@ class ECP5DDRPHY(Module, AutoCSR):
+         self._burstdet_clr  = CSR()
+         self._burstdet_seen = CSRStatus(databits//8)
+ 
++        # CSR write strobes in the PHY clock domain (identity when the PHY runs in the CSR domain,
++        # see ecp5ddrphy_with_ratio).
++        csr_cdc = csr_cdc or (lambda i: i)
++        rdly_dq_rst         = csr_cdc(self._rdly_dq_rst.wr_stb)
++        rdly_dq_inc         = csr_cdc(self._rdly_dq_inc.wr_stb)
++        rdly_dq_bitslip_rst = csr_cdc(self._rdly_dq_bitslip_rst.wr_stb)
++        rdly_dq_bitslip     = csr_cdc(self._rdly_dq_bitslip.wr_stb)
++        burstdet_clr        = csr_cdc(self._burstdet_clr.wr_stb)
++
+         # Observation
+         self.datavalid = Signal(databits//8)
+ 
+@@ -258,8 +268,8 @@ class ECP5DDRPHY(Module, AutoCSR):
+             rdly     = Signal(3)
+             burstdet = Signal()
+             self.sync += [
+-                If(self._dly_sel.storage[i] & self._rdly_dq_rst.wr_stb, rdly.eq(0)),
+-                If(self._dly_sel.storage[i] & self._rdly_dq_inc.wr_stb, rdly.eq(rdly + 1))
++                If(self._dly_sel.storage[i] & rdly_dq_rst, rdly.eq(0)),
++                If(self._dly_sel.storage[i] & rdly_dq_inc, rdly.eq(rdly + 1))
+             ]
+             self.specials += Instance("DQSBUFM",
+                 p_DQS_LI_DEL_ADJ = "MINUS",
+@@ -300,7 +310,7 @@ class ECP5DDRPHY(Module, AutoCSR):
+             burstdet_d = Signal()
+             self.sync += [
+                 burstdet_d.eq(burstdet),
+-                If(self._burstdet_clr.wr_stb,  self._burstdet_seen.status[i].eq(0)),
++                If(burstdet_clr,  self._burstdet_seen.status[i].eq(0)),
+                 If(burstdet & ~burstdet_d, self._burstdet_seen.status[i].eq(1)),
+             ]
+ 
+@@ -380,8 +390,8 @@ class ECP5DDRPHY(Module, AutoCSR):
+                     )
+                 ]
+                 dq_i_bitslip = BitSlip(4,
+-                    rst    = self._dly_sel.storage[i] & self._rdly_dq_bitslip_rst.wr_stb,
+-                    slp    = self._dly_sel.storage[i] & self._rdly_dq_bitslip.wr_stb,
++                    rst    = self._dly_sel.storage[i] & rdly_dq_bitslip_rst,
++                    slp    = self._dly_sel.storage[i] & rdly_dq_bitslip,
+                     cycles = 1)
+                 self.submodules += dq_i_bitslip
+                 self.specials += [
+@@ -464,3 +474,36 @@ class ECP5DDRPHY(Module, AutoCSR):
+         # 1 for Preamble, 2 for the Write and 1 for the Postamble.
+         self.comb += dqs_preamble.eq( wrdata_en.taps[wrtap - 1]  & ~wrdata_en.taps[wrtap + 0])
+         self.comb += dqs_postamble.eq(wrdata_en.taps[wrtap + 2]  & ~wrdata_en.taps[wrtap + 1])
++
++# ECP5 DDR PHY with higher MC:PHY ratio ------------------------------------------------------------
++
++def ecp5ddrphy_with_ratio(ratio=2, phy_cls=ECP5DDRPHY, serdes_reset_cnt=0):
++    """Generate an ECP5DDRPHY class behind a DFIRateConverter (MC:PHY frequency ratio).
++
++    With ratio=2 (1:4 MC:DRAM clocks), the controller runs in `sys` (4 DFI phases), the PHY logic
++    (SCLK) in `sys2x` and the DDR edge clock (ECLK) in `sys4x`, allowing DDR3-800 with a ~100MHz
++    controller. The CRG must provide `sys4x` (ECLKSYNCB) and `sys2x` (CLKDIVF) with `sys` phase
++    aligned to `sys2x` (for example a second ECLKSYNCB/CLKDIVF from the same PLL output at 2x sys),
++    and connect `phy.init.stop`/`phy.init.reset` to the `sys4x` ECLKSYNCB stop / CLKDIVF reset as
++    for the 1:2 PHY.
++
++    Validated on hardware (ECP5-8, MT41K64M16, DDR3-594 and DDR3-700): the controller read latency
++    is one controller cycle lower than the generic DFIRateConverter estimate derived from the 1:2
++    PHY (the read data comes back one controller cycle before the PHY `rddata_valid`, which only
++    showed with back to back reads).
++    """
++    wrapper_cls = DFIRateConverter.phy_wrapper(
++        phy_cls          = phy_cls,
++        ratio            = ratio,
++        phy_attrs        = ["init", "datavalid"],
++        clock_mapping    = {"sys": f"sys{ratio}x", "sys2x": f"sys{2*ratio}x"},
++        serdes_reset_cnt = serdes_reset_cnt,
++    )
++
++    def wrapper(*args, **kwargs):
++        sys_clk_freq = kwargs.pop("sys_clk_freq", 100e6)
++        phy = wrapper_cls(*args, sys_clk_freq=ratio*sys_clk_freq, **kwargs)
++        phy.settings.read_latency -= 1
++        return phy
++
++    return wrapper
+diff --git a/test/test_ecp5ddrphy.py b/test/test_ecp5ddrphy.py
+new file mode 100644
+index 0000000..27de4bc
+--- /dev/null
++++ b/test/test_ecp5ddrphy.py
+@@ -0,0 +1,101 @@
++#
++# This file is part of LiteDRAM.
++#
++# SPDX-License-Identifier: BSD-2-Clause
++
++import unittest
++
++from migen import *
++from migen.fhdl.specials import Tristate
++from migen.sim import run_simulation
++
++from litedram.phy.ecp5ddrphy import ECP5DDRPHY, ecp5ddrphy_with_ratio
++from test import test_ddr3_phy_settings
++
++# Aligned clocks (rising edges of the faster clocks on the sys rising edges).
++CLOCKS = {
++    1: {"sys": 40, "sys2x": (20, 10), "init": 80},
++    2: {"sys": 40, "sys2x": (20, 10), "sys4x": (10, 5), "init": 80},
++}
++
++def get_phy(ratio):
++    pads = test_ddr3_phy_settings.TestDDR3PHYSettings.get_pads()
++    if ratio == 1:
++        return ECP5DDRPHY(pads, sys_clk_freq=50e6), pads
++    return ecp5ddrphy_with_ratio(ratio)(pads, sys_clk_freq=50e6), pads
++
++def fabric(phy):
++    """Fragment without the ECP5 primitives, with the ports of the DQ serializers (per module: DM
++    then DQ0-7) and of the DQ tristate controls."""
++    fragment  = phy.get_fragment()
++    instances = sorted((s for s in fragment.specials if isinstance(s, Instance)), key=lambda s: s.duid)
++    def ports(instance):
++        return {p.name: p.expr for p in instance.items if isinstance(p, (Instance.Input, Instance.Output))}
++    oddr = [ports(s) for s in instances if s.of == "ODDRX2DQA"]
++    tsh  = [ports(s) for s in instances if s.of == "TSHX2DQA"]
++    fragment.specials = set(s for s in fragment.specials if not isinstance(s, (Instance, Tristate)))
++    return fragment, [o for i, o in enumerate(oddr) if i % 9 != 0], tsh
++
++class TestECP5DDRPHY(unittest.TestCase):
++    def test_ratio_settings(self):
++        phy_12, _ = get_phy(1)
++        phy_14, _ = get_phy(2)
++        self.assertEqual(phy_14.settings.nphases, 4)
++        self.assertEqual(phy_14.settings.dfi_databits, phy_12.settings.dfi_databits//2)
++        self.assertEqual(len(phy_14.dfi.phases), 4)
++        # PHY timings computed at the PHY clock: same CL/CWL as a 1:2 PHY at 2x the clock.
++        phy_12_2x = ECP5DDRPHY(test_ddr3_phy_settings.TestDDR3PHYSettings.get_pads(), sys_clk_freq=100e6)
++        self.assertEqual((phy_14.settings.cl, phy_14.settings.cwl), (phy_12_2x.settings.cl, phy_12_2x.settings.cwl))
++        # CSRs available through the wrapper (read leveling).
++        names = [c.name for c in phy_14.get_csrs()]
++        for name in ["dly_sel", "rdly_dq_rst", "rdly_dq_inc", "rdly_dq_bitslip_rst", "rdly_dq_bitslip"]:
++            self.assertIn(name, names)
++
++    def write_beats(self, ratio):
++        phy, pads = get_phy(ratio)
++        fragment, dq_oddr, tsh = fabric(phy)
++        self.assertEqual(len(dq_oddr), len(pads.dq))
++        s      = phy.settings
++        beats  = [0x13, 0x57, 0x24, 0x68, 0x9a, 0xbc, 0xde, 0xf0]
++        per    = 8//s.nphases # Beats per DFI phase.
++        driven = []
++
++        def controller():
++            for _ in range(16):
++                yield
++            yield phy.dfi.phases[s.wrphase].wrdata_en.eq(1)
++            yield
++            yield phy.dfi.phases[s.wrphase].wrdata_en.eq(0)
++            for _ in range(s.write_latency - 1):
++                yield
++            for p, phase in enumerate(phy.dfi.phases):
++                data = 0
++                for b in range(per):
++                    data |= beats[p*per + b] << (len(pads.dq)*b)
++                yield phase.wrdata.eq(data)
++            yield
++            for phase in phy.dfi.phases:
++                yield phase.wrdata.eq(0)
++            for _ in range(16):
++                yield
++
++        phy_domain = "sys" if ratio == 1 else "sys2x"
++        def monitor():
++            for _ in range(200):
++                yield
++                # DQ driven (TSHX2DQA T inputs low): collect the 4 beats of this PHY cycle.
++                if not ((yield tsh[0]["T0"]) & 1):
++                    for n in range(4):
++                        beat = 0
++                        for j, o in enumerate(dq_oddr):
++                            beat |= (yield o[f"D{n}"]) << j
++                        driven.append(beat)
++
++        generators = {"sys": [controller()]}
++        generators.setdefault(phy_domain, []).append(monitor())
++        run_simulation(fragment, generators, clocks=CLOCKS[ratio])
++        return beats, driven
++
++    def test_write_beats_1_2(self):
++        beats, driven = self.write_beats(1)
++        self.assertIn(beats, [driven[i:i+8] for i in range(len(driven) - 7)])
+-- 
+2.53.0
+
