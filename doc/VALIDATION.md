@@ -34,11 +34,12 @@ The FX3 internal watchdog does not recover a hang inside an IRQ handler (see `do
 watchdog: heartbeat on FX3 GPIO45, FX3 RESET# driven by the FPGA (4s default, armed after 8
 heartbeat edges, disabled by the firmware before intentional reboots).
 
-1. After `camlink.py boot`: `camlink.py csr fx3_watchdog_status` -> armed (1), `fx3_watchdog_resets` 0.
-2. `camlink.py reboot`: bootloader `04b4:00f3` and no watchdog reset afterwards
-   (`fx3_watchdog_resets` still 0 after `boot`, the FPGA keeps its state across FX3 resets
-   until reloaded: read it before `boot` reloads the FPGA, e.g. with a `fx3-load` only).
-3. `CamLink().hang()` (hang in the USB IRQ handler): device back as `04b4:00f3` within ~4s.
+1. After `camlink.py boot`: `camlink.py csr fx3_watchdog_status` -> armed (1), also while
+   streaming. OK (2026-09-29).
+2. `camlink.py reboot`: bootloader `04b4:00f3` stays enumerated (same device number after 10s: no
+   watchdog reset). OK. (The resets counter cannot be read after an FX3 reset: the firmware
+   reloads the flash bitstream at startup.)
+3. `CamLink().hang()` (hang in the USB IRQ handler): device back as `04b4:00f3` after ~5s. OK.
 4. Then the audio + video start/stop sequence that hung the FX3 (`uvc_raw.py` + `audio_check.py`
    loops), reading `camlink.py stats` (fallbacks/PHY timeouts) when it survives.
 

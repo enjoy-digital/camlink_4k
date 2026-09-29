@@ -210,9 +210,10 @@ void gpif_stream_start(int video, int audio)
     if (!video && !audio)
         return;
 
-    /* Give the GPIF pins back to the GPIF (remove simple GPIO overrides on GPIO0-49). */
+    /* Give the GPIF pins back to the GPIF (remove simple GPIO overrides on GPIO0-49, except the
+     * GPIO45 watchdog heartbeat, not a GPIF pin). */
     reg_write(FX3_GCTL_GPIO_SIMPLE + 0, 0);
-    reg_clear(FX3_GCTL_GPIO_SIMPLE + 4, 0x3ffffUL);
+    reg_clear(FX3_GCTL_GPIO_SIMPLE + 4, 0x3ffffUL & ~(1UL << (45 - 32)));
 
     pib_start(GPIF_CLK_DIV_X2);
 
