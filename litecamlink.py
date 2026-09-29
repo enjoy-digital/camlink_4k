@@ -42,6 +42,7 @@ from litecamlink.gateware.audio      import AudioSource
 from litecamlink.gateware.color      import ColorAdjust
 from litecamlink.gateware.canvas     import Canvas
 from litecamlink.gateware.watchdog   import FX3Watchdog
+from litecamlink.gateware.framebuffer import NV12FrameBuffer
 from litecamlink.gateware.ecp5ddrphy import ECP5DDRPHY, ecp5ddrphy_with_ratio
 from litecamlink.gateware.dram       import LiteDRAMNativePortBuffer, MT41K64M16_4Banks
 
@@ -60,6 +61,7 @@ class BaseSoC(SoCCore):
         sdram_banks       = 8,
         sdram_lat_adj     = (0, 0),
         video_clk_freq    = None,
+        with_framebuffer  = False,
         with_pintest = False,
         with_ioscan  = False,
         ):
@@ -121,8 +123,11 @@ class BaseSoC(SoCCore):
                 phy           = self.ddrphy,
                 module        = (MT41K64M16_4Banks if sdram_banks == 4 else MT41K64M16)(sys_clk_freq, sdram_rate),
                 l2_cache_size = 0,
-                # Timing: registered bank machine command buffers (streaming traffic).
-                controller_settings = ControllerSettings(cmd_buffer_depth=4, cmd_buffer_buffered=True),
+                # Unbuffered bank machine command buffers: with `cmd_buffer_buffered=True`, a command
+                # just accepted by a bank machine is not visible to its crossbar lock for a cycle, the
+                # bank can be re-granted to another master and the read data is routed to it (frame
+                # buffer reader lost reads and stalled on hardware).
+                controller_settings = ControllerSettings(cmd_buffer_depth=4, cmd_buffer_buffered=False),
             )
             # BIST (bandwidth/integrity tests from the host, no CPU needed): generator (writes) and
             # checker (reads) on separate ports (concurrent read/write = frame buffer traffic).
@@ -220,9 +225,32 @@ class BaseSoC(SoCCore):
                 self.color.reset.eq(video_off),
             ]
 
-            self.source_sel = CSRStorage(2, description="Stream source: 0 = Counter, 1 = UVC Pattern, 2 = Raw Pattern, 3 = UVC HDMI.")
+            # NV12 frame buffer (DRAM): HDMI M420 frames -> DRAM slots -> NV12 frames (UVC).
+            if with_framebuffer:
+                assert with_sdram and video_clk_freq
+                # Video domain ports with explicit CDCs: the crossbar has no read data backpressure,
+                # the read data CDC FIFO must hold all the outstanding reads of the frame buffer reader
+                # (256; the default 16-deep CDC lost read data and the reader stalled on hardware).
+                from litedram.common import LiteDRAMNativePort
+                from litedram.frontend.adapter import LiteDRAMNativePortCDC
+                def video_port():
+                    sys_port = self.sdram.crossbar.get_port()
+                    port     = LiteDRAMNativePort("both", sys_port.address_width, sys_port.data_width,
+                        clock_domain="video")
+                    self.submodules += LiteDRAMNativePortCDC(port, sys_port,
+                        cmd_depth=16, wdata_depth=64, rdata_depth=256)
+                    return port
+                fb_wport = video_port()
+                fb_rport = video_port()
+                self.framebuffer = VR(NV12FrameBuffer(fb_wport, fb_rport))
+                # Register stage (timing: HDMI frame FIFO BRAM -> frame buffer writer).
+                self.fb_buf = ResetInserter()(VR(stream.Buffer([("data", 32)], pipe_valid=True, pipe_ready=True)))
+                # Register stage (timing: GPIF CDC FIFO -> UVC -> frame buffer reader ready chain).
+                self.fb_out_buf = ResetInserter()(VR(stream.Buffer([("data", 32)], pipe_valid=True, pipe_ready=True)))
+
+            self.source_sel = CSRStorage(3, description="Stream source: 0 = Counter, 1 = UVC Pattern, 2 = Raw Pattern, 3 = UVC HDMI, 4 = UVC HDMI NV12 (DRAM frame buffer).")
             # Source mux -> register stage (timing: FIFO BRAM -> mux -> CDC BRAM) -> GPIF.
-            self.gpif_buf = gpif_buf = VR(stream.Buffer([("data", 32), ("next", 32)]))
+            self.gpif_buf = gpif_buf = VR(stream.Buffer([("data", 32), ("next", 32)], pipe_ready=True)) # Timing: ready chain.
             self.comb += [
                 Case(self.source_sel.storage, {
                     0: self.gen.source.connect(gpif_buf.sink),
@@ -235,10 +263,21 @@ class BaseSoC(SoCCore):
                         self.color.source.connect(self.uvc.sink),
                         self.uvc.source.connect(gpif_buf.sink),
                     ],
+                    **({4: [
+                        self.hdmi_in.source.connect(self.fb_buf.sink),
+                        self.fb_buf.source.connect(self.framebuffer.sink),
+                        self.framebuffer.source.connect(self.fb_out_buf.sink),
+                        self.fb_out_buf.source.connect(self.uvc.sink),
+                        self.uvc.source.connect(gpif_buf.sink),
+                    ]} if with_framebuffer else {}),
                 }),
                 gpif_buf.source.connect(self.gpif.sink),
                 # HDMI frames only admitted when the canvas can consume them from their start.
                 self.hdmi_in.admit.eq((self.source_sel.storage != 3) | self.canvas.admit),
+                # Frame buffer stopped (not reset: DRAM accesses in flight must complete).
+                *([self.framebuffer.stop.eq(video_off | (self.source_sel.storage != 4)),
+                   self.fb_buf.reset.eq(video_off | (self.source_sel.storage != 4)),
+                   self.fb_out_buf.reset.eq(video_off | (self.source_sel.storage != 4))] if with_framebuffer else []),
             ]
             platform.add_period_constraint(fx3.pclk, 1e9/100.8e6) # FX3 PLL at 403.2MHz (4K30).
             platform.add_false_path_constraints(self.crg.cd_sys.clk, self.gpif.cd_gpif.clk)
@@ -265,6 +304,7 @@ def main():
     parser.add_argument("--with-sdram",   action="store_true",       help="Enable DDR3 SDRAM.")
     parser.add_argument("--sdram-rate",   default="1:2", choices=["1:2", "1:4"], help="Controller:DRAM clock ratio.")
     parser.add_argument("--sdram-sys-clk-src", default="clkdivf", choices=["clkdivf", "pll"], help="1:4 sys clock source.")
+    parser.add_argument("--with-framebuffer",  action="store_true", help="NV12 DRAM frame buffer (needs --with-sdram and --video-clk-freq).")
     parser.add_argument("--video-clk-freq",    default=None, type=float, help="Video pipeline clock (own domain, DRAM builds with a slow sys).")
     parser.add_argument("--sdram-lat-adj",     default="0,0",       help="Debug: controller read,write latency offsets (sys cycles)[,wrphase offset].")
     parser.add_argument("--sdram-sys-phase",   default=0, type=float, help="1:4 sys clock phase (degrees, pll source).")
@@ -286,6 +326,7 @@ def main():
         sdram_banks       = args.sdram_banks,
         sdram_lat_adj     = tuple(int(x) for x in args.sdram_lat_adj.split(",")),
         video_clk_freq    = args.video_clk_freq,
+        with_framebuffer  = args.with_framebuffer,
         with_pintest = args.with_pintest,
         with_ioscan  = args.with_ioscan,
     )

@@ -34,8 +34,11 @@ static const struct uvc_frame m420_frames[UVC_M420_FRAME_COUNT] = {
 };
 
 const struct uvc_format uvc_formats[UVC_FORMAT_COUNT] = {
-    {yuy2_frames, UVC_YUY2_FRAME_COUNT, 16, 0},
-    {m420_frames, UVC_M420_FRAME_COUNT, 12, 1},
+    {yuy2_frames, UVC_YUY2_FRAME_COUNT, 16, 0, 0},
+    {m420_frames, UVC_M420_FRAME_COUNT, 12, 1, 0},
+#ifdef UVC_FORMAT_NV12
+    {m420_frames, UVC_NV12_FRAME_COUNT, 12, 1, 1}, /* Same frames as M420. */
+#endif
 };
 
 static const struct uvc_frame *uvc_frame(const struct uvc_probe *p)
@@ -319,6 +322,7 @@ static void video_start(void)
     uint16_t in_w = hdmi->hactive;
     uint16_t in_h = hdmi->vactive;
     int m420   = uvc_formats[commit.bFormatIndex - 1].m420;
+    int nv12   = uvc_formats[commit.bFormatIndex - 1].nv12;
     int signal = hdmi->stable && in_w && in_h;
     int direct = in_w == frame->width   && in_h == frame->height;
     int half   = in_w == 2*frame->width && in_h == 2*frame->height;
@@ -345,6 +349,7 @@ static void video_start(void)
      * M420 inputs of another size: test pattern. */
     if (signal && direct) {
         v.hdmi = 1;
+        v.nv12 = nv12; /* NV12: through the DRAM frame buffer. */
     } else if (signal && !m420 && half && !crop_mode) {
         v.hdmi      = 1;
         v.downscale = 1;

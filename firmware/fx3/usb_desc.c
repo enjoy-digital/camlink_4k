@@ -65,7 +65,16 @@ static const uint8_t bos[] = {
 #define VC_TOTAL      (13 + 18 + 12 + 26 + 9)
 #define FRAME_LEN     (26 + 4*UVC_FRAME_INTERVALS)
 #define FRAME30_LEN   (26 + 4)
-#define VS_TOTAL      (15 + (27 + UVC_YUY2_FRAME_COUNT*FRAME_LEN + 6) + (27 + FRAME30_LEN + FRAME_LEN + 6))
+#ifdef UVC_FORMAT_NV12
+#define NV12_LEN      (27 + FRAME30_LEN + FRAME_LEN + 6)
+#define VS_HEADER_CTRLS , 0 /* bmaControls of format 3. */
+#else
+#define NV12_LEN      0
+#define VS_HEADER_CTRLS
+#endif
+/* VS input header: 13 bytes + 1 bmaControls byte per format. */
+#define VS_HEADER_LEN (13 + UVC_FORMAT_COUNT)
+#define VS_TOTAL      (VS_HEADER_LEN + (27 + UVC_YUY2_FRAME_COUNT*FRAME_LEN + 6) + (27 + FRAME30_LEN + FRAME_LEN + 6) + NV12_LEN)
 #define AC_TOTAL      (9 + 12 + 9)
 #define AUDIO_HS_LEN  (8 + 9 + AC_TOTAL + 9 + 9 + 7 + 11 + 9 + 7)
 #define AUDIO_SS_LEN  (AUDIO_HS_LEN + 6)
@@ -86,6 +95,19 @@ static const uint8_t bos[] = {
     W32((w)*(h)*(bpp)*(uint32_t)UVC_FPS_MIN), W32((w)*(h)*(bpp)*(uint32_t)UVC_FPS_MIN), W32((w)*(h)*(bpp)/8),           \
     W32(UVC_INTERVAL(UVC_FPS_MIN)), 1,                                                              \
     W32(UVC_INTERVAL(UVC_FPS_MIN))
+
+/* Format 3 (FPGA DRAM frame buffer): Uncompressed NV12 (Y plane, then interleaved CbCr plane). */
+#ifdef UVC_FORMAT_NV12
+#define NV12_BODY                                                                                   \
+    , 27, UVC_CS_INTERFACE, UVC_VS_FORMAT_UNCOMPRESSED, UVC_FORMAT_NV12, UVC_NV12_FRAME_COUNT,      \
+    'N', 'V', '1', '2', 0x00, 0x00, 0x10, 0x00, 0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71,     \
+    12, 1, 0, 0, 0, 0,                                                                              \
+    FRAME30_DESC(1, 3840, 2160, 12),                                                                \
+    FRAME_DESC(2, 1920, 1080, 12),                                                                  \
+    6, UVC_CS_INTERFACE, UVC_VS_COLORFORMAT, 1, 1, 1
+#else
+#define NV12_BODY
+#endif
 
 #define CONFIG_BODY(total, max_power)                                                               \
     /* Configuration. */                                                                            \
@@ -111,8 +133,8 @@ static const uint8_t bos[] = {
     /* VS Interface. */                                                                             \
     9, USB_DT_INTERFACE, UVC_INTF_STREAMING, 0, 1, UVC_CC_VIDEO, UVC_SC_VIDEOSTREAMING, 0, 0,       \
     /* VS Input Header. */                                                                          \
-    15, UVC_CS_INTERFACE, UVC_VS_INPUT_HEADER, UVC_FORMAT_COUNT, W16(VS_TOTAL),                     \
-    0x80 | USB_DESC_EP_STREAM, 0, 2, 0, 0, 0, 1, 0, 0,                                              \
+    VS_HEADER_LEN, UVC_CS_INTERFACE, UVC_VS_INPUT_HEADER, UVC_FORMAT_COUNT, W16(VS_TOTAL),          \
+    0x80 | USB_DESC_EP_STREAM, 0, 2, 0, 0, 0, 1, 0, 0 VS_HEADER_CTRLS,                              \
     /* Format 1: Uncompressed YUY2. */                                                              \
     27, UVC_CS_INTERFACE, UVC_VS_FORMAT_UNCOMPRESSED, UVC_FORMAT_YUY2, UVC_YUY2_FRAME_COUNT,        \
     'Y', 'U', 'Y', '2', 0x00, 0x00, 0x10, 0x00, 0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71,     \
@@ -128,7 +150,8 @@ static const uint8_t bos[] = {
     12, 1, 0, 0, 0, 0,                                                                              \
     FRAME30_DESC(1, 3840, 2160, 12),                                                                \
     FRAME_DESC(2, 1920, 1080, 12),                                                                  \
-    6, UVC_CS_INTERFACE, UVC_VS_COLORFORMAT, 1, 1, 1
+    6, UVC_CS_INTERFACE, UVC_VS_COLORFORMAT, 1, 1, 1                                                \
+    NV12_BODY
 
 #define AUDIO_BODY_START                                                                            \
     /* Interface Association. */                                                                   \

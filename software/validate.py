@@ -43,7 +43,7 @@ def capture_stats(w, h, fps, seconds=3, pixfmt="YUYV"):
     with Capture(video_node(), w, h, fps, pixfmt=pixfmt) as c:
         c.start()
         t0, n, seqs, short, flags_err = time.monotonic(), 0, [], 0, 0
-        expected = w*h*(12 if pixfmt == "M420" else 16)//8
+        expected = w*h*(12 if pixfmt in ("M420", "NV12") else 16)//8
         while time.monotonic() - t0 < seconds:
             data, ts, seq, _, used, flags = c.read(copy=False)
             n += 1

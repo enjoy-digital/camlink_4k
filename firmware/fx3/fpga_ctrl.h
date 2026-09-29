@@ -28,6 +28,7 @@ struct fpga_video {
     uint8_t  rgb;             /* RGB 4:4:4 input converted by the FPGA CSC (BT.709).      */
     uint8_t  full_range;      /* RGB input full range (0-255), else limited (16-235).     */
     uint16_t in_width, in_height; /* Window size (crop/canvas), 0: frame size.            */
+    uint8_t  nv12;            /* NV12 through the DRAM frame buffer (with m420, direct only). */
 };
 
 void fpga_stream_start(const struct fpga_video *v);

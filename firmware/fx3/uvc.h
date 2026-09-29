@@ -82,9 +82,17 @@
  * then 1 line of CbCr: 3840x2160 at 30, 1920x1080 at 30/60). */
 #define UVC_FORMAT_YUY2      1
 #define UVC_FORMAT_M420      2
+#ifdef CSR_FRAMEBUFFER_BASE
+/* 3 = NV12 (Y plane then CbCr plane) through the FPGA DRAM frame buffer: 3840x2160 at 30,
+ * 1920x1080 at 30/60. */
+#define UVC_FORMAT_NV12      3
+#define UVC_FORMAT_COUNT     3
+#else
 #define UVC_FORMAT_COUNT     2
+#endif
 #define UVC_YUY2_FRAME_COUNT 3
 #define UVC_M420_FRAME_COUNT 2
+#define UVC_NV12_FRAME_COUNT 2
 
 struct uvc_frame {
     uint16_t width;
@@ -96,7 +104,8 @@ struct uvc_format {
     const struct uvc_frame *frames;
     uint8_t count;
     uint8_t bpp;
-    uint8_t m420;
+    uint8_t m420; /* YUV 4:2:0 (M420 or NV12). */
+    uint8_t nv12; /* NV12 (DRAM frame buffer). */
 };
 
 extern const struct uvc_format uvc_formats[UVC_FORMAT_COUNT];

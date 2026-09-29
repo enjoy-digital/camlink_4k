@@ -27,8 +27,9 @@ PAYLOAD_SIZE = 32768 # Default (negotiated value used when available).
 FRAMES = {
     1: {1: (1920, 1080), 2: (1280, 720), 3: (640, 480)}, # YUY2.
     2: {1: (3840, 2160), 2: (1920, 1080)},               # M420.
+    3: {1: (3840, 2160), 2: (1920, 1080)},               # NV12 (frame buffer builds).
 }
-BPP = {1: 16, 2: 12}
+BPP = {1: 16, 2: 12, 3: 12} # YUY2, M420, NV12 (frame buffer builds).
 
 def uvc_commit(handle, frame_index, fps, format_index=1):
     probe = struct.pack("<HBBIHHHHHIIIBBBB", 0, format_index, frame_index, 10000000//fps, 0, 0, 0, 0, 0,

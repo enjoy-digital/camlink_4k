@@ -37,7 +37,7 @@ class Video(ctypes.Structure):
         ("crop", ctypes.c_uint8), ("crop_x", ctypes.c_uint16), ("crop_y", ctypes.c_uint16),
         ("c_swap", ctypes.c_uint8), ("m420", ctypes.c_uint8), ("no_signal", ctypes.c_uint8),
         ("canvas", ctypes.c_uint8), ("rgb", ctypes.c_uint8), ("full_range", ctypes.c_uint8),
-        ("in_width", ctypes.c_uint16), ("in_height", ctypes.c_uint16)]
+        ("in_width", ctypes.c_uint16), ("in_height", ctypes.c_uint16), ("nv12", ctypes.c_uint8)]
 
 PROBE_FMT = "<HBBIHHHHHIIIBBBB" # UVC 1.1 probe/commit (34 bytes).
 
@@ -283,7 +283,7 @@ def test_descriptors(fx3):
         assert [(f["guid"], [(fr["w"], fr["h"], fr["fps"]) for fr in f["frames"]]) for f in cfg["formats"]] == [
             (b"YUY2", [(1920, 1080, [60, 30]), (1280, 720, [60, 30]), (640, 480, [60, 30])]),
             (b"M420", [(3840, 2160, [30]), (1920, 1080, [60, 30])]),
-        ]
+        ] + ([(b"NV12", [(3840, 2160, [30]), (1920, 1080, [60, 30])])] if "CSR_FRAMEBUFFER_BASE" in fx3.csr else [])
         assert cfg["endpoints"] == {0x81: 1024 if speed else 512, 0x82: 192}
 
 def test_settings_apply_while_streaming(fx3):

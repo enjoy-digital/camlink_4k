@@ -12,7 +12,7 @@ DDR3-800 = 1.6 GB/s peak. The stock gateware (Lattice DDR3 IP) runs its controll
 2 x controller clock) and the controller + our SoC close timing at ~81-100 MHz = DDR3-324..400 =
 0.65-0.8 GB/s peak, below 746 MB/s once refresh and read/write turnarounds are counted.
 
-## What (implemented, timing closed, not yet tested on hardware)
+## What (implemented, validated on hardware: see results below)
 
 - `litecamlink/gateware/ecp5ddrphy.py`: copy of LiteDRAM's `ECP5DDRPHY` with a `csr_cdc` hook (CSR
   write strobes into the PHY clock domain), plus `ecp5ddrphy_with_ratio(2)`: the PHY runs at 2x
@@ -29,7 +29,7 @@ DDR3-800 = 1.6 GB/s peak. The stock gateware (Lattice DDR3 IP) runs its controll
   sys2x reset is released from sys (deterministic serializer phase).
 - `--sdram-banks 4`: MT41K64M16 used with 4 banks (BA2=0, 64MB): the command multiplexer
   arbitrating 8 bank machines was the critical path at ~100MHz (92 MHz), 4 banks close at 114 MHz.
-  64MB = 5 4K NV12 frames. Plus registered bank machine command buffers.
+  64MB = 5 4K NV12 frames. Unbuffered bank machine command buffers (the buffered ones lost reads).
 - `LiteDRAMNativePortBuffer` (`dram.py`): registered cmd/wdata/rdata between frontends and the
   crossbar (timing).
 - `--with-sdram-bist`: LiteDRAM BIST generator (writes) + checker (reads) on separate ports:
@@ -77,24 +77,61 @@ Findings:
 - DDR3-700 is enough for the 4K30 NV12 frame buffer (37% margin), with the video pipeline in its
   own 100 MHz domain (4K30 M420/NV12 needs ~93 Mwords/s, more than a 87.75 MHz sys).
 
-## Bring-up Procedure (tomorrow)
+## NV12 Frame Buffer (hardware validated, 2026-09-29)
+
+4K30 NV12 (the stock format) through the DRAM: `litecamlink/gateware/framebuffer.py`, UVC format 3.
+
+- Datapath: HDMI M420 frames -> `NV12FrameBuffer` writer (Y lines to the Y plane, CbCr lines to the
+  UV plane of a DRAM slot) -> 3 slots -> reader (latest complete slot, linear = NV12) -> UVC.
+  Video path in its own 99 MHz domain (`--video-clk-freq`), native ports in the video domain
+  through explicit `LiteDRAMNativePortCDC`s (read data CDC deep enough for all outstanding reads).
+- Frames only published complete (truncated frames dropped); frames skipped when the output is
+  slower, the writer never touches the slot being read nor the latest complete one.
+- Stop without reset (stream stop/format change): input dropped, buffered writes complete, reader
+  drains its outstanding reads. Resetting the DMAs with accesses in flight desynchronizes the port
+  data FIFOs for good (the crossbar does not handshake write/read data).
+- DRAM accesses in bursts of 64 port words (writes: 64 buffered words or the frame end, reads: 64
+  free reservations). Single accesses (reader paced by USB) made the crossbar re-grant the banks
+  between writer and reader at almost every access: 4K30 at 15 fps with 32-word bursts, 30 fps with
+  64-word bursts.
+
+Results (DDR3-594, sys 74.25 MHz, video 99 MHz, seed 2, all clocks met; 64MB memtest OK, 846MB/s
+concurrent write+read), uvcvideo:
+
+| Format | Result |
+|---|---|
+| NV12 3840x2160@30 | 29.95 fps over 30s, 0 dropped/stalls/errors, image = M420 reference (static areas) |
+| NV12 1920x1080@30 | 29.8 fps |
+| M420 3840x2160@30 / YUYV 1080p30 (same build) | 29.6 fps |
+| 7 start/stop cycles mixing NV12/M420/YUYV (1080p/720p) | all ~30 fps, no errors, 0 dropped |
+
+Findings:
+- DRAM worked on ~1 of 8 frame buffer builds: sys/sys2x crossing of the DFI rate converter not
+  timed by nextpnr (see `doc/upstream/README.md`). Fixed with `RateCrossing` (single capture per
+  sys cycle on a CSR-selected sys2x edge, runtime read alignment): 8/8 FPGA loads OK, first try.
+- DRAM still dead on ~1 of 5 builds with the robust crossing: IOLOGIC gearbox reset released with
+  the edge clock running and routed with > 1 ECLK period of skew. The IO reset now comes from the
+  init sequence (released while ECLK is stopped): 9/9 FPGA loads OK on 3 seeds, first attempt.
+- `cmd_buffer_buffered=True` lost reads (crossbar lock window, see `doc/upstream/README.md`):
+  unbuffered bank machine command buffers.
+- `software/uvc_raw.py` (Python, libusb) tops out at ~44 MB/s when the host is loaded: use uvcvideo
+  (`validate.capture_stats`) for 4K throughput.
+- DDR3-700 (sys 87.75 MHz) needs video at 100.29 MHz (VCO 702 MHz): builds missed timing on video
+  or sys (2 seeds); not needed with the 64-word bursts at DDR3-594.
+
+## Procedure
 
 The FX3 firmware must match the CSR map of the loaded bitstream:
 
 ```
-make -C firmware/fx3 clean && make -C firmware/fx3 CSR_CSV=../../build_dram12_cpu/csr.csv
-python3 software/camlink.py boot --bit build_dram12_cpu/gateware/litecamlink.bit
-python3 software/camlink.py --csr-csv build_dram12_cpu/csr.csv term
+python3 litecamlink.py --build --with-sdram --sdram-rate 1:4 --sdram-banks 4 --with-sdram-bist \
+    --sys-clk-freq 74.25e6 --video-clk-freq 99e6 --with-framebuffer --output-dir build_nv12
+make -C firmware/fx3 clean && make -C firmware/fx3 CSR_CSV=../../build_nv12/csr.csv
+python3 software/camlink.py boot --bit build_nv12/gateware/litecamlink.bit
+python3 software/dram.py --build build_nv12 init     # PHY crossing search, leveling, BIST.
+python3 software/dram.py --build build_nv12 bandwidth
 ```
 
-1. `build_dram12_cpu` (known LiteDRAM ECP5 configuration): BIOS SDRAM init/leveling/memtest must
-   pass -> validates pinout/IO/PCB. `sdram_bist` / `memspeed` from the BIOS console.
-2. `build_dram14_cpu` (1:4): same. If leveling/memtest fail: rebuild with
-   `--sdram-sys-clk-src pll` and sweep `--sdram-sys-phase` (0, 90, 180, 270); check the DFI
-   rate converter latencies (`write_delay`/`read_delay`) against the BIOS results.
-3. `build_dram14` (1:4, 99.56 MHz, no CPU): `software/dram.py --build build_dram14 init`, then
-   `memtest` and `bandwidth`. Target: concurrent write+read >= 750 MB/s.
-4. If OK: NV12 frame buffer path (4:2:0 packer to DRAM writer, Y/UV plane readers to UVC), and
-   upstream the PHY `csr_cdc` + 1:4 wrapper to LiteDRAM.
-
-Restore the video firmware afterwards: `make -C firmware/fx3 clean && make -C firmware/fx3`.
+Then capture NV12 (uvcvideo, format 3). The DRAM init is host driven for now (to port to the FX3
+firmware for standalone operation). Restore the video firmware afterwards:
+`make -C firmware/fx3 clean && make -C firmware/fx3`.

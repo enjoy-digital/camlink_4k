@@ -19,7 +19,7 @@ Commit/Push**. The stock firmware can be restored at any time from the flash bac
 | 3  | FX3 USB streaming              | Bulk IN EP1 on SuperSpeed, async host reader: 300MB/s sustained (GPIF 96MHz x 32-bit).        | Done   |
 | 4  | GPIF-II + FPGA pattern         | GPIF master waveform, auto DMA, FPGA GPIFStreamer + counter/pattern sources, CRC-free counter check. | Done   |
 | 5  | UVC                            | UVC 1.1 YUY2 480p/720p/1080p @30/60, FPGA packetizer, probe/commit, works with uvcvideo/ffmpeg/VLC. | Done   |
-| 6  | DDR3 frame buffer              | LiteDRAM + VexRiscv BIOS (crossover UART): DDR3L 324MT/s memtest OK. Frame buffer not needed yet. | WIP    |
+| 6  | DDR3 frame buffer              | LiteDRAM 1:4 DDR3-594 (upstreamed), NV12 frame buffer: 4K30 NV12 at 30 fps (`doc/DRAM.md`). DRAM init host driven. | WIP    |
 | 7  | HDMI capture                   | IT6802 init/EDID/HPD, DDR capture + 2x downscale: MacBook 4K30 -> 1080p30 via uvcvideo/VLC. | WIP    |
 | 8  | Audio                          | I2S capture, in-band over GPIF, UAC 1.0, A/V sync.                                          |        |
 | 9  | Beyond stock                   | Low latency, extra modes/EDIDs (1440p...), scaling, formats (P010/RGB), stats, self-test.   |        |
