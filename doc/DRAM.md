@@ -29,7 +29,7 @@ DDR3-800 = 1.6 GB/s peak. The stock gateware (Lattice DDR3 IP) runs its controll
   sys2x reset is released from sys (deterministic serializer phase).
 - `--sdram-banks 4`: MT41K64M16 used with 4 banks (BA2=0, 64MB): the command multiplexer
   arbitrating 8 bank machines was the critical path at ~100MHz (92 MHz), 4 banks close at 114 MHz.
-  64MB = 5 4K NV12 frames. Unbuffered bank machine command buffers (the buffered ones lost reads).
+  64MB = 5 4K NV12 frames. Unbuffered bank machine command buffers (a buffered build lost reads, cause unconfirmed).
 - `LiteDRAMNativePortBuffer` (`dram.py`): registered cmd/wdata/rdata between frontends and the
   crossbar (timing).
 - `--with-sdram-bist`: LiteDRAM BIST generator (writes) + checker (reads) on separate ports:
@@ -112,8 +112,9 @@ Findings:
 - DRAM still dead on ~1 of 5 builds with the robust crossing: IOLOGIC gearbox reset released with
   the edge clock running and routed with > 1 ECLK period of skew. The IO reset now comes from the
   init sequence (released while ECLK is stopped): 9/9 FPGA loads OK on 3 seeds, first attempt.
-- `cmd_buffer_buffered=True` lost reads (crossbar lock window, see `doc/upstream/README.md`):
-  unbuffered bank machine command buffers.
+- A build with `cmd_buffer_buffered=True` lost reads (128 accepted by the crossbar, never
+  answered), unbuffered bank machine command buffers did not: kept unbuffered, cause unconfirmed
+  (not reproduced in simulation, see `doc/upstream/README.md`).
 - NV12 build regressions (audio test counter bit errors, M420 4K30 gaps; the main build passed):
   the FPGA drove all 9 GPIF CTL pins (single TSTriple `oe`), FX3 FLAG outputs included (bus
   contention next to DQ), and the first audio word changed on DQ with the ASEL edge (a slow DQ line,

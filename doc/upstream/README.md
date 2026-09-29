@@ -41,14 +41,14 @@ not reachable on this board without the LiteCamLink I2C/UART bridge).
   on a working one). Driving them from the init sequence reset pulse (released while ECLK is
   stopped, as Lattice's sequence intends): 9/9 FPGA loads OK on 3 seeds. Probably also relevant at
   1:2 on other ECP5 boards (random DRAM failures with some builds).
-- LiteDRAM bank machine lock with `cmd_buffer_buffered=True` (to upstream): `lock` is
-  `cmd_buffer_lookahead.source.valid | cmd_buffer.source.valid`; with the buffered lookahead FIFO
-  a just accepted command is not visible on `source.valid` for a cycle, so when the requesting
-  master pauses (e.g. moves to another bank) the crossbar can re-grant the bank to another master,
-  and the read data of that command is routed to the new master (`master_rdata_valids` uses the
-  grant at issue time). Seen on hardware: a video-domain reader (CDC) lost 128 reads while a
-  writer shared the banks (sys-side counters: 128 reads accepted by the crossbar, never answered).
-  Fix: `lock` from the FIFO level (`level != 0`); worked around here with unbuffered buffers.
+- Lost reads with `cmd_buffer_buffered=True` (open, NOT confirmed as a LiteDRAM bug): on hardware
+  a video-domain reader (CDC) lost 128 reads while a writer shared the banks (sys-side counters:
+  128 reads accepted by the crossbar, never answered); the same design with unbuffered bank
+  machine command buffers had no loss. Suspected crossbar lock window (buffered lookahead FIFO:
+  a just accepted command not visible on `source.valid` for a cycle), but a targeted LiteDRAM
+  simulation (reader/writer on the same banks, reader pausing after bank switches, buffered vs
+  unbuffered) lost nothing, and the hardware A/B predates the IO reset/rate crossing fixes (DRAM
+  still placement sensitive then). Not to report upstream without a reproduction.
 
 - Read latency: the controller read latency is one cycle lower than the generic
   `DFIRateConverter.phy_wrapper` estimate for the ECP5DDRPHY (found on hardware by writing with

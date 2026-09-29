@@ -129,10 +129,9 @@ class BaseSoC(SoCCore):
                 phy           = self.ddrphy,
                 module        = (MT41K64M16_4Banks if sdram_banks == 4 else MT41K64M16)(sys_clk_freq, sdram_rate),
                 l2_cache_size = 0,
-                # Unbuffered bank machine command buffers: with `cmd_buffer_buffered=True`, a command
-                # just accepted by a bank machine is not visible to its crossbar lock for a cycle, the
-                # bank can be re-granted to another master and the read data is routed to it (frame
-                # buffer reader lost reads and stalled on hardware).
+                # Unbuffered bank machine command buffers: a `cmd_buffer_buffered=True` build lost frame
+                # buffer reads on hardware (accepted by the crossbar, never answered); cause not
+                # reproduced in simulation (doc/upstream/README.md).
                 controller_settings = ControllerSettings(cmd_buffer_depth=4, cmd_buffer_buffered=False),
             )
             # BIST (bandwidth/integrity tests from the host, no CPU needed): generator (writes) and
