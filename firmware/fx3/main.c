@@ -235,12 +235,14 @@ static void vendor_request(const struct usb_setup *setup)
         usb_ep0_in(ep0_buf, 4);
         return;
     case VREQ_FLASH_READ:
+        fpga_watchdog_kick(); /* Back to back flash requests starve the main loop (heartbeat). */
         if (setup->length > EP0_BUF_SIZE)
             break;
         spi_flash_read(addr, ep0_buf, setup->length);
         usb_ep0_in(ep0_buf, setup->length);
         return;
     case VREQ_FLASH_PROGRAM:
+        fpga_watchdog_kick();
         if (setup->length > EP0_BUF_SIZE || (addr & 0xff) || flash_erase_request)
             break;
         if (usb_ep0_out(ep0_buf, setup->length) < 0)
@@ -461,7 +463,9 @@ int main(void)
         uvc_service();
         it6802_service();
         if (flash_erase_request) {
+            fpga_watchdog_kick();
             spi_flash_erase_block(flash_erase_addr);
+            fpga_watchdog_kick();
             flash_erase_request = 0;
         }
         if (fpga_boot_request) {

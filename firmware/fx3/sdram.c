@@ -52,6 +52,7 @@ struct sdram_status sdram_status;
 /* CSR accesses retried on I2C errors (counted): a lost write would silently break the init. */
 static void csr_write(uint32_t addr, uint32_t value)
 {
+    fpga_watchdog_kick(); /* The init blocks the main loop for seconds. */
     for (int i = 0; i < 3; i++) {
         if (!fpga_csr_write(addr, value))
             return;
@@ -62,6 +63,7 @@ static void csr_write(uint32_t addr, uint32_t value)
 static uint32_t csr_read(uint32_t addr)
 {
     uint32_t value = 0;
+    fpga_watchdog_kick();
     for (int i = 0; i < 3; i++) {
         if (!fpga_csr_read(addr, &value))
             return value;
@@ -378,7 +380,6 @@ int sdram_init(void)
                 sdram_status.state = SDRAM_STATE_OK;
                 return 0;
             }
-            fpga_watchdog_service();
         }
 #else
         if (try_rate(0, 0) == 0) {
@@ -386,7 +387,6 @@ int sdram_init(void)
             return 0;
         }
 #endif
-        fpga_watchdog_service();
     }
     sdram_status.state = SDRAM_STATE_FAILED;
     return -1;

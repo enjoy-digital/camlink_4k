@@ -677,9 +677,21 @@ def main():
 
     if args.cmd == "boot":
         if find_device(FX3_BOOT_VID, FX3_BOOT_PID) is not None:
-            fx3_load(args.fx3)
+            for retry in range(10):
+                try:
+                    fx3_load(args.fx3)
+                    break
+                except usb.core.USBError: # Just enumerated: udev permissions not applied yet.
+                    time.sleep(0.5)
             time.sleep(1.0) # Let the host (uvcvideo) finish enumeration/probing.
-        cl = CamLink()
+        for retry in range(20): # Firmware (re-)enumeration.
+            try:
+                cl = CamLink()
+                break
+            except (RuntimeError, usb.core.USBError):
+                time.sleep(0.5)
+        else:
+            raise RuntimeError("LiteCamLink device not found after the firmware load.")
         for retry in range(5):
             try:
                 print(cl.ident())

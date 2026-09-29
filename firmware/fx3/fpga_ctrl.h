@@ -38,6 +38,7 @@ void fpga_payload_config(void);
 uint32_t fpga_hdmi_frame_period(void); /* 100MHz cycles. */
 void fpga_watchdog_init(void);
 void fpga_watchdog_service(void);
+void fpga_watchdog_kick(void); /* Heartbeat edge now (long operations). */
 void fpga_watchdog_config(uint32_t period_ms); /* 0: off. */
 void fpga_gpif_control(int video, int audio, int audio_batch);
 /* Audio source: enable, test counter instead of I2S. */

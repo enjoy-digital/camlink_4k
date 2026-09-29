@@ -153,7 +153,8 @@ void fpga_audio_control(int enable, int test)
  * does not reset the chip on the Cam Link, its interrupt mode does not preempt IRQ handlers). */
 #define HEARTBEAT_GPIO 45
 
-static int heartbeat_on = 1;
+static int     heartbeat_on = 1;
+static uint8_t heartbeat_level;
 
 void fpga_watchdog_init(void)
 {
@@ -163,7 +164,6 @@ void fpga_watchdog_init(void)
 void fpga_watchdog_service(void)
 {
     static uint32_t calls;
-    static uint8_t  level;
     static uint8_t  dead;
     if (heartbeat_on && (++calls & 0xffff) == 0) { /* ~25 toggles/s. */
         /* USB dead for ~3s (e.g. host gave up on the device): heartbeat stopped, the FPGA resets
@@ -171,9 +171,20 @@ void fpga_watchdog_service(void)
         dead = usb_alive() ? 0 : (dead < 255 ? dead + 1 : dead);
         if (dead > 75)
             return;
-        level ^= 1;
-        gpio_set(HEARTBEAT_GPIO, level);
+        heartbeat_level ^= 1;
+        gpio_set(HEARTBEAT_GPIO, heartbeat_level);
     }
+}
+
+/* Heartbeat edge now, from long operations blocking or starving the main loop (DRAM init over
+ * the I2C bridge, flash requests handled in the USB interrupt): a main loop based heartbeat
+ * stopped for more than the watchdog period there and the FPGA reset the FX3. */
+void fpga_watchdog_kick(void)
+{
+    if (!heartbeat_on)
+        return;
+    heartbeat_level ^= 1;
+    gpio_set(HEARTBEAT_GPIO, heartbeat_level);
 }
 
 void fpga_watchdog_config(uint32_t period_ms)
