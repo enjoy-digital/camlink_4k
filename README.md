@@ -51,6 +51,7 @@ CamLinX 4K adds the capture pipeline and gives back ECP5 DDR3 at 1:4 to LiteDRAM
 - [doc/PLAN.md](doc/PLAN.md): phases and status.
 - [doc/DRAM.md](doc/DRAM.md): DDR3 1:4 and the NV12 frame buffer.
 - [doc/BENCH.md](doc/BENCH.md): test bench setup.
+- [doc/LATENCY.md](doc/LATENCY.md): latency measurements, low latency preview, next steps.
 - [doc/ROADMAP.md](doc/ROADMAP.md): benchmarking vs stock, improvements and new features.
 - [doc/upstream](doc/upstream): LiteDRAM/LiteX-Boards contributions.
 
