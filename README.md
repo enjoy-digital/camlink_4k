@@ -1,17 +1,21 @@
 # CamLinX
 
 **CamLinX** (Cam Link + LiteX): open gateware and firmware for the **Elgato Cam Link 4K** (1st gen,
-USB `0fd9:0066`):
+USB `0fd9:0066`), a real UVC/UAC capture card that goes further than the stock firmware on the same
+hardware:
 
-- **Gateware**: LiteX/Migen for the Lattice ECP5 LFE5U-25F, open toolchain (Yosys/nextpnr/Trellis).
-- **FX3 firmware**: minimal bare-metal C for the Cypress FX3, no vendor SDK.
-- **Host tools**: Python tools to boot, load, debug and test the device.
+- **One Python script**: LiteX/Migen gateware for the Lattice ECP5 LFE5U-25F, open toolchain
+  (Yosys/nextpnr/Trellis), no vendor bitstream.
+- **No vendor firmware**: minimal bare-metal C for the Cypress FX3 (no SDK), standalone boot from
+  the SPI flash.
+- **4K30 NV12** through an open DDR3 frame buffer (LiteDRAM, DDR3-594 at 1:4), 4K30 M420, 1080p60
+  YUY2 with scaling/crop/color controls, HDMI audio (UAC).
+- **Upstream**: ECP5 DDR3 1:4 contributed to LiteDRAM/LiteX-Boards.
+- **Host tools**: Python tools to boot, flash, debug, validate and benchmark the device over USB
+  (made for agentic development: video/audio in, CSRs/flash/FPGA control out).
 
-The aim is a real UVC/UAC capture card that goes further than the stock firmware on the same
-hardware (latency, formats, modes, diagnostics).
-
-> Status: working UVC/UAC capture card (4K30 NV12 through an open DDR3 frame buffer, 1080p60,
-> audio), standalone boot from flash, see [doc/PLAN.md](doc/PLAN.md) and [doc/DRAM.md](doc/DRAM.md).
+> Status: working capture card, validated on hardware (`software/validate.py`), see
+> [doc/PLAN.md](doc/PLAN.md) and [doc/DRAM.md](doc/DRAM.md).
 
 ## Architecture
 
@@ -29,8 +33,10 @@ hardware (latency, formats, modes, diagnostics).
 
 - [doc/HARDWARE.md](doc/HARDWARE.md): what is known (and missing) about the hardware.
 - [doc/PLAN.md](doc/PLAN.md): phases and status.
+- [doc/DRAM.md](doc/DRAM.md): DDR3 1:4 and the NV12 frame buffer.
 - [doc/BENCH.md](doc/BENCH.md): test bench setup.
 - [doc/ROADMAP.md](doc/ROADMAP.md): benchmarking vs stock, improvements and new features.
+- [doc/upstream](doc/upstream): LiteDRAM/LiteX-Boards contributions.
 
 ## Build
 
@@ -38,6 +44,7 @@ hardware (latency, formats, modes, diagnostics).
 ./camlinx.py --build                 # Default: NV12 variant (DRAM frame buffer, 4K30 NV12).
 ./camlinx.py --build --variant base  # Without DRAM (YUY2/M420), --output-dir to keep both.
 make -C firmware/fx3                 # FX3 firmware for build/csr.csv (CSR_CSV=... otherwise).
+python3 software/camlink.py boot     # Load FX3 firmware + bitstream, HDMI and DRAM init.
 ```
 
 ## Credits
