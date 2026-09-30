@@ -107,9 +107,8 @@ void fpga_stream_start(const struct fpga_video *v)
     if (v->rgb)
         fpga_csc_config(v->full_range);
     /* Sources enabled last (the UVC packetizer leaves reset with its configuration set).
-     * HDMI: enable, Y lane 1 (QE[23:16]), C lane 2 (QE[35:28]), DDR/downscale/crop/M420. The Cb/Cr
-     * order depends on the IT6802 path: swapped with CSC bypass (YCbCr sources), not with the
-     * RGB->YUV CSC (RGB sources) (validated with a MacBook YCbCr and a PC RGB source). */
+     * HDMI: enable, Y lane 1 (QE[23:16]), C lane 2 (QE[35:28]), DDR/downscale/crop/M420, Cb/Cr
+     * swap as configured (natural order for both IT6802 paths, see uvc.c). */
     fpga_csr_write(CSR_HDMI_IN_CONTROL, v->hdmi ?
         (1UL | (1UL << 4) | (2UL << 6) | ((uint32_t)v->c_swap << 8) | ((uint32_t)v->ddr << 12) |
          ((uint32_t)v->downscale << 14) | ((uint32_t)v->crop << 15) | ((uint32_t)v->m420 << 16) |

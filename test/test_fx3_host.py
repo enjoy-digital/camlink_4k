@@ -359,6 +359,6 @@ def test_rgb_range_policy(fx3, colorspace, quant, override, rgb, full):
     fx3.set_input(1920, 1080, colorspace=colorspace, quant_range=quant)
     fx3.commit(1, 1, 60)
     v = fx3.video
-    assert (v.rgb, v.c_swap) == (rgb, int(colorspace != 0))
+    assert (v.rgb, v.c_swap) == (rgb, 0)
     if rgb:
         assert v.full_range == full

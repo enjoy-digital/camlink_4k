@@ -332,7 +332,8 @@ static void video_start(void)
         .height    = frame->height,
         .fps       = 10000000UL/commit.dwFrameInterval,
         .ddr       = 1, /* IT6802 always in 0.5x PCLK DDR output mode (see it6802.c). */
-        .c_swap    = hdmi->colorspace != 0,
+        .c_swap    = 0, /* Natural Cb/Cr order for RGB (FPGA CSC) and YCbCr (CSC bypass) sources:
+                         * validated with a MacBook YCbCr 4:4:4 source (a swap exchanges red/blue). */
         /* RGB sources: FPGA CSC. Range: AVI Q when explicit, else full (PC sources with a default
          * Q send full range, e.g. NVIDIA), unless overridden (uvc_set_range). */
         .rgb        = hdmi->colorspace == 0,
