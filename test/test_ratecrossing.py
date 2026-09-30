@@ -8,7 +8,7 @@ import random
 
 from migen import *
 
-from camlinx.gateware.ecp5ddrphy import RateCrossing
+from camlinx_4k.gateware.ecp5ddrphy import RateCrossing
 
 # Loopback: sys words -> serializer (sys2x) -> deserializer -> sys words ---------------------------
 

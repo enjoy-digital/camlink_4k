@@ -16,11 +16,11 @@ from litex.gen import *
 
 from litex.soc.interconnect import stream
 
-from camlinx.gateware.hdmi_in import HDMIIn
-from camlinx.gateware.canvas  import Canvas
-from camlinx.gateware.color   import ColorAdjust
-from camlinx.gateware.uvc     import UVCPacketizer
-from camlinx.gateware.gpif    import GPIFStreamer
+from camlinx_4k.gateware.hdmi_in import HDMIIn
+from camlinx_4k.gateware.canvas  import Canvas
+from camlinx_4k.gateware.color   import ColorAdjust
+from camlinx_4k.gateware.uvc     import UVCPacketizer
+from camlinx_4k.gateware.gpif    import GPIFStreamer
 
 from test_hdmi_in import Pads as HDMIPads, pixel, HACT, HBLANK, VACT, VBLANK, expected_frame, expected_m420
 from test_gpif    import FX3Pads, FX3Model

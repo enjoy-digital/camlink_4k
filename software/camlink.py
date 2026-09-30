@@ -557,7 +557,7 @@ def term(bus, cmds=None, duration=None):
 
 # Pin Test -----------------------------------------------------------------------------------------
 
-# FPGA PinTest pins order (see camlinx.py) with their expected FX3 GPIO.
+# FPGA PinTest pins order (see camlinx_4k.py) with their expected FX3 GPIO.
 PINTEST_PINS = \
     [(f"dq{i}",  i)      for i in range(16)] + \
     [(f"dq{i}",  i + 17) for i in range(16, 28)] + \
@@ -601,7 +601,7 @@ def main():
 
     p = sub.add_parser("boot", help="Boot: load FX3 firmware (if in bootloader) and FPGA bitstream.")
     p.add_argument("--fx3", default="firmware/fx3/build/fx3.img")
-    p.add_argument("--bit", default="build/gateware/camlinx.bit")
+    p.add_argument("--bit", default="build/gateware/camlinx_4k.bit")
 
     p = sub.add_parser("fpga-load", help="Load a bitstream to the FPGA (through the FX3).")
     p.add_argument("bitstream")
@@ -646,7 +646,7 @@ def main():
     p.add_argument("filename")
     p.add_argument("--offset", default=0, type=lambda x: int(x, 0))
     p = sub.add_parser("flash-bitstream", help="Write a CamLinX bitstream (header + data at 0x100000).")
-    p.add_argument("bitstream", nargs="?", default="build/gateware/camlinx.bit")
+    p.add_argument("bitstream", nargs="?", default="build/gateware/camlinx_4k.bit")
     p = sub.add_parser("flash-fx3", help="Write a FX3 image at offset 0 (standalone boot).")
     p.add_argument("image", nargs="?", default="firmware/fx3/build/fx3.img")
     sub.add_parser("flash-recover", help="Erase the FX3 image and reboot to the USB bootloader.")

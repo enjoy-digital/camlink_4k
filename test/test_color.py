@@ -10,7 +10,7 @@ from migen import *
 
 from litex.gen import *
 
-from camlinx.gateware.color import ColorAdjust
+from camlinx_4k.gateware.color import ColorAdjust
 
 def model(word, brightness, contrast, saturation):
     out = 0

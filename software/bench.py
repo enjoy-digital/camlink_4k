@@ -46,7 +46,7 @@ def usb_state():
         return "stock"
     from camlink import find_device as cl_find, CAMLINX_VID, CAMLINX_PID
     if cl_find(CAMLINX_VID, CAMLINX_PID) is not None:
-        return "camlinx"
+        return "camlinx_4k"
     return "none"
 
 def wait_state(target, timeout=20):
@@ -59,7 +59,7 @@ def wait_state(target, timeout=20):
 
 def to_bootloader():
     state = usb_state()
-    if state == "camlinx":
+    if state == "camlinx_4k":
         subprocess.run([sys.executable, os.path.join(ROOT, "software", "camlink.py"), "reboot"], cwd=ROOT)
     elif state == "stock":
         stock.cold_reset()
@@ -92,7 +92,7 @@ def reprobe_output():
     time.sleep(5)
 
 def video_node(fw):
-    return find_device("CamLinX" if fw == "camlinx" else "Cam Link 4K")
+    return find_device("CamLinX" if fw == "camlinx_4k" else "Cam Link 4K")
 
 # Source Control -----------------------------------------------------------------------------------
 
@@ -257,12 +257,12 @@ def test_start_stop(node, fmt, w, h, fps, cycles=20):
 
 # (source mode, rate, capture per firmware: fmt, w, h, fps)
 SCENARIOS = {
-    "1080p60": ("1920x1080", 60, {"stock": ("YUYV", 1920, 1080, 60), "camlinx": ("YUYV", 1920, 1080, 60)}),
-    "1080p30": ("1920x1080", 29.97, {"stock": ("YUYV", 1920, 1080, 30), "camlinx": ("YUYV", 1920, 1080, 30)}),
-    "720p60":  ("1280x720", 60, {"stock": ("YUYV", 1280, 720, 60), "camlinx": ("YUYV", 1280, 720, 60)}),
-    "2160p30": ("3840x2160", 30, {"stock": ("NV12", 3840, 2160, 30), "camlinx": ("YUYV", 1920, 1080, 30)}),
+    "1080p60": ("1920x1080", 60, {"stock": ("YUYV", 1920, 1080, 60), "camlinx_4k": ("YUYV", 1920, 1080, 60)}),
+    "1080p30": ("1920x1080", 29.97, {"stock": ("YUYV", 1920, 1080, 30), "camlinx_4k": ("YUYV", 1920, 1080, 30)}),
+    "720p60":  ("1280x720", 60, {"stock": ("YUYV", 1280, 720, 60), "camlinx_4k": ("YUYV", 1280, 720, 60)}),
+    "2160p30": ("3840x2160", 30, {"stock": ("NV12", 3840, 2160, 30), "camlinx_4k": ("YUYV", 1920, 1080, 30)}),
     # Native 4K30 (4:2:0 both): stock NV12, CamLinX M420 (firmware built with PLL_FBDIV=21).
-    "2160p30n": ("3840x2160", 30, {"stock": ("NV12", 3840, 2160, 30), "camlinx": ("M420", 3840, 2160, 30)}),
+    "2160p30n": ("3840x2160", 30, {"stock": ("NV12", 3840, 2160, 30), "camlinx_4k": ("M420", 3840, 2160, 30)}),
 }
 
 def run(fw, scenarios, seconds):
@@ -297,7 +297,7 @@ def run(fw, scenarios, seconds):
 
 def report():
     res = {}
-    for fw in ("stock", "camlinx"):
+    for fw in ("stock", "camlinx_4k"):
         path = os.path.join(BENCH_DIR, f"results_{fw}.json")
         res[fw] = json.load(open(path)) if os.path.exists(path) else {}
     lines = ["# Benchmark: Stock Elgato firmware vs CamLinX", "",
@@ -332,7 +332,7 @@ def report():
             rows.append((f"{chart_name} PSNR (dB) / SSIM", ("quality", chart_name)))
         for label, keys in rows:
             vals = []
-            for fw in ("stock", "camlinx"):
+            for fw in ("stock", "camlinx_4k"):
                 v = g(res[fw].get(name, {}), *keys)
                 if isinstance(v, dict):
                     v = f"{v.get('psnr_rgb', '-')} / {v.get('ssim_luma', '-')}"
@@ -345,7 +345,7 @@ def report():
 def main():
     parser = argparse.ArgumentParser(description="Stock vs CamLinX benchmark.")
     parser.add_argument("command", choices=["run", "report", "select"])
-    parser.add_argument("--firmware",  default="camlinx", choices=["stock", "camlinx"])
+    parser.add_argument("--firmware",  default="camlinx_4k", choices=["stock", "camlinx_4k"])
     parser.add_argument("--scenarios", default=",".join(SCENARIOS))
     parser.add_argument("--seconds",   default=20, type=float)
     args = parser.parse_args()

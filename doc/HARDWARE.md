@@ -40,7 +40,7 @@ Rev.3 (`0x00A1`) are different designs and are not covered.
 - **Extra GPIOs**: FX3 GPIO27 <-> `C7`, GPIO45 <-> `C8`. FX3 GPIO26 <-> `D7` is not a direct
   connection (FPGA output not seen by the FX3, netlist says "TR?, I2C sel?").
 
-**Verified on hardware** (`camlinx.py --with-pintest` + `camlink.py pintest`): all 32 GPIF
+**Verified on hardware** (`camlinx_4k.py --with-pintest` + `camlink.py pintest`): all 32 GPIF
 `DQ` lines, `PCLK`, the 9 `CTL` lines and GPIO27 (FPGA -> FX3), GPIO45 (FX3 -> FPGA).
 FPGA Slave-SPI configuration from the FX3 verified (IDCODE `0x41111043`, ~0.4s for 100KB).
 

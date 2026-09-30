@@ -3,7 +3,7 @@
 Open gateware (LiteX) + bare-metal FX3 firmware (C) + host tools for the Elgato Cam Link 4K (gen 1).
 
 - Plan and status: `doc/PLAN.md`. Hardware knowledge: `doc/HARDWARE.md`. Bench: `doc/BENCH.md`.
-- Gateware: `camlinx.py` (target), `camlinx_platform.py` (IOs), `camlinx/gateware/*.py`
+- Gateware: `camlinx_4k.py` (target), `camlinx_4k_platform.py` (IOs), `camlinx_4k/gateware/*.py`
   (one core per file). Follow LiteX style: SPDX headers, 100-col `# Section ---` banners,
   aligned assignments, `# # #` separator, full sentence comments.
 - FX3 firmware: `firmware/fx3/`, minimal clean C, arm-none-eabi-gcc, no Cypress SDK.

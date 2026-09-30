@@ -9,7 +9,7 @@ from migen.sim import passive
 
 from litex.gen import *
 
-from camlinx.gateware.hdmi_in import HDMIIn
+from camlinx_4k.gateware.hdmi_in import HDMIIn
 
 # Video Source Model -------------------------------------------------------------------------------
 
@@ -229,7 +229,7 @@ def rgb_pixel(f, x, y):
 
 def test_hdmi_in_ddr_rgb():
     from test_csc import model
-    from camlinx.gateware.csc import bt709_coefficients
+    from camlinx_4k.gateware.csc import bt709_coefficients
     def source(pads, frames):
         for f in range(frames):
             for y in range(VACT + VBLANK):

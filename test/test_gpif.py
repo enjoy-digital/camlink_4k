@@ -11,7 +11,7 @@ from migen.sim import passive
 
 from litex.gen import *
 
-from camlinx.gateware.gpif import GPIFStreamer
+from camlinx_4k.gateware.gpif import GPIFStreamer
 
 # FX3 GPIF Model -----------------------------------------------------------------------------------
 

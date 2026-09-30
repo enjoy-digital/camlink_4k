@@ -6,7 +6,7 @@
 
 from migen import *
 
-from camlinx.gateware.pintest import PinTest
+from camlinx_4k.gateware.pintest import PinTest
 
 # Test ---------------------------------------------------------------------------------------------
 

@@ -8,8 +8,8 @@ from migen import *
 
 from litex.gen import *
 
-from camlinx.gateware.video import VideoPatternGenerator, COLOR_BARS, yuy2_word
-from camlinx.gateware.uvc   import UVCPacketizer
+from camlinx_4k.gateware.video import VideoPatternGenerator, COLOR_BARS, yuy2_word
+from camlinx_4k.gateware.uvc   import UVCPacketizer
 
 # Test ---------------------------------------------------------------------------------------------
 

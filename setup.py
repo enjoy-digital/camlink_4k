@@ -9,7 +9,7 @@ with open("README.md", "r") as fp:
 
 
 setup(
-    name                          = "camlinx",
+    name                          = "camlinx_4k",
     version                       = "2026.09",
     description                   = "CamLinX 4K: LiteX based gateware and FX3 firmware for the Elgato Cam Link 4K",
     long_description              = long_description,
@@ -21,7 +21,7 @@ setup(
     python_requires               = ">=3.9",
     install_requires              = ["litex", "litedram", "pyusb"],
     packages                      = find_packages(exclude=["test*"]),
-    py_modules                    = ["camlinx_platform"],
+    py_modules                    = ["camlinx_4k_platform"],
     keywords                      = "HDL ASIC FPGA hardware design",
     classifiers                   = [
         "Topic :: Scientific/Engineering :: Electronic Design Automation (EDA)",

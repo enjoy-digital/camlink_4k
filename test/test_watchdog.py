@@ -6,7 +6,7 @@
 
 from migen import *
 
-from camlinx.gateware.watchdog import FX3Watchdog
+from camlinx_4k.gateware.watchdog import FX3Watchdog
 
 # Test ---------------------------------------------------------------------------------------------
 

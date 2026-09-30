@@ -19,7 +19,7 @@ hardware:
 
 ## Architecture
 
-The ECP5 runs one LiteX SoC ([`camlinx.py`](camlinx.py)): the IT6802 video is captured (`HDMIIn`),
+The ECP5 runs one LiteX SoC ([`camlinx_4k.py`](camlinx_4k.py)): the IT6802 video is captured (`HDMIIn`),
 cropped/scaled (`Canvas`), color adjusted (`ColorAdjust`), written as NV12 planes to DDR3
 (`NV12FrameBuffer` on LiteDRAM), read back into UVC payloads (`UVCPacketizer`) and sent with the
 I2S audio (`AudioSource`) to the FX3 over GPIF-II (`GPIFStreamer`). The FX3 firmware
@@ -57,8 +57,8 @@ CamLinX 4K adds the capture pipeline and gives back ECP5 DDR3 at 1:4 to LiteDRAM
 ## Build
 
 ```sh
-./camlinx.py --build                 # Default: NV12 variant (DRAM frame buffer, 4K30 NV12).
-./camlinx.py --build --variant base  # Without DRAM (YUY2/M420), --output-dir to keep both.
+./camlinx_4k.py --build                 # Default: NV12 variant (DRAM frame buffer, 4K30 NV12).
+./camlinx_4k.py --build --variant base  # Without DRAM (YUY2/M420), --output-dir to keep both.
 make -C firmware/fx3                 # FX3 firmware for build/csr.csv (CSR_CSV=... otherwise).
 python3 software/camlink.py boot     # Load FX3 firmware + bitstream, HDMI and DRAM init.
 ```
