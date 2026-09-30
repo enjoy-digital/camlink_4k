@@ -90,6 +90,14 @@ FX3 GPIO58/59 (I2C master), FPGA `P18`/`P19`, IT6802 `PCSCL`/`PCSDA`.
   drives the next payload's first word on DQ during EOP.
 - USB3: CLEAR_FEATURE(ENDPOINT_HALT) requires resetting the endpoint sequence number
   (PROT_SEQ_NUM), otherwise later transfers fail (OOSERR).
+- DQ timing window (FPGA side, 100.8MHz PCLK received from the FX3): DQ from fabric registers
+  (transition ~1.5-3.5ns after the received PCLK edge, routing dependent) works; from IO registers
+  (earlier) video breaks; from DDR cells switching at the falling edge (later) the words shift by
+  one. The window is narrow: on some placements the slowest line (DQ[29]) corrupts rare audio
+  samples (the default build seed is chosen bit exact). Open item: IO register + output delay
+  (DELAYF, runtime sweep to measure the window) for a placement independent DQ timing.
+- The FPGA must not drive CTL1/CTL4 (FX3 FLAG outputs): per-pin output enables (a single TSTriple
+  `oe` drove all CTL pins until 5851a2d).
 
 ## IT6802 (from bring-up + public reference driver knowledge)
 

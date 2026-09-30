@@ -305,7 +305,7 @@ VARIANTS = {
     # 4K30 NV12 through the DRAM frame buffer (DDR3-594 1:4, video pipeline in its own 99MHz
     # domain), all the base features (default, flashed image).
     "nv12": dict(sys_clk_freq=74.25e6, with_sdram=True, sdram_rate="1:4", sdram_banks=4,
-        with_sdram_bist=True, video_clk_freq=99e6, with_framebuffer=True, seed=5),
+        with_sdram_bist=True, video_clk_freq=99e6, with_framebuffer=True, seed=7),
     # Without DRAM (YUY2/M420, 100MHz sys).
     "base": dict(sys_clk_freq=100e6, with_sdram=False, sdram_rate="1:2", sdram_banks=8,
         with_sdram_bist=False, video_clk_freq=0, with_framebuffer=False, seed=1),
