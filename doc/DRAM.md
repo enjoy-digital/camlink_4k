@@ -137,7 +137,7 @@ Findings:
 The FX3 firmware must match the CSR map of the loaded bitstream:
 
 ```
-python3 camlinx.py --build               # NV12 variant (default): DDR3-594 1:4, video 99MHz, seed 2.
+python3 camlinx.py --build               # NV12 variant (default): DDR3-594 1:4, video 99MHz, seed 5.
 make -C firmware/fx3 clean && make -C firmware/fx3
 python3 software/camlink.py boot         # FPGA + HDMI + DRAM init.
 python3 software/camlink.py sdram-status
