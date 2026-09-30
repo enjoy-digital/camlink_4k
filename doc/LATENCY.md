@@ -32,10 +32,34 @@ Status of the latency work (2026-09-30): what is measured, how, what is expected
 
 1. Measure: Cam Link on HDMI-0, `bench.py run` for all modes (CamLinX, and stock if loaded),
    including 2160p30 NV12.
-2. Low latency NV12: start reading the Y plane while the writer is a few lines ahead (reader
+2. Measure the viewer with the barcode method (a latency option in the viewer: decode the
+   source barcode per slice).
+3. Low latency NV12: start reading the Y plane while the writer is a few lines ahead (reader
    chasing the writer in the same slot, UV plane read once the frame is written): saves ~1 frame.
-3. Device timestamps (PTS/SCR from the FPGA clock) for A/V sync and latency analysis without a
+4. Device timestamps (PTS/SCR from the FPGA clock) for A/V sync and latency analysis without a
    shared clock.
+
+## Low latency viewer
+
+`software/viewer/camlinx_view` (C, libusb + SDL2) removes the whole frame wait of uvcvideo: it
+detaches uvcvideo from the streaming interface, starts the stream with a UVC PROBE/COMMIT, reads
+the bulk payloads (16 x 128KB transfers in flight) and uploads/presents the new rows as they
+arrive (vsync off by default: the display races the incoming frame, like a tearing monitor). A
+pixel is on screen ~0.5 ms after its USB transfer completes instead of at the end of the frame
+(saves up to one frame: 16.7 ms at 60 fps, 33 ms at 30 fps). uvcvideo gets the interface back on
+exit (V4L2 applications work again).
+
+```sh
+make -C software/viewer
+software/viewer/camlinx_view                                    # YUY2 1920x1080@60 (default)
+software/viewer/camlinx_view --size 1920x1080 --fps 30          # 4K30 source, 2x downscale
+software/viewer/camlinx_view --format m420 --size 3840x2160 --fps 30 --fullscreen  # 4K30 direct
+```
+
+Keys: `f` fullscreen, `q`/Esc quit. `--vsync` presents on vsync (no tearing, up to one display
+refresh more). Checked with a MacBook 4K30 source: YUY2 1080p30 30 fps / 124.5 MB/s (~11 row
+slices per frame), M420 4K30 30 fps / 373.4 MB/s (~100 slices per frame), 0 header errors, 0 bad
+frames, uvcvideo capture OK afterwards.
 
 ## Manual check (mouse)
 
