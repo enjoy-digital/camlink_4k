@@ -17,7 +17,7 @@ class USBStreamReader:
         for device in self.ctx.getDeviceIterator(skip_on_error=True):
             if (device.getVendorID(), device.getProductID()) == (vid, pid):
                 try:
-                    if device.getProduct() in ("CamLinX", "LiteCamLink"): # Current, before rename.
+                    if device.getProduct() in ("CamLinX 4K", "CamLinX", "LiteCamLink"): # Current, before renames.
                         self.handle = device.open()
                         break
                 except usb1.USBError:

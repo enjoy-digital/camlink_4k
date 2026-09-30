@@ -1,4 +1,4 @@
-# CamLinX Plan
+# CamLinX 4K Plan
 
 Goal: a fully open replacement for the Cam Link 4K firmware (LiteX gateware + minimal bare-metal
 FX3 firmware + host tools), validated step by step on hardware, ending as a capture card that

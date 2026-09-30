@@ -31,9 +31,9 @@ FX3_CHUNK       = 2048
 
 # Helpers ------------------------------------------------------------------------------------------
 
-# USB product strings of our firmware (current, and before the LiteCamLink -> CamLinX rename: still
+# USB product strings of our firmware (current, and before the LiteCamLink -> CamLinX -> CamLinX 4K renames: still
 # found to reflash an older image).
-CAMLINX_PRODUCTS = ("CamLinX", "LiteCamLink")
+CAMLINX_PRODUCTS = ("CamLinX 4K", "CamLinX", "LiteCamLink")
 
 def _is_camlinx(dev):
     try:

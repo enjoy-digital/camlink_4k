@@ -211,8 +211,8 @@ static const uint8_t string_manufacturer[] = {
 };
 
 static const uint8_t string_product[] = {
-    16, USB_DT_STRING,
-    'C',0, 'a',0, 'm',0, 'L',0, 'i',0, 'n',0, 'X',0,
+    22, USB_DT_STRING,
+    'C',0, 'a',0, 'm',0, 'L',0, 'i',0, 'n',0, 'X',0, ' ',0, '4',0, 'K',0,
 };
 
 static const uint8_t string_serial[] = {

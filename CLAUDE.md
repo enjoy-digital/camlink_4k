@@ -1,4 +1,4 @@
-# CamLinX
+# CamLinX 4K
 
 Open gateware (LiteX) + bare-metal FX3 firmware (C) + host tools for the Elgato Cam Link 4K (gen 1).
 

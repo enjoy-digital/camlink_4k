@@ -1,4 +1,4 @@
-# CamLinX Roadmap
+# CamLinX 4K Roadmap
 
 Where CamLinX stands, how it will be compared against the stock Elgato firmware, what to improve
 first and which new features could make it attractive to users. Phase history and hardware notes are
