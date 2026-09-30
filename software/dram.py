@@ -245,7 +245,7 @@ class DRAM:
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--build", default="build_dram14", help="Build directory (csr.csv, sdram_phy.h).")
+    parser.add_argument("--build", default="build", help="Build directory (csr.csv, sdram_phy.h).")
     parser.add_argument("--length", default=16*1024*1024, type=lambda x: int(x, 0), help="BIST length (bytes).")
     parser.add_argument("cmd", choices=["init", "leveling", "memtest", "bandwidth"])
     args = parser.parse_args()

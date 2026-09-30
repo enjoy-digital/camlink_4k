@@ -33,7 +33,9 @@ hardware (latency, formats, modes, diagnostics).
 ## Build
 
 ```sh
-./litecamlink.py --build
+./litecamlink.py --build                 # Default: NV12 variant (DRAM frame buffer, 4K30 NV12).
+./litecamlink.py --build --variant base  # Without DRAM (YUY2/M420), --output-dir to keep both.
+make -C firmware/fx3                     # FX3 firmware for build/csr.csv (CSR_CSV=... otherwise).
 ```
 
 ## Credits

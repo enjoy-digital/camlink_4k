@@ -137,12 +137,11 @@ Findings:
 The FX3 firmware must match the CSR map of the loaded bitstream:
 
 ```
-python3 litecamlink.py --build --with-sdram --sdram-rate 1:4 --sdram-banks 4 --with-sdram-bist \
-    --sys-clk-freq 74.25e6 --video-clk-freq 99e6 --with-framebuffer --output-dir build_nv12
-make -C firmware/fx3 clean && make -C firmware/fx3 CSR_CSV=../../build_nv12/csr.csv
-python3 software/camlink.py boot --bit build_nv12/gateware/litecamlink.bit  # FPGA + HDMI + DRAM init.
+python3 litecamlink.py --build           # NV12 variant (default): DDR3-594 1:4, video 99MHz, seed 2.
+make -C firmware/fx3 clean && make -C firmware/fx3
+python3 software/camlink.py boot         # FPGA + HDMI + DRAM init.
 python3 software/camlink.py sdram-status
-python3 software/dram.py --build build_nv12 bandwidth                        # Optional (host tools).
+python3 software/dram.py --build build bandwidth  # Optional (host tools).
 ```
 
 The FX3 firmware initializes the DRAM (`firmware/fx3/sdram.c`, ~4s over the I2C CSR bridge):

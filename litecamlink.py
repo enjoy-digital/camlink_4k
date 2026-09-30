@@ -298,28 +298,45 @@ class BaseSoC(SoCCore):
 
 # Build --------------------------------------------------------------------------------------------
 
+# Build Variants -----------------------------------------------------------------------------------
+
+VARIANTS = {
+    # 4K30 NV12 through the DRAM frame buffer (DDR3-594 1:4, video pipeline in its own 99MHz
+    # domain), all the base features (default, flashed image).
+    "nv12": dict(sys_clk_freq=74.25e6, with_sdram=True, sdram_rate="1:4", sdram_banks=4,
+        with_sdram_bist=True, video_clk_freq=99e6, with_framebuffer=True, seed=2),
+    # Without DRAM (YUY2/M420, 100MHz sys).
+    "base": dict(sys_clk_freq=100e6, with_sdram=False, sdram_rate="1:2", sdram_banks=8,
+        with_sdram_bist=False, video_clk_freq=0, with_framebuffer=False, seed=1),
+}
+
 def main():
     parser = argparse.ArgumentParser(description="LiteCamLink gateware for the Cam Link 4K.")
+    parser.add_argument("--variant",      default="nv12", choices=list(VARIANTS), help="Build variant (defaults of the options below).")
     parser.add_argument("--build",        action="store_true", help="Build bitstream.")
     parser.add_argument("--no-compile",   action="store_true", help="Generate build files without running the toolchain.")
     parser.add_argument("--load",         action="store_true", help="Load bitstream (through the FX3, see software/camlink.py).")
-    parser.add_argument("--sys-clk-freq", default=100e6, type=float, help="System clock frequency.")
+    parser.add_argument("--sys-clk-freq", default=None, type=float, help="System clock frequency.")
     parser.add_argument("--with-pintest", action="store_true",       help="Enable FX3 <-> FPGA pin test.")
     parser.add_argument("--with-cpu",     action="store_true",       help="Enable VexRiscv CPU + BIOS (console over UART crossover).")
-    parser.add_argument("--with-sdram",   action="store_true",       help="Enable DDR3 SDRAM.")
-    parser.add_argument("--sdram-rate",   default="1:2", choices=["1:2", "1:4"], help="Controller:DRAM clock ratio.")
+    parser.add_argument("--with-sdram",   action=argparse.BooleanOptionalAction, help="Enable DDR3 SDRAM.")
+    parser.add_argument("--sdram-rate",   default=None, choices=["1:2", "1:4"], help="Controller:DRAM clock ratio.")
     parser.add_argument("--sdram-sys-clk-src", default="clkdivf", choices=["clkdivf", "pll"], help="1:4 sys clock source.")
-    parser.add_argument("--with-framebuffer",  action="store_true", help="NV12 DRAM frame buffer (needs --with-sdram and --video-clk-freq).")
+    parser.add_argument("--with-framebuffer",  action=argparse.BooleanOptionalAction, help="NV12 DRAM frame buffer (needs --with-sdram and --video-clk-freq).")
     parser.add_argument("--gpif-io-regs",      default="ctl",       help="Debug: GPIF signal groups registered in the IO cells (dq,ctl).")
-    parser.add_argument("--video-clk-freq",    default=None, type=float, help="Video pipeline clock (own domain, DRAM builds with a slow sys).")
+    parser.add_argument("--video-clk-freq",    default=None, type=float, help="Video pipeline clock (own domain, DRAM builds with a slow sys, 0: sys).")
     parser.add_argument("--sdram-lat-adj",     default="0,0",       help="Debug: controller read,write latency offsets (sys cycles)[,wrphase offset].")
     parser.add_argument("--sdram-sys-phase",   default=0, type=float, help="1:4 sys clock phase (degrees, pll source).")
-    parser.add_argument("--with-sdram-bist",   action="store_true",   help="Add DRAM BIST generator/checker.")
-    parser.add_argument("--sdram-banks",       default=8, type=int, choices=[4, 8], help="DRAM banks used (4: BA2=0, 64MB, timing).")
+    parser.add_argument("--with-sdram-bist",   action=argparse.BooleanOptionalAction, help="Add DRAM BIST generator/checker (firmware DRAM init check).")
+    parser.add_argument("--sdram-banks",       default=None, type=int, choices=[4, 8], help="DRAM banks used (4: BA2=0, 64MB, timing).")
     parser.add_argument("--with-ioscan",  action="store_true",       help="Enable IO scan debug core.")
     parser.add_argument("--output-dir",   default="build",              help="Build directory.")
-    parser.add_argument("--seed",         default=1, type=int,       help="Nextpnr seed.")
+    parser.add_argument("--seed",         default=None, type=int,    help="Nextpnr seed.")
     args = parser.parse_args()
+    for k, v in VARIANTS[args.variant].items():
+        if getattr(args, k) is None:
+            setattr(args, k, v)
+    args.video_clk_freq = args.video_clk_freq or None
 
     soc     = BaseSoC(
         sys_clk_freq = args.sys_clk_freq,
