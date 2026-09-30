@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 #
-# This file is part of LiteCamLink.
+# This file is part of CamLinX.
 #
 # Copyright (c) 2026 Florent Kermarrec <florent@enjoy-digital.fr>
 # SPDX-License-Identifier: BSD-2-Clause
@@ -9,10 +9,10 @@
 """DDR3 bring-up without CPU: init, ECP5 read leveling and BIST tests through the I2C CSR bridge.
 
 Build/boot (example, 1:4 at 99.5625MHz sys = DDR3-796):
-    ./litecamlink.py --build --with-sdram --sdram-rate 1:4 --sdram-banks 4 --with-sdram-bist \\
+    ./camlinx.py --build --with-sdram --sdram-rate 1:4 --sdram-banks 4 --with-sdram-bist \\
         --sys-clk-freq 99.5625e6 --output-dir build_dram14
     make -C firmware/fx3 clean && make -C firmware/fx3 CSR_CSV=../../build_dram14/csr.csv
-    python3 software/camlink.py boot --bit build_dram14/gateware/litecamlink.bit
+    python3 software/camlink.py boot --bit build_dram14/gateware/camlinx.bit
     python3 software/dram.py --build build_dram14 init       # init + read leveling
     python3 software/dram.py --build build_dram14 memtest    # BIST write/read + errors
     python3 software/dram.py --build build_dram14 bandwidth  # write, read, write+read concurrent

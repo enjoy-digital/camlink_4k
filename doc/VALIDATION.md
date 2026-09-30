@@ -8,7 +8,7 @@ Setup: replug the Cam Link (flash block 0 is erased: it enumerates as the FX3 bo
 `04b4:00f3`), HDMI-0 of this PC as source, screen unlocked for latency/quality.
 
 ```
-make -C firmware/fx3 && python3 litecamlink.py --build
+make -C firmware/fx3 && python3 camlinx.py --build
 python3 software/camlink.py boot
 ```
 
@@ -21,7 +21,7 @@ Most checks below are scripted: `python3 software/validate.py` (all steps, PASS/
 |---|---|---|
 | Enumeration | `lsusb -v -d 1209:0001` | UVC (2 formats) + UAC interfaces, SuperSpeed |
 | Link stats | `camlink.py stats` | `phy_cr_timeouts` 0, `ss_to_usb2_fallbacks` 0 |
-| 1080p capture | `bench.py run --firmware litecamlink` | as before (60/30 fps, 0 drops) |
+| 1080p capture | `bench.py run --firmware camlinx` | as before (60/30 fps, 0 drops) |
 | First frame | `software/uvc_raw.py --seconds 2` | `header errors` 0 (was 1-2: first payload) |
 | Input fps | `camlink.py hdmi-status` | `fps` ~60.000 / 29.97 / 30.000 |
 | Signal loss | stream, `xrandr --output HDMI-0 --off`, then `--auto` | dark blue "no signal" pattern within ~0.3 s, HDMI back after re-probe, stream keeps running |

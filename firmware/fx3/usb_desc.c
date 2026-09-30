@@ -1,5 +1,5 @@
 /*
- * This file is part of LiteCamLink.
+ * This file is part of CamLinX.
  *
  * Copyright (c) 2026 Florent Kermarrec <florent@enjoy-digital.fr>
  * SPDX-License-Identifier: BSD-2-Clause
@@ -211,8 +211,8 @@ static const uint8_t string_manufacturer[] = {
 };
 
 static const uint8_t string_product[] = {
-    24, USB_DT_STRING,
-    'L',0, 'i',0, 't',0, 'e',0, 'C',0, 'a',0, 'm',0, 'L',0, 'i',0, 'n',0, 'k',0,
+    16, USB_DT_STRING,
+    'C',0, 'a',0, 'm',0, 'L',0, 'i',0, 'n',0, 'X',0,
 };
 
 static const uint8_t string_serial[] = {

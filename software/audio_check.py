@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 
 #
-# This file is part of LiteCamLink.
+# This file is part of CamLinX.
 #
 # Copyright (c) 2026 Florent Kermarrec <florent@enjoy-digital.fr>
 # SPDX-License-Identifier: BSD-2-Clause
 
-"""LiteCamLink UAC audio check: capture with arecord (in memory) and analyse.
+"""CamLinX UAC audio check: capture with arecord (in memory) and analyse.
 
 - test : FPGA test counter source (L = n, R = ~n): checks continuity (drops/duplicates).
 - hdmi : HDMI (I2S) source: levels, dominant frequency per channel, silence ratio.
@@ -19,7 +19,7 @@ import subprocess
 
 import numpy as np
 
-def find_card(name="LiteCamLink"):
+def find_card(name="CamLinX"):
     for line in open("/proc/asound/cards"):
         if name in line and "[" in line:
             return line.split("[")[0].strip()
@@ -67,12 +67,12 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("mode", choices=["test", "hdmi"])
     parser.add_argument("--seconds", type=int, default=3)
-    parser.add_argument("--card", default=None, help="ALSA card (default: find LiteCamLink).")
+    parser.add_argument("--card", default=None, help="ALSA card (default: find CamLinX).")
     args = parser.parse_args()
 
     card = args.card or find_card()
     if card is None:
-        print("LiteCamLink sound card not found.")
+        print("CamLinX sound card not found.")
         sys.exit(1)
     samples = capture(card, args.seconds)
     result  = check_test(samples) if args.mode == "test" else check_hdmi(samples)

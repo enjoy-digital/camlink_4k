@@ -1,12 +1,12 @@
 #
-# This file is part of LiteCamLink.
+# This file is part of CamLinX.
 #
 # Copyright (c) 2026 Florent Kermarrec <florent@enjoy-digital.fr>
 # SPDX-License-Identifier: BSD-2-Clause
 
 from migen import *
 
-from litecamlink.gateware.watchdog import FX3Watchdog
+from camlinx.gateware.watchdog import FX3Watchdog
 
 # Test ---------------------------------------------------------------------------------------------
 

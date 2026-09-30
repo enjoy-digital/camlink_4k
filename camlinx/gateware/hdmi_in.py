@@ -1,5 +1,5 @@
 #
-# This file is part of LiteCamLink.
+# This file is part of CamLinX.
 #
 # Copyright (c) 2026 Florent Kermarrec <florent@enjoy-digital.fr>
 # SPDX-License-Identifier: BSD-2-Clause
@@ -30,7 +30,7 @@ from litex.gen import *
 from litex.soc.interconnect.csr import *
 from litex.soc.interconnect     import stream
 
-from litecamlink.gateware.csc import RGB2YCbCr422, bt709_coefficients
+from camlinx.gateware.csc import RGB2YCbCr422, bt709_coefficients
 
 # M420 Packer --------------------------------------------------------------------------------------
 
@@ -208,7 +208,7 @@ class M420Packer(LiteXModule):
         uv_q_en = Signal()
         uv_valid0 = Signal() # Word on dat_r.
         uv_idx0   = Signal(max=max_words + 1)
-        uv_qs     = [Signal(32) for _ in range(2)]
+        uv_qs     = [Signal(32, reset_less=True) for _ in range(2)] # No reset (timing: EBR -> FF, no LUT).
         uv_q      = Signal(32)
         self.comb += [
             advance.eq(~uv_valid | source.ready),
@@ -424,6 +424,8 @@ class HDMIIn(LiteXModule):
         vs_d     = Signal()
         x        = Signal(16) # DE clock in line.
         line     = Signal(16) # Active line in frame.
+        x_zero   = Signal(reset=1) # x == 0, registered with x (timing: no 16-bit compare).
+        line_zero = Signal(reset=1) # line == 0, registered with line.
         hres     = Signal(16)
         vres     = Signal(16)
         vs_start = Signal()
@@ -436,13 +438,16 @@ class HDMIIn(LiteXModule):
             ).Else(
                 x.eq(0),
             ),
+            x_zero.eq(~de),
             If(de_d & ~de,
                 hres.eq(x),
                 line.eq(line + 1),
+                line_zero.eq(0),
             ),
             If(vs_start,
                 If(line != 0, vres.eq(line)),
                 line.eq(0),
+                line_zero.eq(1),
             ),
         ]
         self.specials += [
@@ -613,7 +618,7 @@ class HDMIIn(LiteXModule):
             m420_packer.v.eq(Mux(c_swap, ca, cb)),
             m420_packer.odd_line.eq(line[0]),
             m420_packer.eol.eq(~de_next),
-            m420_packer.sof.eq((line == 0) & (x == 0)),
+            m420_packer.sof.eq(line_zero & x_zero),
             m420_packer.last_pair.eq(is_last_line),
         ]
 

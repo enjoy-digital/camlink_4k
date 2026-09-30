@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 #
-# This file is part of LiteCamLink.
+# This file is part of CamLinX.
 #
 # Copyright (c) 2026 Florent Kermarrec <florent@enjoy-digital.fr>
 # SPDX-License-Identifier: BSD-2-Clause
@@ -34,9 +34,9 @@ from v4l2cap  import Capture, find_device
 # Helpers ------------------------------------------------------------------------------------------
 
 def video_node():
-    node = find_device("LiteCamLink")
+    node = find_device("CamLinX")
     if node is None:
-        raise RuntimeError("LiteCamLink video node not found.")
+        raise RuntimeError("CamLinX video node not found.")
     return node
 
 def capture_stats(w, h, fps, seconds=3, pixfmt="YUYV"):
@@ -88,12 +88,12 @@ def enum_formats():
 # Steps --------------------------------------------------------------------------------------------
 
 def step_enum(ctx):
-    """Enumeration: LiteCamLink firmware, SuperSpeed, UVC formats, UAC card."""
+    """Enumeration: CamLinX firmware, SuperSpeed, UVC formats, UAC card."""
     cl    = CamLink()
     ident = cl.ident()
     speed = {3: "HighSpeed", 4: "SuperSpeed"}.get(cl.dev.speed, cl.dev.speed)
     fmts  = enum_formats()
-    card  = any("LiteCamLink" in l for l in open("/proc/asound/cards"))
+    card  = any("CamLinX" in l for l in open("/proc/asound/cards"))
     ok = (speed == "SuperSpeed" and "YUYV" in fmts and "M420" in fmts and (3840, 2160) in fmts["M420"]
         and card)
     return ok, f"{ident} ({speed}); formats {fmts}; sound card {card}"

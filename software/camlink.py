@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 
 #
-# This file is part of LiteCamLink.
+# This file is part of CamLinX.
 #
 # Copyright (c) 2026 Florent Kermarrec <florent@enjoy-digital.fr>
 # SPDX-License-Identifier: BSD-2-Clause
 
-"""LiteCamLink host tool: FX3 RAM boot, device control and tests."""
+"""CamLinX host tool: FX3 RAM boot, device control and tests."""
 
 import os
 import sys
@@ -21,8 +21,8 @@ import usb.util
 
 FX3_BOOT_VID    = 0x04b4
 FX3_BOOT_PID    = 0x00f3
-LITECAMLINK_VID = 0x1209
-LITECAMLINK_PID = 0x0001
+CAMLINX_VID = 0x1209
+CAMLINX_PID = 0x0001
 STOCK_VID       = 0x0fd9
 STOCK_PIDS      = (0x0066, 0x0067)
 
@@ -31,18 +31,22 @@ FX3_CHUNK       = 2048
 
 # Helpers ------------------------------------------------------------------------------------------
 
-def _is_litecamlink(dev):
+# USB product strings of our firmware (current, and before the LiteCamLink -> CamLinX rename: still
+# found to reflash an older image).
+CAMLINX_PRODUCTS = ("CamLinX", "LiteCamLink")
+
+def _is_camlinx(dev):
     try:
-        return dev.product == "LiteCamLink"
+        return dev.product in CAMLINX_PRODUCTS
     except (ValueError, usb.core.USBError):
         return False
 
 def find_device(vid, pid, timeout=0.0):
     deadline = time.time() + timeout
     while True:
-        if (vid, pid) == (LITECAMLINK_VID, LITECAMLINK_PID):
+        if (vid, pid) == (CAMLINX_VID, CAMLINX_PID):
             # The pid.codes test VID/PID is shared: also match the product string.
-            dev = usb.core.find(idVendor=vid, idProduct=pid, custom_match=_is_litecamlink)
+            dev = usb.core.find(idVendor=vid, idProduct=pid, custom_match=_is_camlinx)
         else:
             dev = usb.core.find(idVendor=vid, idProduct=pid)
         if dev is not None or time.time() >= deadline:
@@ -93,7 +97,7 @@ def fx3_load(filename, timeout=5.0):
         pass # Device may disconnect before the status stage.
     usb.util.dispose_resources(dev)
 
-# LiteCamLink Device ------------------------------------------------------------------------------
+# CamLinX Device ------------------------------------------------------------------------------
 
 VREQ_IDENT     = 0x00
 VREQ_MEM_READ  = 0x01
@@ -146,9 +150,9 @@ FPGA_STATUS_FAIL = (1 << 13)
 
 class CamLink:
     def __init__(self, timeout=5.0):
-        self.dev = find_device(LITECAMLINK_VID, LITECAMLINK_PID, timeout)
+        self.dev = find_device(CAMLINX_VID, CAMLINX_PID, timeout)
         if self.dev is None:
-            raise RuntimeError("LiteCamLink device (1209:0001) not found.")
+            raise RuntimeError("CamLinX device (1209:0001) not found.")
 
     def vendor_in(self, req, value=0, index=0, length=0):
         return bytes(self.dev.ctrl_transfer(0xc0, req, value, index, length, timeout=1000))
@@ -553,7 +557,7 @@ def term(bus, cmds=None, duration=None):
 
 # Pin Test -----------------------------------------------------------------------------------------
 
-# FPGA PinTest pins order (see litecamlink.py) with their expected FX3 GPIO.
+# FPGA PinTest pins order (see camlinx.py) with their expected FX3 GPIO.
 PINTEST_PINS = \
     [(f"dq{i}",  i)      for i in range(16)] + \
     [(f"dq{i}",  i + 17) for i in range(16, 28)] + \
@@ -588,7 +592,7 @@ def pintest(cl, id_bits=8):
 # Main ---------------------------------------------------------------------------------------------
 
 def main():
-    parser = argparse.ArgumentParser(description="LiteCamLink host tool.")
+    parser = argparse.ArgumentParser(description="CamLinX host tool.")
     parser.add_argument("--csr-csv", default="build/csr.csv", help="FPGA CSR map (build directory csr.csv).")
     sub    = parser.add_subparsers(dest="cmd", required=True)
 
@@ -597,7 +601,7 @@ def main():
 
     p = sub.add_parser("boot", help="Boot: load FX3 firmware (if in bootloader) and FPGA bitstream.")
     p.add_argument("--fx3", default="firmware/fx3/build/fx3.img")
-    p.add_argument("--bit", default="build/gateware/litecamlink.bit")
+    p.add_argument("--bit", default="build/gateware/camlinx.bit")
 
     p = sub.add_parser("fpga-load", help="Load a bitstream to the FPGA (through the FX3).")
     p.add_argument("bitstream")
@@ -641,8 +645,8 @@ def main():
     p = sub.add_parser("flash-write", help="Write a file to the SPI flash (erase/program/verify).")
     p.add_argument("filename")
     p.add_argument("--offset", default=0, type=lambda x: int(x, 0))
-    p = sub.add_parser("flash-bitstream", help="Write a LiteCamLink bitstream (header + data at 0x100000).")
-    p.add_argument("bitstream", nargs="?", default="build/gateware/litecamlink.bit")
+    p = sub.add_parser("flash-bitstream", help="Write a CamLinX bitstream (header + data at 0x100000).")
+    p.add_argument("bitstream", nargs="?", default="build/gateware/camlinx.bit")
     p = sub.add_parser("flash-fx3", help="Write a FX3 image at offset 0 (standalone boot).")
     p.add_argument("image", nargs="?", default="firmware/fx3/build/fx3.img")
     sub.add_parser("flash-recover", help="Erase the FX3 image and reboot to the USB bootloader.")
@@ -659,7 +663,7 @@ def main():
     p.add_argument("source", choices=["hdmi", "test"])
 
     sub.add_parser("list",   help="List Cam Link related USB devices.")
-    sub.add_parser("ident",  help="Show LiteCamLink firmware identification.")
+    sub.add_parser("ident",  help="Show CamLinX firmware identification.")
     sub.add_parser("reboot", help="Reboot the FX3 (back to the USB bootloader).")
     sub.add_parser("sdram-init",   help="DRAM init by the firmware (init, leveling, BIST check).")
     sub.add_parser("sdram-status", help="Show the firmware DRAM init status.")
@@ -691,7 +695,7 @@ def main():
             except (RuntimeError, usb.core.USBError):
                 time.sleep(0.5)
         else:
-            raise RuntimeError("LiteCamLink device not found after the firmware load.")
+            raise RuntimeError("CamLinX device not found after the firmware load.")
         for retry in range(5):
             try:
                 print(cl.ident())
@@ -826,7 +830,7 @@ def main():
     if args.cmd == "list":
         for dev in usb.core.find(find_all=True):
             ids = (dev.idVendor, dev.idProduct)
-            if ids in [(FX3_BOOT_VID, FX3_BOOT_PID), (LITECAMLINK_VID, LITECAMLINK_PID)] or \
+            if ids in [(FX3_BOOT_VID, FX3_BOOT_PID), (CAMLINX_VID, CAMLINX_PID)] or \
                (dev.idVendor == STOCK_VID and dev.idProduct in STOCK_PIDS):
                 print(f"{dev.idVendor:04x}:{dev.idProduct:04x} bus {dev.bus} addr {dev.address} speed {dev.speed}")
 

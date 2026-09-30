@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 
 #
-# This file is part of LiteCamLink.
+# This file is part of CamLinX.
 #
 # Copyright (c) 2026 Florent Kermarrec <florent@enjoy-digital.fr>
 # SPDX-License-Identifier: BSD-2-Clause
 
-"""LiteCamLink UVC Extension Unit access through uvcvideo (UVCIOC_CTRL_QUERY, no libusb).
+"""CamLinX UVC Extension Unit access through uvcvideo (UVCIOC_CTRL_QUERY, no libusb).
 
 Works while the camera is in use (OBS, VLC...):
     uvc_xu.py info          : input info (resolution, fps, color space, signal).
@@ -74,9 +74,9 @@ def main():
     p.add_argument("y", nargs="?", type=int, default=0)
     args = parser.parse_args()
 
-    device = args.device or find_device("LiteCamLink")
+    device = args.device or find_device("CamLinX")
     if device is None:
-        print("LiteCamLink video device not found.")
+        print("CamLinX video device not found.")
         sys.exit(1)
     fd = os.open(device, os.O_RDWR)
     try:

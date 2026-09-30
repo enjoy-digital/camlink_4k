@@ -1,5 +1,5 @@
 #
-# This file is part of LiteCamLink.
+# This file is part of CamLinX.
 #
 # Copyright (c) 2026 Florent Kermarrec <florent@enjoy-digital.fr>
 # SPDX-License-Identifier: BSD-2-Clause
@@ -10,7 +10,7 @@ from migen import *
 
 from litex.gen import *
 
-from litecamlink.gateware.color import ColorAdjust
+from camlinx.gateware.color import ColorAdjust
 
 def model(word, brightness, contrast, saturation):
     out = 0

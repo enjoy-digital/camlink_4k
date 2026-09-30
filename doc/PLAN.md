@@ -1,4 +1,4 @@
-# LiteCamLink Plan
+# CamLinX Plan
 
 Goal: a fully open replacement for the Cam Link 4K firmware (LiteX gateware + minimal bare-metal
 FX3 firmware + host tools), validated step by step on hardware, ending as a capture card that
@@ -15,7 +15,7 @@ Commit/Push**. The stock firmware can be restored at any time from the flash bac
 |----|--------------------------------|---------------------------------------------------------------------------------------------|--------|
 | 0  | Bootstrap                      | Repo, docs, platform, flash backup, stock I2C/EDID dumps, bench scripts.                    | Done   |
 | 1  | FX3 bare-metal hello           | Bare-metal C (fx3lafw register defs), RAM boot, EP0 vendor requests (ident, peek/poke).     | Done   |
-| 2  | FPGA configuration from FX3    | Slave-SPI bitstream load from the host, DONE readback. `litecamlink.py --load`.             | Done   |
+| 2  | FPGA configuration from FX3    | Slave-SPI bitstream load from the host, DONE readback. `camlinx.py --load`.                 | Done   |
 | 3  | FX3 USB streaming              | Bulk IN EP1 on SuperSpeed, async host reader: 300MB/s sustained (GPIF 96MHz x 32-bit).        | Done   |
 | 4  | GPIF-II + FPGA pattern         | GPIF master waveform, auto DMA, FPGA GPIFStreamer + counter/pattern sources, CRC-free counter check. | Done   |
 | 5  | UVC                            | UVC 1.1 YUY2 480p/720p/1080p @30/60, FPGA packetizer, probe/commit, works with uvcvideo/ffmpeg/VLC. | Done   |

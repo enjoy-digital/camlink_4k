@@ -1,5 +1,5 @@
 #
-# This file is part of LiteCamLink.
+# This file is part of CamLinX.
 #
 # Copyright (c) 2026 Florent Kermarrec <florent@enjoy-digital.fr>
 # SPDX-License-Identifier: BSD-2-Clause
@@ -9,7 +9,7 @@ from migen.sim import passive
 
 from litex.gen import *
 
-from litecamlink.gateware.audio import I2SReceiver, AudioSource
+from camlinx.gateware.audio import I2SReceiver, AudioSource
 
 # I2S Model ----------------------------------------------------------------------------------------
 

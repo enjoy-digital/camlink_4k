@@ -1,5 +1,5 @@
 #
-# This file is part of LiteCamLink.
+# This file is part of CamLinX.
 #
 # Copyright (c) 2026 Florent Kermarrec <florent@enjoy-digital.fr>
 # SPDX-License-Identifier: BSD-2-Clause
@@ -10,7 +10,7 @@ from litex.gen import *
 
 from litex.soc.interconnect import wishbone
 
-from litecamlink.gateware.i2c_bridge import I2CBridge
+from camlinx.gateware.i2c_bridge import I2CBridge
 
 # I2C Master Model ---------------------------------------------------------------------------------
 

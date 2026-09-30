@@ -40,7 +40,7 @@ Rev.3 (`0x00A1`) are different designs and are not covered.
 - **Extra GPIOs**: FX3 GPIO27 <-> `C7`, GPIO45 <-> `C8`. FX3 GPIO26 <-> `D7` is not a direct
   connection (FPGA output not seen by the FX3, netlist says "TR?, I2C sel?").
 
-**Verified on hardware** (`litecamlink.py --with-pintest` + `camlink.py pintest`): all 32 GPIF
+**Verified on hardware** (`camlinx.py --with-pintest` + `camlink.py pintest`): all 32 GPIF
 `DQ` lines, `PCLK`, the 9 `CTL` lines and GPIO27 (FPGA -> FX3), GPIO45 (FX3 -> FPGA).
 FPGA Slave-SPI configuration from the FX3 verified (IDCODE `0x41111043`, ~0.4s for 100KB).
 
@@ -112,11 +112,11 @@ FX3 GPIO58/59 (I2C master), FPGA `P18`/`P19`, IT6802 `PCSCL`/`PCSDA`.
 
 The unit serial number is stored as a USB string descriptor inside the FX3 image.
 
-## Flash Layout (LiteCamLink)
+## Flash Layout (CamLinX)
 
 | Offset     | Content                                                                   |
 |------------|---------------------------------------------------------------------------|
-| `0x000000` | LiteCamLink FX3 boot image (read by the FX3 boot ROM).                    |
+| `0x000000` | CamLinX FX3 boot image (read by the FX3 boot ROM).                    |
 | `0x040000` | Stock bitstream header + bitstream, left untouched (stock image RAM-load). |
 | `0x100000` | 256-byte header: size (LE32), ~size, magic `LCLK`, then the bitstream.    |
 | `0x3F0000` | Stock settings (untouched).                                               |

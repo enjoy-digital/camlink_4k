@@ -1,5 +1,5 @@
 #
-# This file is part of LiteCamLink.
+# This file is part of CamLinX.
 #
 # Copyright (c) 2026 Florent Kermarrec <florent@enjoy-digital.fr>
 # SPDX-License-Identifier: BSD-2-Clause
@@ -8,8 +8,8 @@ from migen import *
 
 from litex.gen import *
 
-from litecamlink.gateware.video import VideoPatternGenerator, COLOR_BARS, yuy2_word
-from litecamlink.gateware.uvc   import UVCPacketizer
+from camlinx.gateware.video import VideoPatternGenerator, COLOR_BARS, yuy2_word
+from camlinx.gateware.uvc   import UVCPacketizer
 
 # Test ---------------------------------------------------------------------------------------------
 

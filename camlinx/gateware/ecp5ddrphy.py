@@ -8,7 +8,7 @@
 # 1:2 frequency-ratio DDR3 PHY for Lattice's ECP5
 # DDR3: 800 MT/s
 #
-# LiteCamLink copy of litedram/phy/ecp5ddrphy.py with a `csr_cdc` hook (CSR write strobes crossing
+# CamLinX copy of litedram/phy/ecp5ddrphy.py with a `csr_cdc` hook (CSR write strobes crossing
 # into the PHY clock domain), so the PHY can run at 2x the controller clock behind LiteDRAM's
 # DFIRateConverter (1:4 controller:DRAM clock ratio, see `ecp5ddrphy_with_ratio`). Intended for
 # upstreaming to LiteDRAM.

@@ -4,5 +4,5 @@ SUBSYSTEM=="usb",    ATTRS{idVendor}=="0fd9", ATTRS{idProduct}=="0067", MODE="06
 KERNEL=="hidraw*",   ATTRS{idVendor}=="0fd9", MODE="0666"
 # Cypress FX3 USB bootloader.
 SUBSYSTEM=="usb",    ATTRS{idVendor}=="04b4", ATTRS{idProduct}=="00f3", MODE="0666"
-# LiteCamLink firmware (pid.codes test VID/PID during development).
+# CamLinX firmware (pid.codes test VID/PID during development).
 SUBSYSTEM=="usb",    ATTRS{idVendor}=="1209", ATTRS{idProduct}=="0001", MODE="0666"

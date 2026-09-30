@@ -1,5 +1,5 @@
 /*
- * This file is part of LiteCamLink.
+ * This file is part of CamLinX.
  *
  * Copyright (c) 2026 Florent Kermarrec <florent@enjoy-digital.fr>
  * SPDX-License-Identifier: BSD-2-Clause
@@ -14,7 +14,7 @@
 #define SPI_FLASH_BLOCK_SIZE  0x10000
 #define SPI_FLASH_PAGE_SIZE   256
 
-/* Flash layout: FX3 boot image at 0 (boot ROM), LiteCamLink bitstream in a region unused by the
+/* Flash layout: FX3 boot image at 0 (boot ROM), CamLinX bitstream in a region unused by the
  * stock firmware (stock: FX3 image 0x000000-0x02ffff, bitstream 0x040000-0x09ffff, settings
  * 0x3f0000) so the stock bitstream stays usable with a RAM-loaded stock FX3 image. */
 #define FLASH_FX3_IMAGE       0x000000

@@ -1,6 +1,6 @@
-# LiteCamLink Roadmap
+# CamLinX Roadmap
 
-Where LiteCamLink stands, how it will be compared against the stock Elgato firmware, what to improve
+Where CamLinX stands, how it will be compared against the stock Elgato firmware, what to improve
 first and which new features could make it attractive to users. Phase history and hardware notes are
 in [PLAN.md](PLAN.md) and [HARDWARE.md](HARDWARE.md).
 
@@ -76,7 +76,7 @@ A `software/bench.py` harness will run each test on both firmwares and write the
 
 ## 4. Suggested Order
 
-1. **Benchmark harness** (stock vs LiteCamLink): baseline numbers before any optimization.
+1. **Benchmark harness** (stock vs CamLinX): baseline numbers before any optimization.
 2. **Latency**: measurement, then low-latency mode.
 3. **Standalone boot** + recovery/update tool.
 4. **4K30 NV12** (USB throughput work) and native 1080p60 validation.

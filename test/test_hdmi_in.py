@@ -1,5 +1,5 @@
 #
-# This file is part of LiteCamLink.
+# This file is part of CamLinX.
 #
 # Copyright (c) 2026 Florent Kermarrec <florent@enjoy-digital.fr>
 # SPDX-License-Identifier: BSD-2-Clause
@@ -9,7 +9,7 @@ from migen.sim import passive
 
 from litex.gen import *
 
-from litecamlink.gateware.hdmi_in import HDMIIn
+from camlinx.gateware.hdmi_in import HDMIIn
 
 # Video Source Model -------------------------------------------------------------------------------
 
@@ -229,7 +229,7 @@ def rgb_pixel(f, x, y):
 
 def test_hdmi_in_ddr_rgb():
     from test_csc import model
-    from litecamlink.gateware.csc import bt709_coefficients
+    from camlinx.gateware.csc import bt709_coefficients
     def source(pads, frames):
         for f in range(frames):
             for y in range(VACT + VBLANK):

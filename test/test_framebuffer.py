@@ -1,5 +1,5 @@
 #
-# This file is part of LiteCamLink.
+# This file is part of CamLinX.
 #
 # Copyright (c) 2026 Florent Kermarrec <florent@enjoy-digital.fr>
 # SPDX-License-Identifier: BSD-2-Clause
@@ -13,7 +13,7 @@ from litex.gen import *
 
 from litedram.common import LiteDRAMNativePort
 
-from litecamlink.gateware.framebuffer import NV12FrameBuffer
+from camlinx.gateware.framebuffer import NV12FrameBuffer
 
 # Geometry: 16-byte lines (1 port word of 128 bits = 4 words), 4 lines.
 LINE_WORDS  = 1

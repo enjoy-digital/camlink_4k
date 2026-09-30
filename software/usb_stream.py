@@ -1,5 +1,5 @@
 #
-# This file is part of LiteCamLink.
+# This file is part of CamLinX.
 #
 # Copyright (c) 2026 Florent Kermarrec <florent@enjoy-digital.fr>
 # SPDX-License-Identifier: BSD-2-Clause
@@ -17,7 +17,7 @@ class USBStreamReader:
         for device in self.ctx.getDeviceIterator(skip_on_error=True):
             if (device.getVendorID(), device.getProductID()) == (vid, pid):
                 try:
-                    if device.getProduct() == "LiteCamLink":
+                    if device.getProduct() in ("CamLinX", "LiteCamLink"): # Current, before rename.
                         self.handle = device.open()
                         break
                 except usb1.USBError:

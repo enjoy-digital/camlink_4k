@@ -1,10 +1,10 @@
-# Benchmark: Stock Elgato firmware vs LiteCamLink
+# Benchmark: Stock Elgato firmware vs CamLinX
 
 Same Cam Link 4K unit, same cable, host `HDMI-0` as source (`software/source.py`), captures through uvcvideo (`software/bench.py`). Latency: host render time (barcode) to first byte (V4L2 buffer timestamp) / frame complete (dequeue).
 
 ## 1080p60
 
-| Metric | Stock | LiteCamLink |
+| Metric | Stock | CamLinX |
 |---|---|---|
 | Source | 1920x1080@60 | 1920x1080@60 |
 | Capture | YUYV 1920x1080@60 | YUYV 1920x1080@60 |
@@ -27,7 +27,7 @@ Same Cam Link 4K unit, same cable, host `HDMI-0` as source (`software/source.py`
 
 ## 1080p30
 
-| Metric | Stock | LiteCamLink |
+| Metric | Stock | CamLinX |
 |---|---|---|
 | Source | 1920x1080@29.97 | 1920x1080@29.97 |
 | Capture | YUYV 1920x1080@30 | YUYV 1920x1080@30 |
@@ -50,7 +50,7 @@ Same Cam Link 4K unit, same cable, host `HDMI-0` as source (`software/source.py`
 
 ## 720p60
 
-| Metric | Stock | LiteCamLink |
+| Metric | Stock | CamLinX |
 |---|---|---|
 | Source | 1280x720@60 | 1280x720@60 |
 | Capture | YUYV 1280x720@60 | YUYV 1280x720@60 |
@@ -73,7 +73,7 @@ Same Cam Link 4K unit, same cable, host `HDMI-0` as source (`software/source.py`
 
 ## 2160p30
 
-| Metric | Stock | LiteCamLink |
+| Metric | Stock | CamLinX |
 |---|---|---|
 | Source | 3840x2160@30 | 3840x2160@30 |
 | Capture | NV12 3840x2160@30 | YUYV 1920x1080@30 |

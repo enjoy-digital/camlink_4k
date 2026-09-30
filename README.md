@@ -1,6 +1,7 @@
-# LiteCamLink
+# CamLinX
 
-Open gateware and firmware for the **Elgato Cam Link 4K** (1st gen, USB `0fd9:0066`):
+**CamLinX** (Cam Link + LiteX): open gateware and firmware for the **Elgato Cam Link 4K** (1st gen,
+USB `0fd9:0066`):
 
 - **Gateware**: LiteX/Migen for the Lattice ECP5 LFE5U-25F, open toolchain (Yosys/nextpnr/Trellis).
 - **FX3 firmware**: minimal bare-metal C for the Cypress FX3, no vendor SDK.
@@ -9,7 +10,8 @@ Open gateware and firmware for the **Elgato Cam Link 4K** (1st gen, USB `0fd9:00
 The aim is a real UVC/UAC capture card that goes further than the stock firmware on the same
 hardware (latency, formats, modes, diagnostics).
 
-> Status: early bring-up, see [doc/PLAN.md](doc/PLAN.md).
+> Status: working UVC/UAC capture card (4K30 NV12 through an open DDR3 frame buffer, 1080p60,
+> audio), standalone boot from flash, see [doc/PLAN.md](doc/PLAN.md) and [doc/DRAM.md](doc/DRAM.md).
 
 ## Architecture
 
@@ -33,9 +35,9 @@ hardware (latency, formats, modes, diagnostics).
 ## Build
 
 ```sh
-./litecamlink.py --build                 # Default: NV12 variant (DRAM frame buffer, 4K30 NV12).
-./litecamlink.py --build --variant base  # Without DRAM (YUY2/M420), --output-dir to keep both.
-make -C firmware/fx3                     # FX3 firmware for build/csr.csv (CSR_CSV=... otherwise).
+./camlinx.py --build                 # Default: NV12 variant (DRAM frame buffer, 4K30 NV12).
+./camlinx.py --build --variant base  # Without DRAM (YUY2/M420), --output-dir to keep both.
+make -C firmware/fx3                 # FX3 firmware for build/csr.csv (CSR_CSV=... otherwise).
 ```
 
 ## Credits

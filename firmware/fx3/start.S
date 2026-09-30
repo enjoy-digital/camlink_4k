@@ -1,5 +1,5 @@
 /*
- * This file is part of LiteCamLink.
+ * This file is part of CamLinX.
  *
  * Copyright (c) 2026 Florent Kermarrec <florent@enjoy-digital.fr>
  * Copyright (c) 2018 Marcus Comstedt (fx3lafw)
