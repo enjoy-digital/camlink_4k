@@ -23,6 +23,15 @@ On the Cam Link 4K (ECP5 LFE5U-25F-8, MT41K64M16), same CRG/PHY as the LiteCamLi
 The LiteX-Boards target was built at 1:4/75 MHz (timing met) but not run as is (its BIOS console is
 not reachable on this board without the LiteCamLink I2C/UART bridge).
 
+## Follow-ups (open)
+
+- LiteDRAM https://github.com/enjoy-digital/litedram/pull/409: `ECP5DDRPHY(io_rst_init)`, IO
+  gearing reset from the init sequence, default in `ecp5ddrphy_with_ratio`.
+- LiteDRAM https://github.com/enjoy-digital/litedram/pull/410 (stacked on #409): selectable
+  `DFIRateConverter` serializers, `RateCrossing`, `ecp5ddrphy_with_ratio(rate_crossing=True)`
+  (opt-in, sel/shift search needed in the init software: LiteX BIOS support to do).
+- Once merged, `litecamlink/gateware/ecp5ddrphy.py` can use the upstream PHY again.
+
 ## Notes / Open Items
 
 - sys/sys2x crossing of the DFI rate converter (fixed locally, to upstream): `Serializer` samples
