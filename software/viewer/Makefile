@@ -9,10 +9,16 @@
 CFLAGS ?= -O2 -Wall -Wextra
 PKGS    = libusb-1.0 sdl2
 
+all: camlinx_view latgrab
+
 camlinx_view: camlinx_view.c
 	$(CC) $(CFLAGS) $(shell pkg-config --cflags $(PKGS)) -o $@ $< $(shell pkg-config --libs $(PKGS)) -lpthread
 
-clean:
-	rm -f camlinx_view
+# Display latency probe (X11 + XShm), see doc/LATENCY.md.
+latgrab: latgrab.c
+	$(CC) $(CFLAGS) -o $@ $< $(shell pkg-config --libs x11 xext)
 
-.PHONY: clean
+clean:
+	rm -f camlinx_view latgrab
+
+.PHONY: all clean

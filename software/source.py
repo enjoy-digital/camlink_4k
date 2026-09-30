@@ -29,16 +29,18 @@ from PIL import Image, ImageDraw, ImageFont
 BARCODE_BITS = 48 # 32-bit ms timestamp + 16-bit frame counter.
 BARCODE_COLS = 24 # Blocks per row (2 rows).
 
-def barcode_geometry(width, height):
+def barcode_geometry(width, height, pos="top"):
+    """Block size, x0, y0 (top: first rows of the frame, bottom: last rows, for latency vs line)."""
     block = width // (BARCODE_COLS + 8) # Leaves margins.
-    return block, block, block  # Block size, x0, y0.
+    y0    = block if pos == "top" else height - 4*block
+    return block, block, y0
 
 def barcode_value(ms, frame):
     return (ms & 0xffffffff) | ((frame & 0xffff) << 32)
 
-def barcode_decode(rgb, width, height):
+def barcode_decode(rgb, width, height, pos="top"):
     """Decode (ms, frame) from an RGB (or luma) frame at the given output size, None if invalid."""
-    block, x0, y0 = barcode_geometry(width, height)
+    block, x0, y0 = barcode_geometry(width, height, pos)
     luma = rgb if rgb.ndim == 2 else rgb[..., 1]
     value = 0
     for bit in range(BARCODE_BITS):
@@ -110,7 +112,7 @@ def set_mode(output, mode, rate=None):
 
 # Renderer -----------------------------------------------------------------------------------------
 
-def run(output, content, moving=False, duration=None):
+def run(output, content, moving=False, duration=None, barcode_pos="top"):
     import tkinter as tk
     from PIL import ImageTk
 
@@ -124,7 +126,7 @@ def run(output, content, moving=False, duration=None):
     bg = ImageTk.PhotoImage(Image.fromarray(chart(content, width, height)))
     canvas.create_image(0, 0, image=bg, anchor="nw")
 
-    block, x0, y0 = barcode_geometry(width, height)
+    block, x0, y0 = barcode_geometry(width, height, barcode_pos)
     canvas.create_rectangle(x0 - block//2, y0 - block//2, x0 + (BARCODE_COLS + 0.5)*block,
         y0 + 3.5*block, fill="gray50", outline="")
     cells = []
@@ -167,10 +169,11 @@ def main():
     parser.add_argument("--rate",     type=float)
     parser.add_argument("--moving",   action="store_true")
     parser.add_argument("--duration", type=float)
+    parser.add_argument("--barcode-pos", default="top", choices=["top", "bottom"], help="Barcode rows at the top or bottom of the frame.")
     args = parser.parse_args()
     if args.mode:
         set_mode(args.output, args.mode, args.rate)
-    run(args.output, args.content, moving=args.moving, duration=args.duration)
+    run(args.output, args.content, moving=args.moving, duration=args.duration, barcode_pos=args.barcode_pos)
 
 if __name__ == "__main__":
     main()
