@@ -16,7 +16,7 @@ setup(
     long_description_content_type = "text/markdown",
     author                        = "Florent Kermarrec",
     author_email                  = "florent@enjoy-digital.fr",
-    url                           = "https://github.com/enjoy-digital/camlink_4k_test",
+    url                           = "https://github.com/enjoy-digital/camlinx",
     license                       = "BSD-2-Clause",
     python_requires               = ">=3.9",
     install_requires              = ["litex", "litedram", "pyusb"],
