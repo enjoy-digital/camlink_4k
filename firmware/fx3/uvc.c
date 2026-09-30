@@ -339,6 +339,7 @@ static void video_start(void)
         .full_range = range_override ? (range_override == 2) : (hdmi->quant_range != 1),
         .m420      = m420,
         .no_signal = !signal,
+        .nv12      = nv12 && sdram_ok(), /* NV12: HDMI or pattern through the DRAM frame buffer. */
     };
 
     /* The HDMI input (when stable) always fits the requested frame:
@@ -347,10 +348,10 @@ static void video_start(void)
      * - window (YUY2): the input clipped to the frame size, cropped from the input when larger
      *   (at the crop mode position, else centered) and centered in black borders when smaller
      *   (per axis: e.g. 1600x1200 -> centered 1600x1080 region, pillarboxed in 1920x1080).
-     * M420 inputs of another size, NV12 without a working DRAM: test pattern. */
-    if (signal && direct && (!nv12 || sdram_ok())) {
+     * M420 inputs of another size, NV12 without a working DRAM: test pattern (NV12 pattern
+     * layout needs the frame buffer: garbled without DRAM). */
+    if (signal && direct && (!nv12 || v.nv12)) {
         v.hdmi = 1;
-        v.nv12 = nv12; /* NV12: through the DRAM frame buffer. */
     } else if (signal && !m420 && half && !crop_mode) {
         v.hdmi      = 1;
         v.downscale = 1;

@@ -198,6 +198,15 @@ def test_nv12_needs_dram(fx3, dram_ok):
     v = fx3.video
     assert (v.hdmi, v.nv12, v.m420) == ((1, 1, 1) if dram_ok else (0, 0, 1))
 
+def test_nv12_pattern_through_framebuffer(fx3):
+    # NV12 without HDMI signal: M420 test pattern through the frame buffer (NV12 layout).
+    if "CSR_FRAMEBUFFER_BASE" not in fx3.csr:
+        pytest.skip("gateware without the frame buffer")
+    fx3.set_input(stable=False)
+    fx3.commit(3, 1, 30)
+    v = fx3.video
+    assert (v.hdmi, v.nv12, v.m420, v.no_signal) == (0, 1, 1, 1)
+
 def test_input_change_restarts_video(fx3):
     fx3.set_input(1920, 1080)
     fx3.commit(1, 1, 60)

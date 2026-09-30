@@ -40,6 +40,10 @@ COLOR_BARS = [
 def yuy2_word(y0, u, y1, v):
     return (v << 24) | (y1 << 16) | (u << 8) | y0
 
+def m420_words(y, u, v):
+    """M420 words of a constant colour: Y line word (4 luma), CbCr line word (2 CbCr pairs)."""
+    return y * 0x01010101, (v << 24) | (u << 16) | (v << 8) | u
+
 # Video Pattern Generator --------------------------------------------------------------------------
 
 class VideoPatternGenerator(LiteXModule):
@@ -52,6 +56,7 @@ class VideoPatternGenerator(LiteXModule):
         self._bar_words    = CSRStorage(16, reset=1920//16, description="Colour bar width (words).")
         self._frame_period = CSRStorage(32, reset=int(sys_clk_freq/30), description="Frame period (sys cycles).")
         self._mode         = CSRStorage(1, description="Pattern: 0 = colour bars, 1 = no signal.")
+        self._m420         = CSRStorage(1, description="M420 layout (4:2:0: lines of Y, Y, CbCr), `hwords`/`vres` still sized as YUY2 words (hres/2 x vres*3/4).")
         self._frames       = CSRStatus(32, description="Generated frames.")
         self._skipped      = CSRStatus(32, description="Skipped frame ticks (frame still being sent).")
 
@@ -128,6 +133,37 @@ class VideoPatternGenerator(LiteXModule):
             self._skipped.status.eq(skipped),
         ]
 
+        # M420 layout: words in M420 lines of hres/4 words (4 pixels/word), bars of bar_words/2 words.
+        m420     = self._m420.storage
+        mx       = Signal(16)
+        ms       = Signal(2)  # 0/1: Y lines, 2: CbCr line.
+        mbar     = Signal(3)
+        mbar_x   = Signal(16)
+        m_last_x = Signal()
+        self.comb += m_last_x.eq(mx == ((self._hwords.storage >> 1) - 1))
+        self.sync += [
+            If(~active & pending,
+                mx.eq(0), ms.eq(0), mbar.eq(0), mbar_x.eq(0),
+            ).Elif(source.valid & source.ready,
+                If(m_last_x,
+                    mx.eq(0), mbar.eq(0), mbar_x.eq(0),
+                    ms.eq(Mux(ms == 2, 0, ms + 1)),
+                ).Else(
+                    mx.eq(mx + 1),
+                    If(mbar_x == ((self._bar_words.storage >> 1) - 1),
+                        mbar_x.eq(0),
+                        mbar.eq(mbar + 1),
+                    ).Else(
+                        mbar_x.eq(mbar_x + 1),
+                    )
+                )
+            )
+        ]
+        m_word = Signal(32)
+        self.comb += Case(mbar, {i: m_word.eq(Mux(ms == 2, m420_words(*c)[1], m420_words(*c)[0])) for i, c in enumerate(COLOR_BARS)})
+        m_blue = Signal(32)
+        self.comb += m_blue.eq(Mux(ms == 2, m420_words(40, 170, 118)[1], m420_words(40, 170, 118)[0]))
+
         # Pixel data.
         bar_word  = Signal(32)
         cases = {i: bar_word.eq(yuy2_word(y_, u, y_, v)) for i, (y_, u, v) in enumerate(COLOR_BARS)}
@@ -146,7 +182,9 @@ class VideoPatternGenerator(LiteXModule):
         ]
         data = Signal(32)
         self.comb += [
-            If(framebits,
+            If(m420,
+                data.eq(Mux(self._mode.storage, m_blue, m_word)),
+            ).Elif(framebits,
                 If((frame >> x[:5])[0],
                     data.eq(yuy2_word(235, 128, 235, 128)),
                 ).Else(

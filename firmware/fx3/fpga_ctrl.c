@@ -71,8 +71,8 @@ void fpga_stream_start(const struct fpga_video *v)
     fpga_csr_write(CSR_HDMI_IN_CROP_Y,        v->crop_y);
     fpga_csr_write(CSR_HDMI_IN_CROP_W,        (v->in_width  ? v->in_width  : v->width)/2);
     fpga_csr_write(CSR_HDMI_IN_CROP_H,         v->in_height ? v->in_height : v->height);
-    /* UVC HDMI (NV12: through the DRAM frame buffer) / UVC pattern. */
-    fpga_csr_write(CSR_MAIN_SOURCE_SEL,       v->hdmi ? (v->nv12 ? 4 : 3) : 1);
+    /* UVC HDMI / UVC pattern (NV12: through the DRAM frame buffer). */
+    fpga_csr_write(CSR_MAIN_SOURCE_SEL,       v->hdmi ? (v->nv12 ? 4 : 3) : (v->nv12 ? 5 : 1));
 #ifdef CSR_FRAMEBUFFER_BASE
     if (v->nv12) {
         /* 3 slots from address 0, 128-bit port words (DDR3 x16 at 1:4). */
@@ -92,6 +92,9 @@ void fpga_stream_start(const struct fpga_video *v)
     fpga_csr_write(CSR_PATTERN_BAR_WORDS,     v->width/16);
     fpga_csr_write(CSR_PATTERN_FRAME_PERIOD,  UVC_CLOCK_FREQ/v->fps);
     fpga_csr_write(CSR_PATTERN_MODE,          v->no_signal);
+#ifdef CSR_PATTERN_M420
+    fpga_csr_write(CSR_PATTERN_M420,          v->m420); /* 4:2:0 layout (M420, NV12 through the frame buffer). */
+#endif
     fpga_csr_write(CSR_UVC_PAYLOAD_WORDS,     (UVC_PAYLOAD_SIZE - 12)/4);
     fpga_csr_write(CSR_UVC_FRAME_WORDS,       frame_words);
     fpga_csr_write(CSR_CANVAS_OUT_HWORDS,     v->width/2);

@@ -253,9 +253,11 @@ class BaseSoC(SoCCore):
                 # Register stage (timing: GPIF CDC FIFO -> UVC -> frame buffer reader ready chain).
                 self.fb_out_buf = ResetInserter()(VR(stream.Buffer([("data", 32)], pipe_valid=True, pipe_ready=True)))
 
-            self.source_sel = CSRStorage(3, description="Stream source: 0 = Counter, 1 = UVC Pattern, 2 = Raw Pattern, 3 = UVC HDMI, 4 = UVC HDMI NV12 (DRAM frame buffer).")
+            self.source_sel = CSRStorage(3, description="Stream source: 0 = Counter, 1 = UVC Pattern, 2 = Raw Pattern, 3 = UVC HDMI, 4 = UVC HDMI NV12 (DRAM frame buffer), 5 = UVC Pattern NV12 (M420 pattern through the frame buffer).")
             # Source mux -> register stage (timing: FIFO BRAM -> mux -> CDC BRAM) -> GPIF.
             self.gpif_buf = gpif_buf = VR(stream.Buffer([("data", 32), ("next", 32)], pipe_ready=True)) # Timing: ready chain.
+            fb_off = Signal() # Frame buffer not used (sources 4/5).
+            self.comb += fb_off.eq(video_off | ((self.source_sel.storage != 4) & (self.source_sel.storage != 5)))
             self.comb += [
                 Case(self.source_sel.storage, {
                     0: self.gen.source.connect(gpif_buf.sink),
@@ -268,21 +270,20 @@ class BaseSoC(SoCCore):
                         self.color.source.connect(self.uvc.sink),
                         self.uvc.source.connect(gpif_buf.sink),
                     ],
-                    **({4: [
-                        self.hdmi_in.source.connect(self.fb_buf.sink),
+                    **({src: [
+                        (self.hdmi_in.source if src == 4 else self.pattern.source).connect(self.fb_buf.sink),
                         self.fb_buf.source.connect(self.framebuffer.sink),
                         self.framebuffer.source.connect(self.fb_out_buf.sink),
                         self.fb_out_buf.source.connect(self.uvc.sink),
                         self.uvc.source.connect(gpif_buf.sink),
-                    ]} if with_framebuffer else {}),
+                    ] for src in (4, 5)} if with_framebuffer else {}),
                 }),
                 gpif_buf.source.connect(self.gpif.sink),
                 # HDMI frames only admitted when the canvas can consume them from their start.
                 self.hdmi_in.admit.eq((self.source_sel.storage != 3) | self.canvas.admit),
                 # Frame buffer stopped (not reset: DRAM accesses in flight must complete).
-                *([self.framebuffer.stop.eq(video_off | (self.source_sel.storage != 4)),
-                   self.fb_buf.reset.eq(video_off | (self.source_sel.storage != 4)),
-                   self.fb_out_buf.reset.eq(video_off | (self.source_sel.storage != 4))] if with_framebuffer else []),
+                *([self.framebuffer.stop.eq(fb_off), self.fb_buf.reset.eq(fb_off), self.fb_out_buf.reset.eq(fb_off)]
+                  if with_framebuffer else []),
             ]
             platform.add_period_constraint(fx3.pclk, 1e9/100.8e6) # FX3 PLL at 403.2MHz (4K30).
             platform.add_false_path_constraints(self.crg.cd_sys.clk, self.gpif.cd_gpif.clk)
