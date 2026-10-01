@@ -34,6 +34,20 @@ At 720p60 the MS2109 delivers frames in 43-48 ms (ffplay on screen ~105 ms). The
 - Hands on: CamLinX with direct display shows no noticeable difference with the native screen;
   the MS2109 is a lot laggier at 1080p, better at 720p60 but still more lag than the Cam Link.
 
+## IP-KVMs (published figures, not measured here)
+
+| Device                    | Video path                     | Published latency                                    |
+|---------------------------|--------------------------------|------------------------------------------------------|
+| NanoKVM (Lite/Full/PCIe)  | MJPEG                          | 90-230 ms                                            |
+| NanoKVM Pro               | MJPEG/H.265                    | 60-100 ms                                            |
+| PiKVM V4                  | H.264 WebRTC, 1080p60, LAN     | 35-50 ms (capture 17, encode 13, browser 10-20) + 17 ms display |
+| JetKVM                    | H.264 WebRTC                   | claimed 30-60 ms, measured ~98 ms click to photon    |
+
+Vendor claims and one independent measurement with different definitions: to be measured with the
+same bench method (source on HDMI-0, web client fullscreen, `latgrab`). Per stage comparison with
+a CamLinX/LitePCIe capture + NVENC + direct display chain and sources:
+[IDEAS_PCIE.md](IDEAS_PCIE.md).
+
 ## Possibilities
 
 ### Cam Link 4K: full control (done: CamLinX)
