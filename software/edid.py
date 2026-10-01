@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 
 #
-# This file is part of CamLinX.
+# This file is part of CamLink 4K.
 #
 # Copyright (c) 2026 Florent Kermarrec <florent@enjoy-digital.fr>
 # SPDX-License-Identifier: BSD-2-Clause
 
-"""EDID generator for the CamLinX HDMI input (base block + CEA-861 extension)."""
+"""EDID generator for the CamLink 4K HDMI input (base block + CEA-861 extension)."""
 
 import struct
 
@@ -54,7 +54,7 @@ VICS_4K = [95, 94, 93]
 
 # EDID ---------------------------------------------------------------------------------------------
 
-def generate_edid(name="CamLinX", manufacturer="LCL", product=0x0001, serial=1,
+def generate_edid(name="CamLink 4K", manufacturer="LCL", product=0x0001, serial=1,
     max_tmds_mhz=300, with_4k=False):
     # Base block.
     base  = b"\x00\xff\xff\xff\xff\xff\xff\x00"

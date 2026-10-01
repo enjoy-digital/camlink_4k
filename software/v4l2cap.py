@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 #
-# This file is part of CamLinX.
+# This file is part of CamLink 4K.
 #
 # Copyright (c) 2026 Florent Kermarrec <florent@enjoy-digital.fr>
 # SPDX-License-Identifier: BSD-2-Clause
@@ -38,7 +38,7 @@ def fourcc(s):
 
 # Helpers ------------------------------------------------------------------------------------------
 
-def find_device(name="CamLinX"):
+def find_device(name="CamLink 4K"):
     """Return the /dev/videoN capture node of the device whose name matches."""
     for node in sorted(glob.glob("/sys/class/video4linux/video*")):
         try:

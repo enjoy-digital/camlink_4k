@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 #
-# This file is part of CamLinX.
+# This file is part of CamLink 4K.
 #
 # Copyright (c) 2026 Florent Kermarrec <florent@enjoy-digital.fr>
 # SPDX-License-Identifier: BSD-2-Clause
@@ -92,7 +92,7 @@ def capture(cl, bus, width, height, y_lane, c_lane, c_swap=0, ddr=0, ddr_swap=0,
     return good
 
 def main():
-    parser = argparse.ArgumentParser(description="CamLinX HDMI bring-up helper.")
+    parser = argparse.ArgumentParser(description="CamLink 4K HDMI bring-up helper.")
     parser.add_argument("--capture", action="store_true", help="Capture frames for all Y/C lane combinations.")
     parser.add_argument("--y-lane",  type=int, help="Only this Y lane.")
     parser.add_argument("--c-lane",  type=int, help="Only this C lane.")

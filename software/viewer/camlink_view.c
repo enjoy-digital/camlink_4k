@@ -1,19 +1,19 @@
 /*
- * This file is part of CamLinX.
+ * This file is part of CamLink 4K.
  *
  * Copyright (c) 2026 Florent Kermarrec <florent@enjoy-digital.fr>
  * SPDX-License-Identifier: BSD-2-Clause
  *
- * CamLinX 4K low latency viewer.
+ * CamLink 4K low latency viewer.
  *
  * uvcvideo (and so every V4L2 application) only delivers complete frames: a pixel at the top of
  * the frame waits for the whole frame to be received. This viewer detaches uvcvideo, starts the
  * stream with a UVC PROBE/COMMIT, reads the bulk payloads with libusb and draws the lines as they
  * arrive (the display races the incoming frame, like a tearing monitor), saving up to one frame.
  *
- * Devices: CamLinX (1209:0001) or the stock Elgato firmware (0fd9:0066/0067), both UVC bulk: the
+ * Devices: CamLink 4K (1209:0001) or the stock Elgato firmware (0fd9:0066/0067), both UVC bulk: the
  * streaming interface, endpoint and format/frame indexes are read from the UVC descriptors.
- * Formats: YUY2, and M420 (CamLinX: 4K30 direct path, no DRAM frame buffer).
+ * Formats: YUY2, and M420 (CamLink 4K: 4K30 direct path, no DRAM frame buffer).
  *
  * --front (YUY2): OpenGL without double buffering, the new rows are converted by a shader and drawn
  * straight into the displayed (front) buffer, no swap: no present queue (tearing, like a beam
@@ -31,7 +31,7 @@
  * frame) from the incoming YUY2 data and timestamps, per frame: the first payload of the frame,
  * the arrival of the barcode rows and the present showing them (per stage latency, doc/LATENCY.md).
  *
- * Usage: camlinx_view [--device auto|camlinx|stock] [--format yuy2|m420] [--size WxH] [--fps N]
+ * Usage: camlink_view [--device auto|camlink|stock] [--format yuy2|m420] [--size WxH] [--fps N]
  *                     [--fullscreen] [--vsync] [--front] [--latency] [--csv file] [--seconds S]
  */
 
@@ -54,8 +54,8 @@
 
 /* Device ---------------------------------------------------------------------------------------- */
 
-#define CAMLINX_VID  0x1209
-#define CAMLINX_PID  0x0001  /* pid.codes test PID (shared): the product string is checked too. */
+#define CAMLINK_VID  0x1209
+#define CAMLINK_PID  0x0001  /* pid.codes test PID (shared): the product string is checked too. */
 #define STOCK_VID    0x0fd9
 #define STOCK_PID0   0x0066
 #define STOCK_PID1   0x0067
@@ -80,7 +80,7 @@
 enum { FMT_YUY2, FMT_M420 };
 
 struct stream {
-    const char *device;      /* "CamLinX" or "stock".                                              */
+    const char *device;      /* "CamLink 4K" or "stock".                                              */
     int interface, endpoint;
     int format_index, frame_index;
     int format, width, height, fps;
@@ -284,7 +284,7 @@ static libusb_device_handle *open_device(libusb_context *ctx, const char *which,
     libusb_device **list;
     libusb_device_handle *found = NULL;
     ssize_t n = libusb_get_device_list(ctx, &list);
-    for (int pass = 0; pass < 2 && !found; pass++) { /* auto: CamLinX first, then stock. */
+    for (int pass = 0; pass < 2 && !found; pass++) { /* auto: CamLink 4K first, then stock. */
         int want_stock = pass == 1;
         if (strcmp(which, "auto") && want_stock != !strcmp(which, "stock"))
             continue;
@@ -300,11 +300,11 @@ static libusb_device_handle *open_device(libusb_context *ctx, const char *which,
                 found = h; *name = "stock";
                 continue;
             }
-            if (d.idVendor != CAMLINX_VID || d.idProduct != CAMLINX_PID || libusb_open(list[i], &h))
+            if (d.idVendor != CAMLINK_VID || d.idProduct != CAMLINK_PID || libusb_open(list[i], &h))
                 continue;
             if (d.iProduct && libusb_get_string_descriptor_ascii(h, d.iProduct, product, sizeof(product)) > 0 &&
-                (!strncmp((char *)product, "CamLinX", 7) || !strcmp((char *)product, "LiteCamLink"))) {
-                found = h; *name = "CamLinX";
+                (!strcmp((char *)product, "CamLink 4K") || !strncmp((char *)product, "CamLinX", 7) || !strcmp((char *)product, "LiteCamLink"))) {
+                found = h; *name = "CamLink 4K";
             } else
                 libusb_close(h);
         }
@@ -532,10 +532,10 @@ static void on_signal(int sig) { (void)sig; V.running = 0; }
 static void usage(const char *prog)
 {
     fprintf(stderr,
-        "Usage: %s [--device auto|camlinx|stock] [--format yuy2|m420] [--size WxH] [--fps N]\n"
+        "Usage: %s [--device auto|camlink|stock] [--format yuy2|m420] [--size WxH] [--fps N]\n"
         "          [--fullscreen] [--vsync] [--front] [--drm OUTPUT] [--vk OUTPUT [--refresh HZ]] [--latency] [--csv file] [--seconds S]\n"
-        "  CamLinX yuy2: 1920x1080 (default), 1280x720, 640x480 at 30/60 fps\n"
-        "  CamLinX m420: 3840x2160 at 30 fps, 1920x1080 at 30/60 fps\n"
+        "  CamLink 4K yuy2: 1920x1080 (default), 1280x720, 640x480 at 30/60 fps\n"
+        "  CamLink 4K m420: 3840x2160 at 30 fps, 1920x1080 at 30/60 fps\n"
         "  stock: YUY2 at the input resolution/rate\n", prog);
 }
 
@@ -586,7 +586,7 @@ int main(int argc, char **argv)
     libusb_context *ctx;
     if (libusb_init(&ctx)) { fprintf(stderr, "libusb init failed.\n"); return 1; }
     libusb_device_handle *h = open_device(ctx, which, &s->device);
-    if (!h) { fprintf(stderr, "No CamLinX (1209:0001) or stock Cam Link 4K (0fd9:0066) device found.\n"); return 1; }
+    if (!h) { fprintf(stderr, "No CamLink 4K (1209:0001) or stock Cam Link 4K (0fd9:0066) device found.\n"); return 1; }
     if (find_stream(h, s)) {
         fprintf(stderr, "%s: no bulk %s %dx%d stream in the UVC descriptors.\n", s->device,
             s->format == FMT_YUY2 ? "YUY2" : "M420", width, height);
@@ -621,7 +621,7 @@ int main(int argc, char **argv)
     SDL_SetHint(SDL_HINT_RENDER_VSYNC, vsync ? "1" : "0");
     if (SDL_Init(SDL_INIT_VIDEO)) { fprintf(stderr, "SDL: %s\n", SDL_GetError()); return 1; }
     char title[128];
-    snprintf(title, sizeof(title), "CamLinX 4K low latency · %s · %s %dx%d@%d", s->device,
+    snprintf(title, sizeof(title), "CamLink 4K low latency · %s · %s %dx%d@%d", s->device,
         s->format == FMT_YUY2 ? "YUY2" : "M420", width, height, s->fps);
     if (front) {
         SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 0);

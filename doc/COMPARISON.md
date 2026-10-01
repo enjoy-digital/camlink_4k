@@ -1,12 +1,12 @@
 # Capture Devices: Comparison and Possibilities
 
 Three ways to capture this PC's HDMI output on the same bench (2026-10-01): the Elgato Cam Link 4K
-with its stock firmware, the same hardware with CamLinX, and a cheap USB 2.0 capture stick
+with its stock firmware, the same hardware with CamLink 4K, and a cheap USB 2.0 capture stick
 (MacroSilicon MS2109). Measurements and method: [LATENCY.md](LATENCY.md).
 
 ## Hardware
 
-|                         | Cam Link 4K (stock)                       | Cam Link 4K (CamLinX)                          | MS2109 stick                                 |
+|                         | Cam Link 4K (stock)                       | Cam Link 4K (CamLink 4K)                          | MS2109 stick                                 |
 |-------------------------|-------------------------------------------|------------------------------------------------|----------------------------------------------|
 | Chips                   | ITE IT6802 HDMI RX, Lattice ECP5 FPGA, Cypress FX3 USB 3.0, 128 MB DDR3 | same                        | MacroSilicon MS2109 (HDMI RX, scaler, JPEG encoder, USB 2.0, 8051 MCU), I2C EEPROM |
 | Logic                   | Vendor FPGA bitstream + FX3 firmware      | LiteX gateware + bare-metal FX3 firmware (open) | Fixed function ASIC, 8051 firmware (mask ROM + EEPROM) |
@@ -17,21 +17,21 @@ with its stock firmware, the same hardware with CamLinX, and a cheap USB 2.0 cap
 
 ## Measured latency (1080p, ms from the source render, medians)
 
-| Stage                                    | Stock (1080p60) | CamLinX (1080p60) | MS2109 (1080p in, MJPEG 1080p30) |
+| Stage                                    | Stock (1080p60) | CamLink 4K (1080p60) | MS2109 (1080p in, MJPEG 1080p30) |
 |------------------------------------------|-----------------|-------------------|----------------------------------|
 | First data on USB                        | 34-35           | **3-4**           | 29-32                            |
 | Frame delivered to applications (V4L2)   | 45-46           | **19**            | 62-66                            |
 | On screen, ffplay (low latency options)  | 87-88           | 72                | 103-113                          |
-| On screen, CamLinX viewer (desktop window) | 68-70         | **35-38**         | n/a (isochronous MJPEG)          |
-| Scanout, CamLinX viewer direct display   | -               | **19-30**         | n/a                              |
+| On screen, CamLink 4K viewer (desktop window) | 68-70         | **35-38**         | n/a (isochronous MJPEG)          |
+| Scanout, CamLink 4K viewer direct display   | -               | **19-30**         | n/a                              |
 
 At 720p60 the MS2109 delivers frames in 43-48 ms (ffplay on screen ~105 ms). The Cam Link at
 720p60 is still to be measured for a same mode comparison.
 
-- Stock buffers the frame (~2 frames) then sends it as a burst; CamLinX streams each line as it is
+- Stock buffers the frame (~2 frames) then sends it as a burst; CamLink 4K streams each line as it is
   received (first data ~3.5 ms after the render, rows at the HDMI scan time).
 - The MS2109 buffers ~1.5-2 frames and compresses; at 1080p it only outputs 30 fps.
-- Hands on: CamLinX with direct display shows no noticeable difference with the native screen;
+- Hands on: CamLink 4K with direct display shows no noticeable difference with the native screen;
   the MS2109 is a lot laggier at 1080p, better at 720p60 but still more lag than the Cam Link.
 
 ## IP-KVMs (published figures, not measured here)
@@ -45,12 +45,12 @@ At 720p60 the MS2109 delivers frames in 43-48 ms (ffplay on screen ~105 ms). The
 
 Vendor claims and one independent measurement with different definitions: to be measured with the
 same bench method (source on HDMI-0, web client fullscreen, `latgrab`). Per stage comparison with
-a CamLinX/LitePCIe capture + NVENC + direct display chain and sources:
+a CamLink 4K/LitePCIe capture + NVENC + direct display chain and sources:
 [IDEAS_PCIE.md](IDEAS_PCIE.md).
 
 ## Possibilities
 
-### Cam Link 4K: full control (done: CamLinX)
+### Cam Link 4K: full control (done: CamLink 4K)
 
 The FPGA sits between the HDMI receiver and the USB chip, so everything on the video path is ours:
 
@@ -84,7 +84,7 @@ research notes ([amnemonic/MacroSilicon](https://github.com/amnemonic/MacroSilic
 
 | Need                                   | Best option                                          |
 |----------------------------------------|------------------------------------------------------|
-| Lowest latency (gaming, live monitoring) | CamLinX + `camlinx_view --vk` (direct display)      |
-| Standard apps (OBS, VLC, ffplay)       | CamLinX (frame delivered 19 ms after the render vs 46 ms stock) |
-| 4K30 uncompressed                      | CamLinX (NV12/M420) or stock (NV12)                  |
+| Lowest latency (gaming, live monitoring) | CamLink 4K + `camlink_view --vk` (direct display)      |
+| Standard apps (OBS, VLC, ffplay)       | CamLink 4K (frame delivered 19 ms after the render vs 46 ms stock) |
+| 4K30 uncompressed                      | CamLink 4K (NV12/M420) or stock (NV12)                  |
 | Cheapest, latency not critical         | MS2109 (720p60 preferred over 1080p30)               |

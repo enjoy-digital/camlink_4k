@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 
 #
-# This file is part of CamLinX.
+# This file is part of CamLink 4K.
 #
 # Copyright (c) 2019-2026 Florent Kermarrec <florent@enjoy-digital.fr>
 # SPDX-License-Identifier: BSD-2-Clause
 
-"""CamLinX: LiteX based gateware for the Elgato Cam Link 4K."""
+"""CamLink 4K: LiteX based gateware for the Elgato Cam Link 4K."""
 
 import os
 import argparse
@@ -28,23 +28,23 @@ from litedram.core.controller import ControllerSettings
 
 from litex.soc.interconnect import stream
 
-from camlinx_4k_platform import Platform
+from camlink_4k_platform import Platform
 
-from camlinx_4k.gateware.crg     import CRG
-from camlinx_4k.gateware.pintest    import PinTest
-from camlinx_4k.gateware.i2c_bridge import I2CBridge
-from camlinx_4k.gateware.gpif       import GPIFStreamer, CounterGenerator
-from camlinx_4k.gateware.video      import VideoPatternGenerator
-from camlinx_4k.gateware.uvc        import UVCPacketizer
-from camlinx_4k.gateware.hdmi_in    import HDMIIn
-from camlinx_4k.gateware.ioscan     import IOScan
-from camlinx_4k.gateware.audio      import AudioSource
-from camlinx_4k.gateware.color      import ColorAdjust
-from camlinx_4k.gateware.canvas     import Canvas
-from camlinx_4k.gateware.watchdog   import FX3Watchdog
-from camlinx_4k.gateware.framebuffer import NV12FrameBuffer
-from camlinx_4k.gateware.ecp5ddrphy import ECP5DDRPHY, ecp5ddrphy_with_ratio
-from camlinx_4k.gateware.dram       import LiteDRAMNativePortBuffer, MT41K64M16_4Banks
+from camlink_4k.gateware.crg     import CRG
+from camlink_4k.gateware.pintest    import PinTest
+from camlink_4k.gateware.i2c_bridge import I2CBridge
+from camlink_4k.gateware.gpif       import GPIFStreamer, CounterGenerator
+from camlink_4k.gateware.video      import VideoPatternGenerator
+from camlink_4k.gateware.uvc        import UVCPacketizer
+from camlink_4k.gateware.hdmi_in    import HDMIIn
+from camlink_4k.gateware.ioscan     import IOScan
+from camlink_4k.gateware.audio      import AudioSource
+from camlink_4k.gateware.color      import ColorAdjust
+from camlink_4k.gateware.canvas     import Canvas
+from camlink_4k.gateware.watchdog   import FX3Watchdog
+from camlink_4k.gateware.framebuffer import NV12FrameBuffer
+from camlink_4k.gateware.ecp5ddrphy import ECP5DDRPHY, ecp5ddrphy_with_ratio
+from camlink_4k.gateware.dram       import LiteDRAMNativePortBuffer, MT41K64M16_4Banks
 
 from litex.build.generic_platform import Pins, IOStandard, Subsignal
 
@@ -80,7 +80,7 @@ class BaseSoC(SoCCore):
         # Optional VexRiscv + BIOS (DRAM init/debug); console on a UART crossover (CSRs, host access
         # through the I2C bridge, see software/camlink.py term).
         SoCCore.__init__(self, platform, sys_clk_freq,
-            ident                = "CamLinX SoC on Cam Link 4K.",
+            ident                = "CamLink 4K SoC on Cam Link 4K.",
             cpu_type             = "vexriscv" if with_cpu else None,
             cpu_variant          = "minimal",
             integrated_rom_size  = 0xa000 if with_cpu else 0, # BIOS with DRAM init/leveling.
@@ -312,7 +312,7 @@ VARIANTS = {
 }
 
 def main():
-    parser = argparse.ArgumentParser(description="CamLinX gateware for the Cam Link 4K.")
+    parser = argparse.ArgumentParser(description="CamLink 4K gateware for the Cam Link 4K.")
     parser.add_argument("--variant",      default="nv12", choices=list(VARIANTS), help="Build variant (defaults of the options below).")
     parser.add_argument("--build",        action="store_true", help="Build bitstream.")
     parser.add_argument("--no-compile",   action="store_true", help="Generate build files without running the toolchain.")
@@ -356,10 +356,10 @@ def main():
         with_ioscan  = args.with_ioscan,
     )
     builder = Builder(soc, output_dir=args.output_dir, csr_csv=os.path.join(args.output_dir, "csr.csv"))
-    builder.build(build_name="camlinx_4k", run=args.build and not args.no_compile, seed=args.seed)
+    builder.build(build_name="camlink_4k", run=args.build and not args.no_compile, seed=args.seed)
 
     if args.load:
-        bitstream = os.path.join(builder.gateware_dir, "camlinx_4k.bit")
+        bitstream = os.path.join(builder.gateware_dir, "camlink_4k.bit")
         os.system(f"python3 software/camlink.py fpga-load {bitstream}")
 
 if __name__ == "__main__":

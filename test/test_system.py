@@ -1,5 +1,5 @@
 #
-# This file is part of CamLinX.
+# This file is part of CamLink 4K.
 #
 # Copyright (c) 2026 Florent Kermarrec <florent@enjoy-digital.fr>
 # SPDX-License-Identifier: BSD-2-Clause
@@ -16,11 +16,11 @@ from litex.gen import *
 
 from litex.soc.interconnect import stream
 
-from camlinx_4k.gateware.hdmi_in import HDMIIn
-from camlinx_4k.gateware.canvas  import Canvas
-from camlinx_4k.gateware.color   import ColorAdjust
-from camlinx_4k.gateware.uvc     import UVCPacketizer
-from camlinx_4k.gateware.gpif    import GPIFStreamer
+from camlink_4k.gateware.hdmi_in import HDMIIn
+from camlink_4k.gateware.canvas  import Canvas
+from camlink_4k.gateware.color   import ColorAdjust
+from camlink_4k.gateware.uvc     import UVCPacketizer
+from camlink_4k.gateware.gpif    import GPIFStreamer
 
 from test_hdmi_in import Pads as HDMIPads, pixel, HACT, HBLANK, VACT, VBLANK, expected_frame, expected_m420
 from test_gpif    import FX3Pads, FX3Model

@@ -1,5 +1,5 @@
 #
-# This file is part of CamLinX.
+# This file is part of CamLink 4K.
 #
 # Copyright (c) 2026 Florent Kermarrec <florent@enjoy-digital.fr>
 # SPDX-License-Identifier: BSD-2-Clause
@@ -8,7 +8,7 @@ import random
 
 from migen import *
 
-from camlinx_4k.gateware.ecp5ddrphy import RateCrossing
+from camlink_4k.gateware.ecp5ddrphy import RateCrossing
 
 # Loopback: sys words -> serializer (sys2x) -> deserializer -> sys words ---------------------------
 

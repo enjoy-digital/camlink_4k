@@ -1,12 +1,12 @@
 #
-# This file is part of CamLinX.
+# This file is part of CamLink 4K.
 #
 # Copyright (c) 2026 Florent Kermarrec <florent@enjoy-digital.fr>
 # SPDX-License-Identifier: BSD-2-Clause
 
 from migen import *
 
-from camlinx_4k.gateware.watchdog import FX3Watchdog
+from camlink_4k.gateware.watchdog import FX3Watchdog
 
 # Test ---------------------------------------------------------------------------------------------
 

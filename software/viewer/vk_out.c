@@ -1,5 +1,5 @@
 /*
- * This file is part of CamLinX.
+ * This file is part of CamLink 4K.
  *
  * Copyright (c) 2026 Florent Kermarrec <florent@enjoy-digital.fr>
  * SPDX-License-Identifier: BSD-2-Clause
@@ -148,7 +148,7 @@ struct vk_out *vk_out_open(const char *output, int width, int height, double ref
     /* Instance, physical device, display acquired from X. */
     const char *iext[] = {"VK_KHR_surface", "VK_KHR_display", "VK_EXT_direct_mode_display", "VK_EXT_acquire_xlib_display",
         "VK_KHR_get_surface_capabilities2", "VK_EXT_display_surface_counter"};
-    VkApplicationInfo app = {.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO, .pApplicationName = "camlinx_view", .apiVersion = VK_API_VERSION_1_1};
+    VkApplicationInfo app = {.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO, .pApplicationName = "camlink_view", .apiVersion = VK_API_VERSION_1_1};
     VkInstanceCreateInfo ici = {.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO, .pApplicationInfo = &app,
         .enabledExtensionCount = 6, .ppEnabledExtensionNames = iext};
     CHECK(vkCreateInstance(&ici, NULL, &o->inst));
@@ -218,7 +218,7 @@ struct vk_out *vk_out_open(const char *output, int width, int height, double ref
         has_shared    |= pms[i] == VK_PRESENT_MODE_SHARED_CONTINUOUS_REFRESH_KHR;
         has_immediate |= pms[i] == VK_PRESENT_MODE_IMMEDIATE_KHR;
     }
-    if (getenv("CAMLINX_VK_NO_SHARED"))
+    if (getenv("CAMLINK_VK_NO_SHARED"))
         has_shared = 0;
     o->shared = has_shared;
     float prio = 1.0f;

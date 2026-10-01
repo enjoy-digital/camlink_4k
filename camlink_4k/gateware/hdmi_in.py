@@ -1,5 +1,5 @@
 #
-# This file is part of CamLinX.
+# This file is part of CamLink 4K.
 #
 # Copyright (c) 2026 Florent Kermarrec <florent@enjoy-digital.fr>
 # SPDX-License-Identifier: BSD-2-Clause
@@ -30,7 +30,7 @@ from litex.gen import *
 from litex.soc.interconnect.csr import *
 from litex.soc.interconnect     import stream
 
-from camlinx_4k.gateware.csc import RGB2YCbCr422, bt709_coefficients
+from camlink_4k.gateware.csc import RGB2YCbCr422, bt709_coefficients
 
 # M420 Packer --------------------------------------------------------------------------------------
 

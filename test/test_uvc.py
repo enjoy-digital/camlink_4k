@@ -1,5 +1,5 @@
 #
-# This file is part of CamLinX.
+# This file is part of CamLink 4K.
 #
 # Copyright (c) 2026 Florent Kermarrec <florent@enjoy-digital.fr>
 # SPDX-License-Identifier: BSD-2-Clause
@@ -8,8 +8,8 @@ from migen import *
 
 from litex.gen import *
 
-from camlinx_4k.gateware.video import VideoPatternGenerator, COLOR_BARS, yuy2_word
-from camlinx_4k.gateware.uvc   import UVCPacketizer
+from camlink_4k.gateware.video import VideoPatternGenerator, COLOR_BARS, yuy2_word
+from camlink_4k.gateware.uvc   import UVCPacketizer
 
 # Test ---------------------------------------------------------------------------------------------
 

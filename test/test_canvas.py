@@ -1,5 +1,5 @@
 #
-# This file is part of CamLinX.
+# This file is part of CamLink 4K.
 #
 # Copyright (c) 2026 Florent Kermarrec <florent@enjoy-digital.fr>
 # SPDX-License-Identifier: BSD-2-Clause
@@ -8,7 +8,7 @@ from migen import *
 
 from litex.gen import *
 
-from camlinx_4k.gateware.canvas import Canvas, BLACK
+from camlink_4k.gateware.canvas import Canvas, BLACK
 
 def run(out_w, out_h, in_w, in_h, x0, y0, frames, in_ready_gap=0, enable=1):
     dut = Canvas()

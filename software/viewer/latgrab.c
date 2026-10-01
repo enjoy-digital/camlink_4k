@@ -1,5 +1,5 @@
 /*
- * This file is part of CamLinX.
+ * This file is part of CamLink 4K.
  *
  * Copyright (c) 2026 Florent Kermarrec <florent@enjoy-digital.fr>
  * SPDX-License-Identifier: BSD-2-Clause
@@ -7,7 +7,7 @@
  * Display latency probe: polls the barcode region of the screen (XShm) and timestamps the first
  * appearance of each new barcode value (software/source.py: host CLOCK_MONOTONIC ms + frame
  * counter). Source render -> pixels in the displayed frame buffer, for any player showing the
- * capture fullscreen (ffplay, camlinx_view...). Monitor scanout/processing not included.
+ * capture fullscreen (ffplay, camlink_view...). Monitor scanout/processing not included.
  *
  * Usage: latgrab --x0 X --y0 Y --block B [--seconds S] [--csv file]
  */

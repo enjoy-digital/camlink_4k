@@ -1,5 +1,5 @@
 /*
- * This file is part of CamLinX.
+ * This file is part of CamLink 4K.
  *
  * Copyright (c) 2026 Florent Kermarrec <florent@enjoy-digital.fr>
  * SPDX-License-Identifier: BSD-2-Clause
@@ -42,7 +42,7 @@ int fpga_csr_read(uint32_t addr, uint32_t *value)
 /* Stream ---------------------------------------------------------------------------------------- */
 
 /* BT.709 RGB -> YCbCr (limited range output) coefficients, Q1.10 (r, g, b per row), offsets
- * (camlinx_4k/gateware/csc.py: bt709_coefficients). */
+ * (camlink_4k/gateware/csc.py: bt709_coefficients). */
 static const int16_t csc_full[9]    = { 187,  629,   63, -103, -347,  450,  450, -409,  -41};
 static const int16_t csc_limited[9] = { 218,  732,   74, -120, -404,  524,  524, -476,  -48};
 

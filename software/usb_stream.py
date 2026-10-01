@@ -1,5 +1,5 @@
 #
-# This file is part of CamLinX.
+# This file is part of CamLink 4K.
 #
 # Copyright (c) 2026 Florent Kermarrec <florent@enjoy-digital.fr>
 # SPDX-License-Identifier: BSD-2-Clause
@@ -17,7 +17,7 @@ class USBStreamReader:
         for device in self.ctx.getDeviceIterator(skip_on_error=True):
             if (device.getVendorID(), device.getProductID()) == (vid, pid):
                 try:
-                    if device.getProduct() in ("CamLinX 4K", "CamLinX", "LiteCamLink"): # Current, before renames.
+                    if device.getProduct() in ("CamLink 4K", "CamLinX 4K", "CamLinX", "LiteCamLink"): # Current, before renames.
                         self.handle = device.open()
                         break
                 except usb1.USBError:

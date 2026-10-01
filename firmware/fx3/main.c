@@ -1,10 +1,10 @@
 /*
- * This file is part of CamLinX.
+ * This file is part of CamLink 4K.
  *
  * Copyright (c) 2026 Florent Kermarrec <florent@enjoy-digital.fr>
  * SPDX-License-Identifier: BSD-2-Clause
  *
- * CamLinX FX3 firmware.
+ * CamLink 4K FX3 firmware.
  */
 
 #include <string.h>
@@ -76,7 +76,7 @@ static volatile int debug_stream_request; /* 0x100 | streams: start, 0x200: stop
 
 /* Flash / FPGA Boot ------------------------------------------------------------------------------ */
 
-#define FLASH_BITSTREAM_MAGIC 0x4b4c434cUL /* "LCLK": CamLinX bitstream (stock ones not autoloaded). */
+#define FLASH_BITSTREAM_MAGIC 0x4b4c434cUL /* "LCLK": CamLink 4K bitstream (stock ones not autoloaded). */
 
 static volatile uint32_t flash_erase_addr;
 static volatile int      flash_erase_request;
@@ -104,7 +104,7 @@ static uint32_t fpga_boot_from_flash(void)
     return fpga_config_finish();
 }
 
-static const char ident[] = "CamLinX FX3 firmware " GIT_VERSION;
+static const char ident[] = "CamLink 4K FX3 firmware " GIT_VERSION;
 
 static void vendor_request(const struct usb_setup *setup)
 {
@@ -437,7 +437,7 @@ int main(void)
     spi_flash_init();
     fpga_watchdog_init();
     i2c_init(400000);
-    /* Standalone boot: CamLinX bitstream from flash (if present), then HDMI receiver init
+    /* Standalone boot: CamLink 4K bitstream from flash (if present), then HDMI receiver init
      * (`make NO_FLASH_BOOT=1`: skipped, e.g. to recover from a bad flash bitstream). */
 #ifndef NO_FLASH_BOOT
     fpga_boot_status = fpga_boot_from_flash();

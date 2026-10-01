@@ -14,7 +14,7 @@ DDR3-800 = 1.6 GB/s peak. The stock gateware (Lattice DDR3 IP) runs its controll
 
 ## What (implemented, validated on hardware: see results below)
 
-- `camlinx_4k/gateware/ecp5ddrphy.py`: copy of LiteDRAM's `ECP5DDRPHY` with a `csr_cdc` hook (CSR
+- `camlink_4k/gateware/ecp5ddrphy.py`: copy of LiteDRAM's `ECP5DDRPHY` with a `csr_cdc` hook (CSR
   write strobes into the PHY clock domain), plus `ecp5ddrphy_with_ratio(2)`: the PHY runs at 2x
   the controller clock behind LiteDRAM's generic `DFIRateConverter` (as done for the 7-series
   PHY): **controller at sys (4 DFI phases), PHY at sys2x, DDR edge clock at sys4x (1:4)**.
@@ -79,7 +79,7 @@ Findings:
 
 ## NV12 Frame Buffer (hardware validated, 2026-09-29)
 
-4K30 NV12 (the stock format) through the DRAM: `camlinx_4k/gateware/framebuffer.py`, UVC format 3.
+4K30 NV12 (the stock format) through the DRAM: `camlink_4k/gateware/framebuffer.py`, UVC format 3.
 
 - Datapath: HDMI M420 frames -> `NV12FrameBuffer` writer (Y lines to the Y plane, CbCr lines to the
   UV plane of a DRAM slot) -> 3 slots -> reader (latest complete slot, linear = NV12) -> UVC.
@@ -137,7 +137,7 @@ Findings:
 The FX3 firmware must match the CSR map of the loaded bitstream:
 
 ```
-python3 camlinx_4k.py --build               # NV12 variant (default): DDR3-594 1:4, video 99MHz, seed 7.
+python3 camlink_4k.py --build               # NV12 variant (default): DDR3-594 1:4, video 99MHz, seed 7.
 make -C firmware/fx3 clean && make -C firmware/fx3
 python3 software/camlink.py boot         # FPGA + HDMI + DRAM init.
 python3 software/camlink.py sdram-status

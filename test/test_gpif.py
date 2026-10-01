@@ -1,5 +1,5 @@
 #
-# This file is part of CamLinX.
+# This file is part of CamLink 4K.
 #
 # Copyright (c) 2026 Florent Kermarrec <florent@enjoy-digital.fr>
 # SPDX-License-Identifier: BSD-2-Clause
@@ -11,7 +11,7 @@ from migen.sim import passive
 
 from litex.gen import *
 
-from camlinx_4k.gateware.gpif import GPIFStreamer
+from camlink_4k.gateware.gpif import GPIFStreamer
 
 # FX3 GPIF Model -----------------------------------------------------------------------------------
 

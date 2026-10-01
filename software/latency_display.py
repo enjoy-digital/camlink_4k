@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 #
-# This file is part of CamLinX.
+# This file is part of CamLink 4K.
 #
 # Copyright (c) 2026 Florent Kermarrec <florent@enjoy-digital.fr>
 # SPDX-License-Identifier: BSD-2-Clause
@@ -14,8 +14,8 @@ the barcode region of the screen (XShm) and timestamps the first appearance of e
 same probe on HDMI-0 itself gives the source's own render -> frame buffer time (calibration).
 Monitor scanout/processing is not included (same for all players).
 
-Players: ffplay (low latency options, fullscreen), "direct" (camlinx_view on a monitor taken from
-X with --vk/--drm in --viewer-args: stages and computed scanout from its own report) and camlinx_view (CamLinX or stock, its own
+Players: ffplay (low latency options, fullscreen), "direct" (camlink_view on a monitor taken from
+X with --vk/--drm in --viewer-args: stages and computed scanout from its own report) and camlink_view (CamLink 4K or stock, its own
 stage timestamps: first payload of the frame, barcode rows received, present), plus the V4L2 path
 alone ("v4l2": uvcvideo buffer timestamp and dequeue time, what ffplay receives).
 Results are appended to doc/bench/latency_display.json (per sample CSVs in doc/bench/latency/).
@@ -32,7 +32,7 @@ import subprocess
 
 ROOT    = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 LATGRAB = os.path.join(ROOT, "software", "viewer", "latgrab")
-VIEWER  = os.path.join(ROOT, "software", "viewer", "camlinx_view")
+VIEWER  = os.path.join(ROOT, "software", "viewer", "camlink_view")
 RESULTS = os.path.join(ROOT, "doc", "bench", "latency_display.json")
 CSV_DIR = os.path.join(ROOT, "doc", "bench", "latency")
 
@@ -71,15 +71,15 @@ def stop(proc):
             proc.wait()
 
 DEVICE      = "/dev/video0"
-FIRMWARE    = "camlinx_4k"
+FIRMWARE    = "camlink_4k"
 VIEWER_ARGS = []
-LABEL       = "camlinx_4k"
+LABEL       = "camlink_4k"
 
 def player_cmd(player):
     if player == "ffplay":
         return ["ffplay", "-hide_banner", "-loglevel", "quiet", "-fs", "-left", "0", "-top", "0"] + FFPLAY_LOW_LATENCY + \
             ["-f", "v4l2", "-input_format", "mjpeg" if PIXFMT == "MJPG" else "yuyv422", "-video_size", f"{W}x{H}", "-framerate", str(FPS), "-i", DEVICE]
-    return [VIEWER, "--device", "stock" if FIRMWARE == "stock" else "camlinx", "--format", "yuy2",
+    return [VIEWER, "--device", "stock" if FIRMWARE == "stock" else "camlink", "--format", "yuy2",
         "--size", f"{W}x{H}", "--fps", str(FPS), "--fullscreen", "--latency"] + VIEWER_ARGS
 
 def stats(values):
@@ -172,10 +172,10 @@ def measure(player, pos, seconds, tries=3):
         if not HPD_ON_STREAM:
             src, calib = source_up(pos, seconds)
         if player == "direct":
-            # camlinx_view on a monitor taken from X (--vk/--drm in --viewer-args): no X probe
+            # camlink_view on a monitor taken from X (--vk/--drm in --viewer-args): no X probe
             # possible, the viewer reports its stages and the computed scanout of the rows.
             csv = os.path.join(CSV_DIR, f"{LABEL}_direct_{pos}.csv")
-            out = subprocess.run([VIEWER, "--device", "stock" if FIRMWARE == "stock" else "camlinx", "--format", "yuy2",
+            out = subprocess.run([VIEWER, "--device", "stock" if FIRMWARE == "stock" else "camlink", "--format", "yuy2",
                 "--size", f"{W}x{H}", "--fps", str(FPS), "--latency", "--seconds", str(seconds), "--csv", csv] + VIEWER_ARGS,
                 capture_output=True, text=True).stdout
             stop(src)
@@ -222,7 +222,7 @@ def measure(player, pos, seconds, tries=3):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--firmware", required=True, help="Label: stock, camlinx_4k or another device (ms2109...).")
+    parser.add_argument("--firmware", required=True, help="Label: stock, camlink_4k or another device (ms2109...).")
     parser.add_argument("--mode",        default="1920x1080", help="Source (HDMI-0) and capture size.")
     parser.add_argument("--rate",        type=float, default=60, help="Source refresh (Hz).")
     parser.add_argument("--capture-fps", type=int,   default=None, help="Capture rate (default: the source refresh).")
@@ -233,7 +233,7 @@ def main():
     parser.add_argument("--pos",      default="top,bottom")
     parser.add_argument("--seconds",  type=float, default=20)
     parser.add_argument("--label",    help="Results key (default: the firmware), e.g. for viewer/driver variants.")
-    parser.add_argument("--viewer-args", default="", help="Extra camlinx_view arguments (e.g. --front).")
+    parser.add_argument("--viewer-args", default="", help="Extra camlink_view arguments (e.g. --front).")
     args = parser.parse_args()
 
     global DEVICE, FIRMWARE, VIEWER_ARGS
@@ -250,7 +250,7 @@ def main():
     FPS      = args.capture_fps or round(args.rate)
     PIXFMT   = args.pixfmt
     BLOCK    = W // (24 + 8)
-    name     = args.device_name or ("Cam Link 4K" if args.firmware == "stock" else "CamLinX")
+    name     = args.device_name or ("Cam Link 4K" if args.firmware == "stock" else "CamLink 4K")
     DEVICE   = find_device(name) or DEVICE
     print(f"device: {DEVICE}", flush=True)
     global HPD_ON_STREAM
