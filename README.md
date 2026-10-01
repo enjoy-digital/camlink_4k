@@ -53,6 +53,7 @@ CamLinX 4K adds the capture pipeline and gives back ECP5 DDR3 at 1:4 to LiteDRAM
 - [doc/BENCH.md](doc/BENCH.md): test bench setup.
 - [doc/LATENCY.md](doc/LATENCY.md): latency measurements, low latency viewer (`software/viewer`), next steps.
 - [doc/COMPARISON.md](doc/COMPARISON.md): stock vs CamLinX vs a cheap USB 2.0 stick (MS2109), possibilities of each.
+- [doc/IDEAS_PCIE.md](doc/IDEAS_PCIE.md): design note, LitePCIe video input/output cards (line based capture, phase locked output, low latency streaming, IP-KVM).
 - [doc/ROADMAP.md](doc/ROADMAP.md): benchmarking vs stock, improvements and new features.
 - [doc/upstream](doc/upstream): LiteDRAM/LiteX-Boards contributions.
 
