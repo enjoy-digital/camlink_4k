@@ -4,8 +4,11 @@
 # Copyright (c) 2026 Florent Kermarrec <florent@enjoy-digital.fr>
 # SPDX-License-Identifier: BSD-2-Clause
 
-"""FX3 firmware unit tests on the host: uvc.c + usb_desc.c compiled for x86 with the hardware
-facing functions stubbed (test/fx3/stubs.c), driven through ctypes."""
+"""FX3 firmware unit tests on the host.
+
+uvc.c + usb_desc.c compiled for x86 with the hardware facing functions stubbed (test/fx3/stubs.c),
+driven through ctypes.
+"""
 
 import os
 import re
@@ -21,23 +24,53 @@ FW   = os.path.join(ROOT, "firmware", "fx3")
 # Library ------------------------------------------------------------------------------------------
 
 class Setup(ctypes.Structure):
-    _fields_ = [("request_type", ctypes.c_uint8), ("request", ctypes.c_uint8),
-        ("value", ctypes.c_uint16), ("index", ctypes.c_uint16), ("length", ctypes.c_uint16)]
+    _fields_ = [
+        ("request_type", ctypes.c_uint8),
+        ("request",      ctypes.c_uint8),
+        ("value",        ctypes.c_uint16),
+        ("index",        ctypes.c_uint16),
+        ("length",       ctypes.c_uint16),
+    ]
 
 class HDMIStatus(ctypes.Structure):
-    _fields_ = [("present", ctypes.c_uint8), ("sys_status", ctypes.c_uint8), ("hpd", ctypes.c_uint8),
-        ("stable", ctypes.c_uint8), ("htotal", ctypes.c_uint16), ("hactive", ctypes.c_uint16),
-        ("vtotal", ctypes.c_uint16), ("vactive", ctypes.c_uint16), ("pclk_reg", ctypes.c_uint8),
-        ("video_mode", ctypes.c_uint8), ("colorspace", ctypes.c_uint8), ("quant_range", ctypes.c_uint8),
-        ("generation", ctypes.c_uint32), ("frame_period", ctypes.c_uint32)]
+    _fields_ = [
+        ("present",      ctypes.c_uint8),
+        ("sys_status",   ctypes.c_uint8),
+        ("hpd",          ctypes.c_uint8),
+        ("stable",       ctypes.c_uint8),
+        ("htotal",       ctypes.c_uint16),
+        ("hactive",      ctypes.c_uint16),
+        ("vtotal",       ctypes.c_uint16),
+        ("vactive",      ctypes.c_uint16),
+        ("pclk_reg",     ctypes.c_uint8),
+        ("video_mode",   ctypes.c_uint8),
+        ("colorspace",   ctypes.c_uint8),
+        ("quant_range",  ctypes.c_uint8),
+        ("generation",   ctypes.c_uint32),
+        ("frame_period", ctypes.c_uint32),
+    ]
 
 class Video(ctypes.Structure):
-    _fields_ = [("width", ctypes.c_uint16), ("height", ctypes.c_uint16), ("fps", ctypes.c_uint32),
-        ("hdmi", ctypes.c_uint8), ("ddr", ctypes.c_uint8), ("downscale", ctypes.c_uint8),
-        ("crop", ctypes.c_uint8), ("crop_x", ctypes.c_uint16), ("crop_y", ctypes.c_uint16),
-        ("c_swap", ctypes.c_uint8), ("m420", ctypes.c_uint8), ("no_signal", ctypes.c_uint8),
-        ("canvas", ctypes.c_uint8), ("rgb", ctypes.c_uint8), ("full_range", ctypes.c_uint8),
-        ("in_width", ctypes.c_uint16), ("in_height", ctypes.c_uint16), ("nv12", ctypes.c_uint8)]
+    _fields_ = [
+        ("width",      ctypes.c_uint16),
+        ("height",     ctypes.c_uint16),
+        ("fps",        ctypes.c_uint32),
+        ("hdmi",       ctypes.c_uint8),
+        ("ddr",        ctypes.c_uint8),
+        ("downscale",  ctypes.c_uint8),
+        ("crop",       ctypes.c_uint8),
+        ("crop_x",     ctypes.c_uint16),
+        ("crop_y",     ctypes.c_uint16),
+        ("c_swap",     ctypes.c_uint8),
+        ("m420",       ctypes.c_uint8),
+        ("no_signal",  ctypes.c_uint8),
+        ("canvas",     ctypes.c_uint8),
+        ("rgb",        ctypes.c_uint8),
+        ("full_range", ctypes.c_uint8),
+        ("in_width",   ctypes.c_uint16),
+        ("in_height",  ctypes.c_uint16),
+        ("nv12",       ctypes.c_uint8),
+    ]
 
 PROBE_FMT = "<HBBIHHHHHIIIBBBB" # UVC 1.1 probe/commit (34 bytes).
 
@@ -47,7 +80,8 @@ UVC_GET_RES, UVC_GET_LEN, UVC_GET_INFO, UVC_GET_DEF = 0x84, 0x85, 0x86, 0x87
 @pytest.fixture(scope="module")
 def build(tmp_path_factory):
     if not os.path.exists(os.path.join(FW, "generated", "fpga_csr.h")):
-        r = subprocess.run(["make", "-C", FW, "generated/fpga_csr.h", "generated/edid.h"], capture_output=True)
+        r = subprocess.run(["make", "-C", FW, "generated/fpga_csr.h", "generated/edid.h"],
+            capture_output=True)
         if r.returncode:
             pytest.skip("generated/fpga_csr.h not available (build the gateware first).")
     lib = str(tmp_path_factory.mktemp("fx3") / "libfx3host.so")
@@ -55,8 +89,9 @@ def build(tmp_path_factory):
         "-I" + FW, "-o", lib,
         os.path.join(FW, "uvc.c"), os.path.join(FW, "usb_desc.c"),
         os.path.join(ROOT, "test", "fx3", "stubs.c")], check=True)
-    csr = {}
-    for m in re.finditer(r"#define (CSR_\w+)\s+(0x[0-9a-fA-F]+|\d+)", open(os.path.join(FW, "generated", "fpga_csr.h")).read()):
+    csr    = {}
+    header = open(os.path.join(FW, "generated", "fpga_csr.h")).read()
+    for m in re.finditer(r"#define (CSR_\w+)\s+(0x[0-9a-fA-F]+|\d+)", header):
         csr[m.group(1)] = int(m.group(2), 0)
     return lib, csr
 
@@ -81,11 +116,15 @@ class FX3:
 
     def set_input(self, w=0, h=0, stable=True, colorspace=0, quant_range=0):
         s = self.hdmi
-        s.stable, s.hactive, s.vactive, s.colorspace, s.quant_range = int(stable), w, h, colorspace, quant_range
-        s.generation += 1
+        s.stable       = int(stable)
+        s.hactive      = w
+        s.vactive      = h
+        s.colorspace   = colorspace
+        s.quant_range  = quant_range
+        s.generation  += 1
 
     def request(self, request_type, request, value, index, length, data=b""):
-        """Class request: returns IN data (bytes) or b"" (OUT), None when stalled (-1)."""
+        """Class request: return IN data (bytes) or b"" (OUT), None when stalled (-1)."""
         out = (ctypes.c_uint8*4096).in_dll(self.lib, "stub_ep0_out_data")
         ctypes.memmove(out, data, len(data))
         self.var("stub_ep0_in_len").value = 0
@@ -96,13 +135,14 @@ class FX3:
         n = self.var("stub_ep0_in_len").value
         return bytes((ctypes.c_uint8*4096).in_dll(self.lib, "stub_ep0_in_data")[:n])
 
-    # UVC helpers.
+    # UVC Helpers.
     def vs(self, request, selector, data=b"", length=34):
         rt = 0x21 if request == UVC_SET_CUR else 0xa1
         return self.request(rt, request, selector << 8, 1, length, data)
 
     def commit(self, fmt, frame, fps):
-        probe = struct.pack(PROBE_FMT, 0, fmt, frame, 10000000//fps, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1)
+        probe = struct.pack(PROBE_FMT, 0, fmt, frame, 10000000//fps,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1)
         self.vs(UVC_SET_CUR, 1, probe)
         got = struct.unpack(PROBE_FMT, self.vs(UVC_GET_CUR, 1))
         self.vs(UVC_SET_CUR, 2, probe)
@@ -114,7 +154,7 @@ class FX3:
         return self.request(rt, request, selector << 8, (entity << 8) | 0, length, data)
 
     def csr_writes(self):
-        n = min(self.var("stub_csr_count").value, 1024)
+        n      = min(self.var("stub_csr_count").value, 1024)
         addrs  = (ctypes.c_uint32*1024).in_dll(self.lib, "stub_csr_addr")
         values = (ctypes.c_uint32*1024).in_dll(self.lib, "stub_csr_value")
         return [(addrs[i], values[i]) for i in range(n)]
@@ -123,8 +163,9 @@ class FX3:
 def fx3(build):
     lib, csr = build
     # dlopen caches by path: copy the library per test for a fresh state.
-    import shutil, tempfile
-    d = tempfile.mkdtemp()
+    import shutil
+    import tempfile
+    d    = tempfile.mkdtemp()
     path = os.path.join(d, "libfx3host.so")
     shutil.copy(lib, path)
     return FX3(path, csr)
@@ -148,12 +189,13 @@ def test_probe_defaults(fx3):
     (5, 1, 30, (1, 1, 30, 1920*1080*2)),     # Invalid format -> 1.
 ])
 def test_probe_fixup(fx3, fmt, frame, fps, expected):
-    probe = struct.pack(PROBE_FMT, 0, fmt, frame, 10000000//fps, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1)
+    probe = struct.pack(PROBE_FMT, 0, fmt, frame, 10000000//fps,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1)
     fx3.vs(UVC_SET_CUR, 1, probe)
     p = struct.unpack(PROBE_FMT, fx3.vs(UVC_GET_CUR, 1))
     assert (p[1], p[2], 10000000//p[3], p[9]) == expected
 
-# Video source policy ------------------------------------------------------------------------------
+# Video Source Policy ------------------------------------------------------------------------------
 
 @pytest.mark.parametrize("inp, fmt, frame, crop, expected", [
     # (input w, h, stable), format, frame, crop (x, y) or None, expected fpga_video fields.
@@ -218,7 +260,7 @@ def test_input_change_restarts_video(fx3):
     fx3.lib.uvc_service() # No change: no restart.
     assert fx3.var("stub_video_starts").value == starts + 1
 
-# Audio / bus reset --------------------------------------------------------------------------------
+# Audio / Bus Reset --------------------------------------------------------------------------------
 
 def test_audio_interface_and_bus_reset(fx3):
     fx3.set_input(1920, 1080)
@@ -293,18 +335,23 @@ def test_descriptors(fx3):
     import sys
     sys.path.insert(0, os.path.join(ROOT, "software"))
     from usb_desc_check import parse_config
-    fx3.lib.usb_desc_get.restype = ctypes.POINTER(ctypes.c_uint8)
+    fx3.lib.usb_desc_get.restype    = ctypes.POINTER(ctypes.c_uint8)
     fx3.lib.usb_desc_length.restype = ctypes.c_uint16
+    expected_formats = [
+        (b"YUY2", [(1920, 1080, [60, 30]), (1280, 720, [60, 30]), (640, 480, [60, 30])]),
+        (b"M420", [(3840, 2160, [30]), (1920, 1080, [60, 30])]),
+    ]
+    if "CSR_FRAMEBUFFER_BASE" in fx3.csr:
+        expected_formats += [(b"NV12", [(3840, 2160, [30]), (1920, 1080, [60, 30])])]
     for speed in (0, 1):
-        p = fx3.lib.usb_desc_get(2, 0, speed)
-        n = fx3.lib.usb_desc_length(p)
+        p   = fx3.lib.usb_desc_get(2, 0, speed)
+        n   = fx3.lib.usb_desc_length(p)
         cfg = parse_config(bytes(p[:n]))
         assert cfg["interfaces"] == 4
         assert cfg["vc_chain"] == [(1, None), (3, 1), (4, 3), (2, 4)]
-        assert [(f["guid"], [(fr["w"], fr["h"], fr["fps"]) for fr in f["frames"]]) for f in cfg["formats"]] == [
-            (b"YUY2", [(1920, 1080, [60, 30]), (1280, 720, [60, 30]), (640, 480, [60, 30])]),
-            (b"M420", [(3840, 2160, [30]), (1920, 1080, [60, 30])]),
-        ] + ([(b"NV12", [(3840, 2160, [30]), (1920, 1080, [60, 30])])] if "CSR_FRAMEBUFFER_BASE" in fx3.csr else [])
+        formats = [(f["guid"], [(fr["w"], fr["h"], fr["fps"]) for fr in f["frames"]])
+            for f in cfg["formats"]]
+        assert formats == expected_formats
         assert cfg["endpoints"] == {0x81: 1024 if speed else 512, 0x82: 192}
 
 def test_settings_apply_while_streaming(fx3):

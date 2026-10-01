@@ -10,6 +10,8 @@ from migen import *
 
 from camlink_4k.gateware.csc import RGB2YCbCr422, bt709_coefficients
 
+# Helpers ------------------------------------------------------------------------------------------
+
 def model(p0, p1, coefs):
     ky, kcb, kcr, y_off, c_off, in_off = coefs
     clamp = lambda v: max(0, min(255, v))
@@ -38,11 +40,13 @@ def run(pairs, coefs):
     run_simulation(dut, gen())
     return out[dut.LATENCY:dut.LATENCY + len(pairs)]
 
+# Tests --------------------------------------------------------------------------------------------
+
 def test_csc_bars_full_range():
     coefs = bt709_coefficients(full_range_input=True)
     white, black = (255, 255, 255), (0, 0, 0)
     out = run([(white, white), (black, black), ((191, 191, 0), (191, 191, 0))], coefs)
-    assert out[0] == (235, 235, 128, 128) or all(abs(a - b) <= 1 for a, b in zip(out[0], (235, 235, 128, 128)))
+    assert all(abs(a - b) <= 1 for a, b in zip(out[0], (235, 235, 128, 128)))
     assert all(abs(a - b) <= 1 for a, b in zip(out[1], (16, 16, 128, 128)))
     # 75% yellow (BT.709): Y 168, Cb 44, Cr 136.
     assert all(abs(a - b) <= 2 for a, b in zip(out[2], (168, 168, 44, 136)))
@@ -57,6 +61,6 @@ def test_csc_limited_range():
 def test_csc_random():
     random.seed(0)
     coefs = bt709_coefficients(True)
-    pairs = [(tuple(random.randrange(256) for _ in range(3)), tuple(random.randrange(256) for _ in range(3)))
-        for _ in range(64)]
+    rgb   = lambda: tuple(random.randrange(256) for _ in range(3))
+    pairs = [(rgb(), rgb()) for _ in range(64)]
     assert run(pairs, coefs) == [model(p0, p1, coefs) for p0, p1 in pairs]

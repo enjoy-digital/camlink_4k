@@ -17,9 +17,14 @@ class Loopback(Module):
         self.submodules.rate = rate = RateCrossing(clk="sys2x")
         self.i = Signal(16)
         self.o = Signal(16)
+
+        # # #
+
         s = Signal(8)
         self.submodules.ser = rate.serializer_cls()("sys", "sys2x", 16, 8, i=self.i, o=s)
         self.submodules.des = rate.deserializer_cls()("sys", "sys2x", 8, 16, i=s, o=self.o)
+
+# Helpers ------------------------------------------------------------------------------------------
 
 def run(sel, shift, n=40):
     dut   = Loopback()
@@ -38,6 +43,8 @@ def run(sel, shift, n=40):
         if out[lat:lat + n] == words:
             return lat
     return None
+
+# Tests --------------------------------------------------------------------------------------------
 
 def test_ratecrossing_loopback():
     # For each capture edge, one shift returns the words intact (runtime read alignment), and the

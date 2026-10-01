@@ -23,7 +23,6 @@ bitslip, center of the longest passing delay window).
 """
 
 import os
-import re
 import sys
 import time
 import random
@@ -31,7 +30,7 @@ import argparse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from camlink    import CamLink, CamLinkBus
+from camlink   import CamLinkBus
 from sdram_phy import *
 
 # DRAM ---------------------------------------------------------------------------------------------
@@ -43,7 +42,7 @@ class DRAM:
         self.bus   = CamLinkBus(csr_csv=os.path.join(build, "csr.csv"))
         self.regs  = self.bus.regs
 
-    # DFII helpers.
+    # DFII Helpers.
     def pi(self, n, name):
         return getattr(self.regs, f"sdram_dfii_pi{n}_{name}")
 
@@ -54,7 +53,8 @@ class DRAM:
         self.pi(phase, "command_issue").write(1)
 
     def software_control(self):
-        self.regs.sdram_dfii_control.write(DFII_CONTROL_CKE | DFII_CONTROL_ODT | DFII_CONTROL_RESET_N)
+        control = DFII_CONTROL_CKE | DFII_CONTROL_ODT | DFII_CONTROL_RESET_N
+        self.regs.sdram_dfii_control.write(control)
 
     def hardware_control(self):
         self.regs.sdram_dfii_control.write(DFII_CONTROL_SEL)
@@ -78,14 +78,18 @@ class DRAM:
     # Pattern write/read through DFII (one BL8 burst at column `col` of row 0, bank 0).
     def write_read(self, pattern, col=0):
         p = self.phy
-        self.command(0, DFII_COMMAND_RAS | DFII_COMMAND_CS, 0, 0)                     # Activate.
+        # Activate.
+        self.command(0, DFII_COMMAND_RAS | DFII_COMMAND_CS, 0, 0)
+        # Write.
         for n in range(p.phases):
             self.pi(n, "wrdata").write(pattern[n])
         self.command(p.wrphase, DFII_COMMAND_CAS | DFII_COMMAND_WE | DFII_COMMAND_CS |
-            DFII_COMMAND_WRDATA, col, 0)                                              # Write.
+            DFII_COMMAND_WRDATA, col, 0)
+        # Read.
         self.command(p.rdphase, DFII_COMMAND_CAS | DFII_COMMAND_CS | DFII_COMMAND_RDDATA, col, 0)
         data = [self.pi(n, "rddata").read() for n in range(p.phases)]
-        self.command(0, DFII_COMMAND_RAS | DFII_COMMAND_WE | DFII_COMMAND_CS, 0x400, 0) # Precharge all.
+        # Precharge all.
+        self.command(0, DFII_COMMAND_RAS | DFII_COMMAND_WE | DFII_COMMAND_CS, 0x400, 0)
         return data
 
     def module_ok(self, module, tries=4):
@@ -139,15 +143,19 @@ class DRAM:
         self.hardware_control()
 
     def read_window(self, verbose=True):
-        """PHY read window calibration (DQSBUF READ offset x read data delay, global) with per-module
-        leveling: stock timing (0, 2) first, then the other settings if it has no window. Changing
-        the READ offset leaves the DQSBUF read path out of sync on hardware (even the stock timing
-        then fails): the DRAM init is replayed before each setting."""
+        """PHY read window calibration with per-module leveling.
+
+        Global DQSBUF READ offset x read data delay scan: stock timing (0, 2) first, then the other
+        settings if it has no window. Changing the READ offset leaves the DQSBUF read path out of
+        sync on hardware (even the stock timing then fails): the DRAM init is replayed before each
+        setting.
+        """
         if not hasattr(self.regs, "ddrphy_rdly_re"):
             return self.read_leveling(verbose)
         best = None
-        for re, data in [(0, 2)] + [(r, d) for r in range(3) for d in range(3) if (r, d) != (0, 2)]:
-            self.regs.ddrphy_rdly_re.write(re)
+        settings = [(0, 2)] + [(r, d) for r in range(3) for d in range(3) if (r, d) != (0, 2)]
+        for rdly_re, data in settings:
+            self.regs.ddrphy_rdly_re.write(rdly_re)
             self.regs.ddrphy_rdly_data.write(data)
             self.init()
             try:
@@ -156,10 +164,10 @@ class DRAM:
                 results = None
             score = min(r[2] for r in results.values()) if results else 0
             if verbose:
-                print(f"  rdly_re {re} rdly_data {data}: {results if results else '-'}")
+                print(f"  rdly_re {rdly_re} rdly_data {data}: {results if results else '-'}")
             if score and (best is None or score > best[0]):
-                best = (score, re, data)
-            if (re, data) == (0, 2) and score:
+                best = (score, rdly_re, data)
+            if (rdly_re, data) == (0, 2) and score:
                 break # Stock timing works.
         if best is None:
             raise RuntimeError("Read window calibration failed.")
@@ -244,13 +252,15 @@ class DRAM:
 # Main ---------------------------------------------------------------------------------------------
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--build", default="build", help="Build directory (csr.csv, sdram_phy.h).")
-    parser.add_argument("--length", default=16*1024*1024, type=lambda x: int(x, 0), help="BIST length (bytes).")
+    parser = argparse.ArgumentParser(description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--build",  default="build", help="Build directory (csr.csv, sdram_phy.h).")
+    parser.add_argument("--length", default=16*1024*1024, type=lambda x: int(x, 0),
+        help="BIST length (bytes).")
     parser.add_argument("cmd", choices=["init", "leveling", "memtest", "bandwidth"])
     args = parser.parse_args()
 
-    dram = DRAM(args.build)
+    dram         = DRAM(args.build)
     sys_clk_freq = dram.bus.constants.config_clock_frequency
     print(f"sys {sys_clk_freq/1e6:.3f}MHz, {dram.phy.phases} phases, {dram.phy.memory//2**20}MB")
 
@@ -281,7 +291,8 @@ def main():
                         dram.regs.ddrphy_rate.write(sel | (shift << 1))
                         dram.run([("generator", 0, 1 << 20)], sys_clk_freq)
                         errors = dram.run([("checker", 0, 1 << 20)], sys_clk_freq)["checker"][1]
-                        print(f"attempt {attempt} sel {sel} shift {shift}: BIST check errors {errors}")
+                        print(f"attempt {attempt} sel {sel} shift {shift}: "
+                              f"BIST check errors {errors}")
                         if errors == 0:
                             ok = True
                             break
@@ -318,7 +329,8 @@ def main():
     if args.cmd == "memtest":
         w = dram.run([("generator", 0, args.length)], sys_clk_freq)
         r = dram.run([("checker",   0, args.length)], sys_clk_freq)
-        print(f"write {w['generator'][0]:.1f}MB/s, read {r['checker'][0]:.1f}MB/s, errors {r['checker'][1]}")
+        print(f"write {w['generator'][0]:.1f}MB/s, read {r['checker'][0]:.1f}MB/s, "
+              f"errors {r['checker'][1]}")
     if args.cmd == "bandwidth":
         half = dram.phy.memory//2
         w = dram.run([("generator", 0, args.length)], sys_clk_freq)
@@ -329,7 +341,8 @@ def main():
         c = dram.run([("generator", half, args.length), ("checker", 0, args.length)], sys_clk_freq)
         total = c["generator"][0] + c["checker"][0]
         print(f"concurrent: write {c['generator'][0]:.1f}MB/s + read {c['checker'][0]:.1f}MB/s "
-              f"= {total:.1f}MB/s (errors {c['checker'][1]}; 4K30 NV12 frame buffer needs ~746MB/s)")
+              f"= {total:.1f}MB/s (errors {c['checker'][1]}; "
+              f"4K30 NV12 frame buffer needs ~746MB/s)")
 
 if __name__ == "__main__":
     main()

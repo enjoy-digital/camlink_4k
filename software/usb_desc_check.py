@@ -6,8 +6,10 @@
 # Copyright (c) 2026 Florent Kermarrec <florent@enjoy-digital.fr>
 # SPDX-License-Identifier: BSD-2-Clause
 
-"""USB configuration descriptor checker (UVC + UAC): walks the descriptors, checks lengths/links
-and summarizes interfaces, Video Control chain, formats/frames and endpoints.
+"""USB configuration descriptor checker (UVC + UAC).
+
+Walks the descriptors, checks lengths/links and summarizes interfaces, Video Control chain,
+formats/frames and endpoints.
 
     usb_desc_check.py [firmware/fx3/build/fx3.elf]   # HS and SS configs of the compiled firmware.
 """
@@ -16,6 +18,8 @@ import sys
 import struct
 import subprocess
 
+# Descriptors Parser -------------------------------------------------------------------------------
+
 def parse_config(d):
     """Parse a configuration descriptor set, raise ValueError on inconsistencies."""
     if d[1] != 0x02:
@@ -23,12 +27,17 @@ def parse_config(d):
     total = struct.unpack_from("<H", d, 2)[0]
     if total != len(d):
         raise ValueError(f"wTotalLength {total} != {len(d)}.")
-    res = {"interfaces": d[4], "vc_chain": [], "formats": [], "endpoints": {}, "vs_total": None,
-        "vc_total": None}
+    res = {
+        "interfaces" : d[4],
+        "vc_chain"   : [],
+        "formats"    : [],
+        "endpoints"  : {},
+        "vs_total"   : None,
+        "vc_total"   : None,
+    }
     intf_nums = set()
-    intf = None
-    vc_start = vs_start = None
-    i = 0
+    intf      = None
+    i         = 0
     while i < len(d):
         l, t = d[i], d[i + 1]
         if l < 2 or i + l > len(d):
@@ -40,7 +49,6 @@ def parse_config(d):
         elif t == 0x24 and intf == 0:
             if sub == 0x01:
                 res["vc_total"] = struct.unpack_from("<H", d, i + 5)[0]
-                vc_start = i
             elif sub == 0x02:
                 res["vc_chain"].append((d[i + 3], None))
             elif sub == 0x03:
@@ -58,7 +66,6 @@ def parse_config(d):
         elif t == 0x24 and intf == 1:
             if sub == 0x01:
                 res["vs_total"] = struct.unpack_from("<H", d, i + 4)[0]
-                vs_start = i
                 if l != 13 + d[i + 3]*d[i + 12]:
                     raise ValueError("VS input header length.")
             elif sub == 0x04:
@@ -68,9 +75,9 @@ def parse_config(d):
                 n = d[i + 25]
                 if l != 26 + 4*n:
                     raise ValueError("Frame descriptor length.")
-                w, h = struct.unpack_from("<HH", d, i + 5)
+                w, h    = struct.unpack_from("<HH", d, i + 5)
                 maxsize = struct.unpack_from("<I", d, i + 17)[0]
-                fmt = res["formats"][-1]
+                fmt     = res["formats"][-1]
                 if maxsize != w*h*fmt["bpp"]//8:
                     raise ValueError(f"Frame {w}x{h}: max size {maxsize}.")
                 fps = [10000000//struct.unpack_from("<I", d, i + 26 + 4*k)[0] for k in range(n)]
@@ -91,19 +98,23 @@ def parse_config(d):
             raise ValueError(f"Unit {e}: unknown source {src}.")
     return res
 
+# ELF Extraction -----------------------------------------------------------------------------------
+
 def configs_from_elf(elf):
     """Extract config_hs/config_ss from a firmware ELF (symbols + sections)."""
     syms = {}
-    for line in subprocess.run(["arm-none-eabi-nm", "-S", elf], capture_output=True, text=True).stdout.splitlines():
+    nm   = subprocess.run(["arm-none-eabi-nm", "-S", elf], capture_output=True, text=True).stdout
+    for line in nm.splitlines():
         p = line.split()
         if len(p) == 4 and p[3] in ("config_hs", "config_ss"):
             syms[p[3]] = (int(p[0], 16), int(p[1], 16))
     out = {}
-    hdr = subprocess.run(["arm-none-eabi-objdump", "-h", elf], capture_output=True, text=True).stdout
+    cmd = ["arm-none-eabi-objdump", "-h", elf]
+    hdr = subprocess.run(cmd, capture_output=True, text=True).stdout
     for line in hdr.splitlines():
         p = line.split()
         if len(p) >= 7 and p[0].isdigit():
-            name, size, vma, off = p[1], int(p[2], 16), int(p[3], 16), int(p[5], 16)
+            size, vma, off = int(p[2], 16), int(p[3], 16), int(p[5], 16)
             for sym, (addr, ssize) in syms.items():
                 if vma <= addr < vma + size:
                     with open(elf, "rb") as f:
@@ -111,15 +122,20 @@ def configs_from_elf(elf):
                         out[sym] = f.read(ssize)
     return out
 
+# Main ---------------------------------------------------------------------------------------------
+
 def main():
     elf = sys.argv[1] if len(sys.argv) > 1 else "firmware/fx3/build/fx3.elf"
     for name, data in sorted(configs_from_elf(elf).items()):
         cfg = parse_config(data)
-        print(f"{name}: {len(data)} bytes, {cfg['interfaces']} interfaces, VC chain {cfg['vc_chain']}")
+        print(f"{name}: {len(data)} bytes, {cfg['interfaces']} interfaces, "
+              f"VC chain {cfg['vc_chain']}")
         for f in cfg["formats"]:
-            frames = ", ".join(f"{fr['w']}x{fr['h']}@{'/'.join(map(str, fr['fps']))}" for fr in f["frames"])
+            frames = ", ".join(f"{fr['w']}x{fr['h']}@{'/'.join(map(str, fr['fps']))}"
+                for fr in f["frames"])
             print(f"  {f['guid'].decode()} ({f['bpp']} bpp): {frames}")
-        print(f"  endpoints: " + ", ".join(f"0x{ep:02x}/{mps}" for ep, mps in sorted(cfg["endpoints"].items())))
+        endpoints = sorted(cfg["endpoints"].items())
+        print("  endpoints: " + ", ".join(f"0x{ep:02x}/{mps}" for ep, mps in endpoints))
 
 if __name__ == "__main__":
     main()

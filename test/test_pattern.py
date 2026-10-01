@@ -11,8 +11,10 @@ from camlink_4k.gateware.video import VideoPatternGenerator, COLOR_BARS, m420_wo
 # Small frame: 32x4 pixels, colour bars of 4 pixels.
 WIDTH, HEIGHT = 32, 4
 
+# Helpers ------------------------------------------------------------------------------------------
+
 def run(m420, mode=0):
-    dut = VideoPatternGenerator(sys_clk_freq=1e6)
+    dut   = VideoPatternGenerator(sys_clk_freq=1e6)
     words = []
     def gen():
         yield dut._hwords.storage.eq(WIDTH // 2)
@@ -26,11 +28,16 @@ def run(m420, mode=0):
         for _ in range(3000):
             yield
             if (yield dut.source.valid):
-                words.append(((yield dut.source.data), (yield dut.source.first), (yield dut.source.last)))
+                data  = (yield dut.source.data)
+                first = (yield dut.source.first)
+                last  = (yield dut.source.last)
+                words.append((data, first, last))
                 if words[-1][2]:
                     return
     run_simulation(dut, gen())
     return words
+
+# Tests --------------------------------------------------------------------------------------------
 
 def test_pattern_m420_layout():
     # M420: per line pair, even Y line, odd Y line, CbCr line (WIDTH/4 words each), colour bars of
@@ -48,6 +55,6 @@ def test_pattern_m420_layout():
 def test_pattern_m420_no_signal():
     words = run(m420=1, mode=1)
     y, uv = m420_words(40, 170, 118)
-    lw = WIDTH // 4
+    lw    = WIDTH // 4
     assert [w for w, _, _ in words[:2 * lw]] == [y] * (2 * lw)
     assert [w for w, _, _ in words[2 * lw:3 * lw]] == [uv] * lw

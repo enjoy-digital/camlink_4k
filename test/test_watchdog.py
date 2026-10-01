@@ -8,10 +8,10 @@ from migen import *
 
 from camlink_4k.gateware.watchdog import FX3Watchdog
 
-# Test ---------------------------------------------------------------------------------------------
+# Helpers ------------------------------------------------------------------------------------------
 
 def run(beats, gap, cycles, arm_edges=4):
-    """`beats` heartbeat toggles every `gap` cycles, then silence; returns reset activity."""
+    """Run `beats` heartbeat toggles every `gap` cycles, then silence, return the reset activity."""
     hb  = Signal()
     dut = FX3Watchdog(hb, sys_clk_freq=1000, period=0.1, pulse=0.01, arm_edges=arm_edges)
     log = {"reset_cycles": 0, "first_reset": None}
@@ -28,6 +28,8 @@ def run(beats, gap, cycles, arm_edges=4):
         log["armed"]  = (yield dut.status.fields.armed)
     run_simulation(dut, gen())
     return log
+
+# Tests --------------------------------------------------------------------------------------------
 
 def test_watchdog_no_heartbeat():
     # Never armed: no reset.

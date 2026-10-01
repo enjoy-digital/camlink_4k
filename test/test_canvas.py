@@ -10,14 +10,20 @@ from litex.gen import *
 
 from camlink_4k.gateware.canvas import Canvas, BLACK
 
+# Helpers ------------------------------------------------------------------------------------------
+
 def run(out_w, out_h, in_w, in_h, x0, y0, frames, in_ready_gap=0, enable=1):
     dut = Canvas()
     out = []
 
     def config():
-        for csr, v in ((dut.enable, enable), (dut.out_hwords, out_w), (dut.out_vres, out_h),
-            (dut.in_hwords, in_w), (dut.in_vres, in_h), (dut.x0, x0), (dut.y0, y0)):
-            yield csr.storage.eq(v)
+        yield dut.enable.storage.eq(enable)
+        yield dut.out_hwords.storage.eq(out_w)
+        yield dut.out_vres.storage.eq(out_h)
+        yield dut.in_hwords.storage.eq(in_w)
+        yield dut.in_vres.storage.eq(in_h)
+        yield dut.x0.storage.eq(x0)
+        yield dut.y0.storage.eq(y0)
         yield
 
     def source():
@@ -53,12 +59,14 @@ def run(out_w, out_h, in_w, in_h, x0, y0, frames, in_ready_gap=0, enable=1):
 
 def expected(out_w, out_h, in_w, in_h, x0, y0, words):
     frame = []
-    it = iter(words)
+    it    = iter(words)
     for y in range(out_h):
         for x in range(out_w):
             inside = (x0 <= x < x0 + in_w) and (y0 <= y < y0 + in_h)
             frame.append(next(it, BLACK) if inside else BLACK)
     return frame
+
+# Tests --------------------------------------------------------------------------------------------
 
 def test_canvas_letterbox():
     frames = [[0x1000*(f + 1) + i for i in range(4*3)] for f in range(3)]

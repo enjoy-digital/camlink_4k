@@ -4,11 +4,12 @@
 # Copyright (c) 2026 Florent Kermarrec <florent@enjoy-digital.fr>
 # SPDX-License-Identifier: BSD-2-Clause
 
-"""End-to-end video path simulation: HDMI pixel model -> HDMIIn -> Canvas -> ColorAdjust ->
-UVCPacketizer -> GPIFStreamer -> FX3 model (waveform + DMA buffers with the buffer switch capture
-quirk). FX3 buffers are decoded as UVC payloads and reassembled into frames (as uvcvideo does)."""
+"""End-to-end video path simulation.
 
-import struct
+HDMI pixel model -> HDMIIn -> Canvas -> ColorAdjust -> UVCPacketizer -> GPIFStreamer -> FX3 model
+(waveform + DMA buffers with the buffer switch capture quirk). FX3 buffers are decoded as UVC
+payloads and reassembled into frames (as uvcvideo does).
+"""
 
 from migen import *
 
@@ -22,8 +23,11 @@ from camlink_4k.gateware.color   import ColorAdjust
 from camlink_4k.gateware.uvc     import UVCPacketizer
 from camlink_4k.gateware.gpif    import GPIFStreamer
 
-from test_hdmi_in import Pads as HDMIPads, pixel, HACT, HBLANK, VACT, VBLANK, expected_frame, expected_m420
+from test_hdmi_in import Pads as HDMIPads, pixel, HACT, HBLANK, VACT, VBLANK
+from test_hdmi_in import expected_frame, expected_m420
 from test_gpif    import FX3Pads, FX3Model
+
+# Constants ----------------------------------------------------------------------------------------
 
 PAYLOAD_WORDS = 29 # Data words per payload: 3 header words + 29 = 32 words = one FX3 buffer.
 BURST_WORDS   = 32
@@ -35,15 +39,19 @@ class System(LiteXModule):
         self.hdmi_pads = HDMIPads()
         self.fx3_pads  = FX3Pads()
 
-        self.hdmi_in = hdmi_in = HDMIIn(self.hdmi_pads, fifo_depth=fifo_depth, idle_timeout=256, sim=True)
-        self.hdmi_buf = hdmi_buf = ResetInserter()(stream.Buffer([("data", 32)], pipe_valid=True, pipe_ready=True))
-        self.canvas  = canvas = ResetInserter()(Canvas())
-        self.color   = color  = ResetInserter()(ColorAdjust())
-        self.uvc     = uvc    = ResetInserter()(UVCPacketizer(payload_words=PAYLOAD_WORDS))
+        # # #
+
+        self.hdmi_in  = hdmi_in  = HDMIIn(self.hdmi_pads, fifo_depth=fifo_depth, idle_timeout=256,
+            sim=True)
+        self.hdmi_buf = hdmi_buf = ResetInserter()(stream.Buffer([("data", 32)],
+            pipe_valid=True, pipe_ready=True))
+        self.canvas   = canvas   = ResetInserter()(Canvas())
+        self.color    = color    = ResetInserter()(ColorAdjust())
+        self.uvc      = uvc      = ResetInserter()(UVCPacketizer(payload_words=PAYLOAD_WORDS))
         self.gpif_buf = gpif_buf = stream.Buffer([("data", 32), ("next", 32)])
-        self.gpif    = gpif   = GPIFStreamer(self.fx3_pads, sim=True)
-        self.ctl     = gpif.ctl
-        self.pads_dq = self.fx3_pads.dq
+        self.gpif     = gpif     = GPIFStreamer(self.fx3_pads, sim=True)
+        self.ctl      = gpif.ctl
+        self.pads_dq  = self.fx3_pads.dq
 
         timestamp = Signal(32)
         self.sync += timestamp.eq(timestamp + 1)
@@ -87,7 +95,7 @@ def decode_frames(buffers):
             current, fid = [], None
     return frames, errors
 
-# Test ---------------------------------------------------------------------------------------------
+# Test Runner --------------------------------------------------------------------------------------
 
 def ddr_source(pads, frames):
     for f in range(frames):
@@ -115,9 +123,13 @@ def run(frame_words, frames=8, downscale=False, m420=False, canvas=None, drain=(
         yield dut.hdmi_in.admit_level.storage.eq(admit_level)
         if canvas is not None:
             out_w, out_h, in_w, in_h, x0, y0 = canvas
-            for csr, v in ((dut.canvas.enable, 1), (dut.canvas.out_hwords, out_w), (dut.canvas.out_vres, out_h),
-                (dut.canvas.in_hwords, in_w), (dut.canvas.in_vres, in_h), (dut.canvas.x0, x0), (dut.canvas.y0, y0)):
-                yield csr.storage.eq(v)
+            yield dut.canvas.enable.storage.eq(1)
+            yield dut.canvas.out_hwords.storage.eq(out_w)
+            yield dut.canvas.out_vres.storage.eq(out_h)
+            yield dut.canvas.in_hwords.storage.eq(in_w)
+            yield dut.canvas.in_vres.storage.eq(in_h)
+            yield dut.canvas.x0.storage.eq(x0)
+            yield dut.canvas.y0.storage.eq(y0)
         yield dut.uvc._payload_words.storage.eq(PAYLOAD_WORDS)
         yield dut.uvc._frame_words.storage.eq(frame_words)
         g = dut.gpif._control.fields
@@ -148,6 +160,8 @@ def check(frames, errors, expected, min_frames=3):
     assert len(frames) >= min_frames
     for words in frames:
         assert words == expected(frame_index(words))
+
+# Tests --------------------------------------------------------------------------------------------
 
 def test_system_direct():
     frames, errors = run(frame_words=HACT*VACT//2)
@@ -185,7 +199,8 @@ def test_system_canvas_overflow(gate=True):
         admit_level=8, gate=gate)
     def expected(f):
         src = expected_frame(f)
-        return [src[(y - 8)*8 + x] if 8 <= y < 12 else 0x80108010 for y in range(20) for x in range(8)]
+        return [src[(y - 8)*8 + x] if 8 <= y < 12 else 0x80108010
+            for y in range(20) for x in range(8)]
     assert errors == 0 and len(frames) >= 2
     for words in frames:
         # Frame index from the first window word.

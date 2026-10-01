@@ -28,8 +28,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import usb.core
 import numpy as np
 
-from camlink  import CamLink
-from v4l2cap  import Capture, find_device
+from camlink import CamLink
+from v4l2cap import Capture, find_device
 
 # Helpers ------------------------------------------------------------------------------------------
 
@@ -58,7 +58,7 @@ def enum_formats():
     """VIDIOC_ENUM_FMT / ENUM_FRAMESIZES: {fourcc: [(w, h), ...]}."""
     VIDIOC_ENUM_FMT        = 0xc0405602
     VIDIOC_ENUM_FRAMESIZES = 0xc02c564a
-    fd = os.open(video_node(), os.O_RDWR)
+    fd      = os.open(video_node(), os.O_RDWR)
     formats = {}
     try:
         i = 0
@@ -68,7 +68,7 @@ def enum_formats():
                 fcntl.ioctl(fd, VIDIOC_ENUM_FMT, buf)
             except OSError:
                 break
-            pf = struct.unpack_from("<I", buf, 44)[0]
+            pf   = struct.unpack_from("<I", buf, 44)[0]
             name = struct.pack("<I", pf).decode()
             sizes, j = [], 0
             while True:
@@ -94,8 +94,8 @@ def step_enum(ctx):
     speed = {3: "HighSpeed", 4: "SuperSpeed"}.get(cl.dev.speed, cl.dev.speed)
     fmts  = enum_formats()
     card  = any("CamLink 4K" in l for l in open("/proc/asound/cards"))
-    ok = (speed == "SuperSpeed" and "YUYV" in fmts and "M420" in fmts and (3840, 2160) in fmts["M420"]
-        and card)
+    ok    = (speed == "SuperSpeed" and "YUYV" in fmts and "M420" in fmts and
+        (3840, 2160) in fmts["M420"] and card)
     return ok, f"{ident} ({speed}); formats {fmts}; sound card {card}"
 
 def step_stats(ctx):
@@ -112,14 +112,14 @@ def step_hdmi(ctx):
 
 def step_capture(ctx):
     """1080p capture through uvcvideo: fps, no gaps/short/error frames."""
-    st = ctx.get("hdmi") or CamLink().hdmi_status()
+    st  = ctx.get("hdmi") or CamLink().hdmi_status()
     fps = 60 if (st.get("fps") or 0) > 45 and st["vactive"] <= 1080 else 30
-    r = capture_stats(1920, 1080, fps)
+    r   = capture_stats(1920, 1080, fps)
     # Inputs smaller than 1080p are letterboxed (canvas): the output can skip every other input
     # frame when the borders do not fit in the input blanking.
-    canvas = st["hactive"] < 1920 or st["vactive"] < 1080
+    canvas  = st["hactive"] < 1920 or st["vactive"] < 1080
     min_fps = (0.45 if canvas else 0.9)*(st.get("fps") or fps)
-    ok = r["gaps"] == 0 and r["short"] == 0 and r["errors"] == 0 and r["fps"] > min_fps
+    ok      = r["gaps"] == 0 and r["short"] == 0 and r["errors"] == 0 and r["fps"] > min_fps
     return ok, f"requested 1080p{fps}{' (letterbox)' if canvas else ''}: {r}"
 
 def step_first_frame(ctx):
@@ -183,8 +183,8 @@ def step_xu(ctx):
 def step_controls(ctx):
     """UVC Processing Unit controls visible through V4L2 (brightness/contrast/saturation)."""
     VIDIOC_QUERYCTRL = 0xc0445624
-    ids = {"brightness": 0x00980900, "contrast": 0x00980901, "saturation": 0x00980902}
-    fd = os.open(video_node(), os.O_RDWR)
+    ids   = {"brightness": 0x00980900, "contrast": 0x00980901, "saturation": 0x00980902}
+    fd    = os.open(video_node(), os.O_RDWR)
     found = {}
     try:
         for name, cid in ids.items():
@@ -207,6 +207,7 @@ def step_m420(ctx):
     r = capture_stats(3840, 2160, 30, seconds=4, pixfmt="M420")
     return r["gaps"] == 0 and r["short"] == 0 and r["fps"] > 25, str(r)
 
+# Validation steps, in order: (name, function).
 STEPS = [
     ("enum",        step_enum),
     ("stats",       step_stats),
@@ -225,7 +226,8 @@ STEPS = [
 # Main ---------------------------------------------------------------------------------------------
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("steps", nargs="*", help="Steps to run (default: all).")
     parser.add_argument("--list", action="store_true", help="List the steps.")
     args = parser.parse_args()

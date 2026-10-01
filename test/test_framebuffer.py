@@ -34,8 +34,10 @@ def m420_frame(tag, truncate=None):
 
 def nv12_frame(tag):
     """NV12 words of frame `tag`: Y plane then UV plane."""
-    y  = [(tag << 24) | (0x10 + line) << 16 | j for line in range(HEIGHT) for j in range(4*LINE_WORDS)]
-    uv = [(tag << 24) | (0x80 + pair) << 16 | j for pair in range(HEIGHT//2) for j in range(4*LINE_WORDS)]
+    y  = [(tag << 24) | (0x10 + line) << 16 | j
+        for line in range(HEIGHT) for j in range(4*LINE_WORDS)]
+    uv = [(tag << 24) | (0x80 + pair) << 16 | j
+        for pair in range(HEIGHT//2) for j in range(4*LINE_WORDS)]
     return y + uv
 
 # Native Port Memory Model -------------------------------------------------------------------------
@@ -77,7 +79,7 @@ class Memory:
             if (yield port.rdata.valid) and (yield port.rdata.ready):
                 pending.pop(0)
 
-# Test ---------------------------------------------------------------------------------------------
+# Test Runner --------------------------------------------------------------------------------------
 
 def run(frames, gap=0, out_ready=0.8, cycles=6000, seed=0, stops=()):
     random.seed(seed)
@@ -88,9 +90,12 @@ def run(frames, gap=0, out_ready=0.8, cycles=6000, seed=0, stops=()):
     out   = []
 
     def config():
-        for csr, v in ((dut.base, 0x100), (dut.slot_words, SLOT_WORDS), (dut.line_words, LINE_WORDS),
-            (dut.height, HEIGHT), (dut.uv_offset, HEIGHT*LINE_WORDS), (dut.frame_words, FRAME_WORDS)):
-            yield csr.storage.eq(v)
+        yield dut.base.storage.eq(0x100)
+        yield dut.slot_words.storage.eq(SLOT_WORDS)
+        yield dut.line_words.storage.eq(LINE_WORDS)
+        yield dut.height.storage.eq(HEIGHT)
+        yield dut.uv_offset.storage.eq(HEIGHT*LINE_WORDS)
+        yield dut.frame_words.storage.eq(FRAME_WORDS)
         yield
         yield dut.enable.storage.eq(1)
         for _ in range(4):
@@ -140,6 +145,8 @@ def run(frames, gap=0, out_ready=0.8, cycles=6000, seed=0, stops=()):
     run_simulation(dut, [source(), sink(), stopper(), mem.write_port(wport), mem.read_port(rport)])
     return out
 
+# Tests --------------------------------------------------------------------------------------------
+
 def test_framebuffer_nv12_order():
     # Frames spaced out (the reader keeps up): each frame output once, in order, NV12 layout.
     out = run([m420_frame(t) for t in range(1, 4)], gap=200)
@@ -147,7 +154,7 @@ def test_framebuffer_nv12_order():
 
 def test_framebuffer_truncated_frame_dropped():
     frames = [m420_frame(1), m420_frame(2, truncate=10), m420_frame(3)]
-    out = run(frames, gap=200)
+    out    = run(frames, gap=200)
     assert out == [nv12_frame(1), nv12_frame(3)]
 
 def test_framebuffer_slow_output_skips_frames():
@@ -162,11 +169,16 @@ def test_framebuffer_slow_output_skips_frames():
             assert f == nv12_frame(f[0] >> 24), seed
 
 def test_framebuffer_stop_restart():
-    # Stops in the middle of frames (input and output): the outstanding DRAM reads drain (no reset),
-    # the output resumes with complete, correct frames after each stop.
+    # Stops in the middle of frames (input and output): the outstanding DRAM reads drain (no
+    # reset), the output resumes with complete, correct frames after each stop.
     for seed in range(4):
-        out = run([m420_frame(t) for t in range(1, 13)], gap=50, out_ready=0.5, cycles=8000, seed=seed,
-            stops=[(400 + 97*seed, 20), (1500 + 31*seed, 3), (2600, 60)])
+        out = run([m420_frame(t) for t in range(1, 13)],
+            gap       = 50,
+            out_ready = 0.5,
+            cycles    = 8000,
+            seed      = seed,
+            stops     = [(400 + 97*seed, 20), (1500 + 31*seed, 3), (2600, 60)],
+        )
         complete = [f for f in out if len(f) == FRAME_WORDS and f[0] == nv12_frame(f[0] >> 24)[0]]
         assert len(complete) >= 3, seed
         # Frames after the last stop are complete and correct.

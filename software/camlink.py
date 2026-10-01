@@ -19,20 +19,20 @@ import usb.util
 
 # Constants ----------------------------------------------------------------------------------------
 
-FX3_BOOT_VID    = 0x04b4
-FX3_BOOT_PID    = 0x00f3
-CAMLINK_VID = 0x1209
-CAMLINK_PID = 0x0001
-STOCK_VID       = 0x0fd9
-STOCK_PIDS      = (0x0066, 0x0067)
+FX3_BOOT_VID = 0x04b4
+FX3_BOOT_PID = 0x00f3
+CAMLINK_VID  = 0x1209
+CAMLINK_PID  = 0x0001
+STOCK_VID    = 0x0fd9
+STOCK_PIDS   = (0x0066, 0x0067)
 
-FX3_REQ_FW      = 0xa0 # FX3 boot ROM firmware download/upload/jump request.
-FX3_CHUNK       = 2048
+FX3_REQ_FW   = 0xa0 # FX3 boot ROM firmware download/upload/jump request.
+FX3_CHUNK    = 2048
 
 # Helpers ------------------------------------------------------------------------------------------
 
-# USB product strings of our firmware (current, and before the LiteCamLink -> CamLinX -> CamLinX 4K -> CamLink 4K renames: still
-# found to reflash an older image).
+# USB product strings of our firmware (current, and before the LiteCamLink -> CamLinX -> CamLinX 4K
+# -> CamLink 4K renames: still found to reflash an older image).
 CAMLINK_PRODUCTS = ("CamLink 4K", "CamLinX 4K", "CamLinX", "LiteCamLink")
 
 def _is_camlink(dev):
@@ -97,21 +97,21 @@ def fx3_load(filename, timeout=5.0):
         pass # Device may disconnect before the status stage.
     usb.util.dispose_resources(dev)
 
-# CamLink 4K Device ------------------------------------------------------------------------------
+# CamLink 4K Device --------------------------------------------------------------------------------
 
-VREQ_IDENT     = 0x00
-VREQ_MEM_READ  = 0x01
-VREQ_MEM_WRITE = 0x02
-VREQ_REBOOT    = 0x0f
-VREQ_FPGA_INFO = 0x10
-VREQ_FPGA_CFG  = 0x11
-VREQ_FPGA_DATA = 0x12
-VREQ_FPGA_DONE = 0x13
-VREQ_GPIO_CFG  = 0x20
-VREQ_GPIO_READ = 0x21
-VREQ_I2C_WRITE = 0x30
-VREQ_I2C_READ  = 0x31
-VREQ_I2C_STAT  = 0x32
+VREQ_IDENT         = 0x00
+VREQ_MEM_READ      = 0x01
+VREQ_MEM_WRITE     = 0x02
+VREQ_REBOOT        = 0x0f
+VREQ_FPGA_INFO     = 0x10
+VREQ_FPGA_CFG      = 0x11
+VREQ_FPGA_DATA     = 0x12
+VREQ_FPGA_DONE     = 0x13
+VREQ_GPIO_CFG      = 0x20
+VREQ_GPIO_READ     = 0x21
+VREQ_I2C_WRITE     = 0x30
+VREQ_I2C_READ      = 0x31
+VREQ_I2C_STAT      = 0x32
 VREQ_STREAM_START  = 0x40
 VREQ_STREAM_STOP   = 0x41
 VREQ_STREAM_STATUS = 0x42
@@ -182,8 +182,8 @@ class CamLink:
         for i in range(0, len(bitstream), chunk):
             self.dev.ctrl_transfer(0x40, VREQ_FPGA_DATA, 0, 0, bitstream[i:i + chunk], timeout=5000)
         status, = struct.unpack("<I", self.vendor_in(VREQ_FPGA_DONE, length=4))
-        print(f"FPGA configured with {filename} ({len(bitstream)} bytes, {time.time() - start:.2f}s), "
-              f"status 0x{status:08x}.")
+        print(f"FPGA configured with {filename} ({len(bitstream)} bytes, "
+              f"{time.time() - start:.2f}s), status 0x{status:08x}.")
         if not (status & FPGA_STATUS_DONE) or (status & FPGA_STATUS_FAIL):
             raise RuntimeError("FPGA configuration failed.")
 
@@ -236,12 +236,14 @@ class CamLink:
 
     def hdmi_status(self):
         names = ["present", "sys_status", "hpd", "stable"]
-        d = self.vendor_in(VREQ_HDMI_STATUS, length=24)
-        st = dict(zip(names, d[:4]))
+        d     = self.vendor_in(VREQ_HDMI_STATUS, length=24)
+        st    = dict(zip(names, d[:4]))
         st.update(zip(["htotal", "hactive", "vtotal", "vactive"], struct.unpack("<4H", d[4:12])))
-        st["pclk_reg"], st["video_mode"], st["colorspace"] = d[12], d[13], ["RGB", "YCbCr422", "YCbCr444", "?"][d[14] & 3]
-        st["5v"]  = st["sys_status"] & 1
-        st["pclk_mhz"] = (124*255/st["pclk_reg"])/10 if st["pclk_reg"] else 0
+        st["pclk_reg"]   = d[12]
+        st["video_mode"] = d[13]
+        st["colorspace"] = ["RGB", "YCbCr422", "YCbCr444", "?"][d[14] & 3]
+        st["5v"]         = st["sys_status"] & 1
+        st["pclk_mhz"]   = (124*255/st["pclk_reg"])/10 if st["pclk_reg"] else 0
         if len(d) >= 24:
             st["generation"], period = struct.unpack("<II", d[16:24])
             st["fps"] = round(SYS_CLK_FREQ/period, 3) if period else 0
@@ -256,7 +258,8 @@ class CamLink:
         while len(data) < length:
             n = min(chunk, length - len(data))
             a = addr + len(data)
-            data += self.dev.ctrl_transfer(0xc0, VREQ_FLASH_READ, a & 0xffff, a >> 16, n, timeout=5000)
+            data += self.dev.ctrl_transfer(0xc0, VREQ_FLASH_READ, a & 0xffff, a >> 16, n,
+                timeout=5000)
         return bytes(data)
 
     def flash_erase(self, addr):
@@ -275,8 +278,10 @@ class CamLink:
         for block in range(first, last + 1, FLASH_BLOCK_SIZE):
             self.flash_erase(block)
         for off in range(0, len(data), 4096):
+            a     = addr + off
             chunk = data[off:off + 4096]
-            self.dev.ctrl_transfer(0x40, VREQ_FLASH_PROGRAM, (addr + off) & 0xffff, (addr + off) >> 16, chunk, timeout=5000)
+            self.dev.ctrl_transfer(0x40, VREQ_FLASH_PROGRAM, a & 0xffff, a >> 16, chunk,
+                timeout=5000)
             if progress:
                 print(f"\r  programmed {off + len(chunk)}/{len(data)}", end="", flush=True)
         if progress:
@@ -285,11 +290,15 @@ class CamLink:
             raise IOError("Flash verify failed.")
 
     def flash_bitstream(self, filename):
-        """Bitstream then header (header page left erased until the bitstream is verified: an
-        interrupted write leaves no valid header, the firmware then skips the flash boot)."""
+        """Write a bitstream to the flash, then its header.
+
+        The header page is left erased until the bitstream is verified: an interrupted write leaves
+        no valid header, the firmware then skips the flash boot.
+        """
         bitstream = open(filename, "rb").read()
-        size   = len(bitstream)
-        header = struct.pack("<III", size, ~size & 0xffffffff, FLASH_BITSTREAM_MAGIC).ljust(256, b"\xff")
+        size      = len(bitstream)
+        header    = struct.pack("<III", size, ~size & 0xffffffff, FLASH_BITSTREAM_MAGIC)
+        header    = header.ljust(256, b"\xff")
         self.flash_write(FLASH_BITSTREAM_HDR, b"\xff"*256 + bitstream)
         self.dev.ctrl_transfer(0x40, VREQ_FLASH_PROGRAM, FLASH_BITSTREAM_HDR & 0xffff,
             FLASH_BITSTREAM_HDR >> 16, header, timeout=5000)
@@ -336,15 +345,18 @@ class CamLink:
         state, attempts, rate, modules = d[:4]
         st = {"state": SDRAM_STATES[state] if state < len(SDRAM_STATES) else state,
             "attempts": attempts, "sel": rate & 1, "shift": rate >> 1}
-        st["leveling"] = [(d[4 + m], d[8 + m], d[12 + m]) for m in range(min(modules, 4))] # bitslip, delay, window.
+        # Per-module leveling results: (bitslip, delay, window).
+        st["leveling"] = [(d[4 + m], d[8 + m], d[12 + m]) for m in range(min(modules, 4))]
         st["bist_errors"], st["csr_errors"] = struct.unpack("<II", d[16:24])
         if len(d) >= 40:
             st["scan"] = [f"{v:08x}" for v in struct.unpack("<4I", d[24:40])]
         return st
 
     def sdram_init(self, timeout=60, rate=None):
-        """DRAM init by the firmware (DRAM bitstreams, no-op otherwise), returns the status (debug:
-        single try at a rate crossing setting `rate` = sel | pair << 1)."""
+        """DRAM init by the firmware (DRAM bitstreams, no-op otherwise), return the status.
+
+        Debug: `rate` (sel | pair << 1) forces a single try at this rate crossing setting.
+        """
         self.vendor_out(VREQ_SDRAM_INIT, 0 if rate is None else 0x100 | rate)
         time.sleep(0.2)
         t0 = time.time()
@@ -413,7 +425,7 @@ def stream_test(cl, bus, size=64*1024*1024, clk_div_x2=16, flag_omega=GPIF_OMEGA
     bus.regs.gen_enable.write(1)
     bus.regs.gpif_control.write(1 | (flag_invert << 1) | (data_delay << 4))
     from usb_stream import USBStreamReader
-    state  = {"errors": 0, "last": None, "first": True}
+    state = {"errors": 0, "last": None, "first": True}
     def check(chunk):
         data = np.frombuffer(chunk, dtype=np.uint32)
         if not len(data):
@@ -464,9 +476,9 @@ def uvc_raw_test(cl, bus, width=1920, height=1080, fps=30, frames=60, clk_div_x2
     bus.regs.gpif_control.write((4 << 8) | 1 | 2)
     bus.regs.pattern_enable.write(1)
 
-    frame_size = width*height*2
+    frame_size   = width*height*2
     payload_size = bus.regs.uvc_payload_words.read()*4 + 12 # One FX3 DMA buffer.
-    state = {"frame": bytearray(), "frames": [], "fid": None, "errors": 0, "pts": []}
+    state        = {"frame": bytearray(), "frames": [], "fid": None, "errors": 0, "pts": []}
     def on_transfer(chunk):
         # Payloads are one FX3 buffer (header + data) except the last one of a frame (short packet).
         for off in range(0, len(chunk), payload_size):
@@ -499,11 +511,13 @@ def uvc_raw_test(cl, bus, width=1920, height=1080, fps=30, frames=60, clk_div_x2
 
     sizes  = state["frames"]
     good   = sum(1 for s in sizes if s == frame_size)
-    pts    = np.diff(np.array(state["pts"], dtype=np.int64)) % (1 << 32) / bus.constants.config_clock_frequency
+    pts    = np.diff(np.array(state["pts"], dtype=np.int64)) % (1 << 32)
+    pts    = pts / bus.constants.config_clock_frequency
     print(f"Received {received/1e6:.1f} MB in {duration:.2f}s ({received/duration/1e6:.1f} MB/s), "
           f"{len(sizes)} frames, {good} with size {frame_size}, {state['errors']} header errors.")
     if len(pts):
-        print(f"PTS intervals: mean {np.mean(pts)*1e3:.2f} ms, min {np.min(pts)*1e3:.2f}, max {np.max(pts)*1e3:.2f}")
+        print(f"PTS intervals: mean {np.mean(pts)*1e3:.2f} ms, "
+              f"min {np.min(pts)*1e3:.2f}, max {np.max(pts)*1e3:.2f}")
     if "sample" in state:
         f = np.frombuffer(state["sample"], dtype=np.uint32)
         number = sum(((int(f[i]) & 0xff) > 128) << i for i in range(32))
@@ -512,10 +526,10 @@ def uvc_raw_test(cl, bus, width=1920, height=1080, fps=30, frames=60, clk_div_x2
         np.save("build/uvc_frame.npy", f)
     return good >= frames - 2 and state["errors"] == 0
 
-# Terminal (UART crossover) -----------------------------------------------------------------------
+# Terminal (UART Crossover) ------------------------------------------------------------------------
 
 def term(bus, cmds=None, duration=None):
-    """BIOS console over the UART crossover CSRs. Scripted if cmds/duration are given."""
+    """BIOS console over the UART crossover CSRs (scripted if cmds/duration are given)."""
     import select, termios, tty
     def rx(limit=64):
         # Bounded bursts: a BIOS printing continuously outpaces the I2C reads.
@@ -585,7 +599,8 @@ def pintest(cl, id_bits=8):
         exp   = [n for n, eg in PINTEST_PINS if eg == g][0]
         ok    = (name == exp)
         errors += not ok
-        print(f"FX3 GPIO{g:2d}: id {ident:3d} -> {name:7s} (expected {exp:7s}) {'OK' if ok else 'ERROR'}")
+        print(f"FX3 GPIO{g:2d}: id {ident:3d} -> {name:7s} (expected {exp:7s}) "
+              f"{'OK' if ok else 'ERROR'}")
     print(f"{len(gpios) - errors}/{len(gpios)} pins OK.")
     return errors == 0
 
@@ -738,7 +753,7 @@ def main():
         CamLink().i2c_write(args.addr, bytes([args.reg]), bytes([args.value]))
 
     if args.cmd == "csr":
-        bus = CamLinkBus(csr_csv=args.csr_csv)
+        bus   = CamLinkBus(csr_csv=args.csr_csv)
         names = [args.name] if args.name else list(bus.regs.d.keys())
         for name in names:
             reg = getattr(bus.regs, name)
@@ -749,13 +764,19 @@ def main():
 
     if args.cmd == "stream-test":
         cl = CamLink()
-        ok = stream_test(cl, CamLinkBus(cl, csr_csv=args.csr_csv), size=args.size*1024*1024, clk_div_x2=args.clk_div_x2,
-            flag_omega=args.flag_omega, flag_invert=args.flag_invert, data_delay=args.data_delay)
+        ok = stream_test(cl, CamLinkBus(cl, csr_csv=args.csr_csv),
+            size        = args.size*1024*1024,
+            clk_div_x2  = args.clk_div_x2,
+            flag_omega  = args.flag_omega,
+            flag_invert = args.flag_invert,
+            data_delay  = args.data_delay,
+        )
         sys.exit(0 if ok else 1)
 
     if args.cmd == "uvc-raw-test":
         cl = CamLink()
-        ok = uvc_raw_test(cl, CamLinkBus(cl, csr_csv=args.csr_csv), args.width, args.height, args.fps, args.frames)
+        ok = uvc_raw_test(cl, CamLinkBus(cl, csr_csv=args.csr_csv),
+            args.width, args.height, args.fps, args.frames)
         sys.exit(0 if ok else 1)
 
     if args.cmd == "stream-status":
@@ -832,7 +853,8 @@ def main():
             ids = (dev.idVendor, dev.idProduct)
             if ids in [(FX3_BOOT_VID, FX3_BOOT_PID), (CAMLINK_VID, CAMLINK_PID)] or \
                (dev.idVendor == STOCK_VID and dev.idProduct in STOCK_PIDS):
-                print(f"{dev.idVendor:04x}:{dev.idProduct:04x} bus {dev.bus} addr {dev.address} speed {dev.speed}")
+                print(f"{dev.idVendor:04x}:{dev.idProduct:04x} bus {dev.bus} addr {dev.address} "
+                      f"speed {dev.speed}")
 
 if __name__ == "__main__":
     main()

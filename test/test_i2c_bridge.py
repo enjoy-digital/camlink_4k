@@ -25,7 +25,8 @@ class DUT(LiteXModule):
         self.pads   = pads = SimPads()
         self.sda_m  = Signal(reset=1) # Master SDA drive (1 = released).
         self.bridge = I2CBridge(pads, address=0x10)
-        self.sram   = wishbone.SRAM(64, bus=wishbone.Interface(data_width=32, address_width=32, addressing="word"))
+        self.sram   = wishbone.SRAM(64,
+            bus=wishbone.Interface(data_width=32, address_width=32, addressing="word"))
         self.comb += self.bridge.bus.connect(self.sram.bus)
         self.comb += pads.sda_i.eq(self.sda_m & ~pads.sda_oe)
 
@@ -66,12 +67,12 @@ def i2c_write_byte(dut, byte):
 def i2c_read_byte(dut, ack=True):
     byte = 0
     for i in range(8):
-        bit = yield from i2c_bit_read(dut)
+        bit  = yield from i2c_bit_read(dut)
         byte = (byte << 1) | bit
     yield from i2c_bit_write(dut, 0 if ack else 1)
     return byte
 
-# Test ---------------------------------------------------------------------------------------------
+# Tests --------------------------------------------------------------------------------------------
 
 def test_i2c_bridge_write_read():
     dut     = DUT()

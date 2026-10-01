@@ -31,7 +31,7 @@ def i2s_transmit(pads, samples, bits=32, half=3):
                     b = 0 # LSB of the previous word (don't care).
                 else:
                     pos = bit - 1
-                    b = (value >> (15 - pos)) & 1 if pos < 16 else 0
+                    b   = (value >> (15 - pos)) & 1 if pos < 16 else 0
                 yield pads.sd.eq(b)
                 yield pads.sck.eq(0)
                 for _ in range(half):

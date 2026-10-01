@@ -32,10 +32,13 @@ from source  import barcode_decode, barcode_geometry, chart, output_geometry
 
 import usb.core
 
-ROOT      = os.path.join(os.path.dirname(__file__), "..")
-BENCH_DIR = os.path.join(ROOT, "doc", "bench")
-STOCK_IMG = os.path.expanduser("~/camlink_backup/stock_fx3.img")
-OUTPUT    = "HDMI-0"
+# Constants ----------------------------------------------------------------------------------------
+
+ROOT       = os.path.join(os.path.dirname(__file__), "..")
+BENCH_DIR  = os.path.join(ROOT, "doc", "bench")
+CAMLINK_PY = os.path.join(ROOT, "software", "camlink.py")
+STOCK_IMG  = os.path.expanduser("~/camlink_backup/stock_fx3.img")
+OUTPUT     = "HDMI-0"
 
 # Firmware Switching -------------------------------------------------------------------------------
 
@@ -60,7 +63,7 @@ def wait_state(target, timeout=20):
 def to_bootloader():
     state = usb_state()
     if state == "camlink_4k":
-        subprocess.run([sys.executable, os.path.join(ROOT, "software", "camlink.py"), "reboot"], cwd=ROOT)
+        subprocess.run([sys.executable, CAMLINK_PY, "reboot"], cwd=ROOT)
     elif state == "stock":
         stock.cold_reset()
     if not wait_state("bootloader"):
@@ -71,17 +74,21 @@ def select_firmware(fw):
         return
     to_bootloader()
     if fw == "stock":
-        subprocess.run([sys.executable, os.path.join(ROOT, "software", "camlink.py"), "fx3-load", STOCK_IMG], cwd=ROOT, check=True)
+        subprocess.run([sys.executable, CAMLINK_PY, "fx3-load", STOCK_IMG], cwd=ROOT, check=True)
     else:
-        subprocess.run([sys.executable, os.path.join(ROOT, "software", "camlink.py"), "boot"], cwd=ROOT, check=True)
+        subprocess.run([sys.executable, CAMLINK_PY, "boot"], cwd=ROOT, check=True)
     if not wait_state(fw, timeout=30):
         raise RuntimeError(f"{fw} did not enumerate.")
     time.sleep(4) # uvcvideo enumeration.
     reprobe_output()
 
 def screen_locked():
-    out = subprocess.run(["gdbus", "call", "--session", "--dest", "org.gnome.ScreenSaver", "--object-path",
-        "/org/gnome/ScreenSaver", "--method", "org.gnome.ScreenSaver.GetActive"], capture_output=True, text=True).stdout
+    cmd = ["gdbus", "call", "--session",
+        "--dest",        "org.gnome.ScreenSaver",
+        "--object-path", "/org/gnome/ScreenSaver",
+        "--method",      "org.gnome.ScreenSaver.GetActive",
+    ]
+    out = subprocess.run(cmd, capture_output=True, text=True).stdout
     return "true" in out
 
 def reprobe_output():
@@ -98,7 +105,10 @@ def video_node(fw):
 
 class Source:
     def __init__(self, content="bars", moving=False):
-        cmd = [sys.executable, os.path.join(ROOT, "software", "source.py"), "--output", OUTPUT, "--content", content]
+        cmd = [sys.executable, os.path.join(ROOT, "software", "source.py"),
+            "--output",  OUTPUT,
+            "--content", content,
+        ]
         if moving:
             cmd.append("--moving")
         self.proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -123,11 +133,11 @@ def to_rgb(data, fmt, w, h):
     if fmt == "M420":
         return m420_to_rgb(data, w, h)
     # NV12.
-    f = np.frombuffer(data, dtype=np.uint8)
-    y = f[:w*h].reshape(h, w).astype(np.float32) - 16
+    f  = np.frombuffer(data, dtype=np.uint8)
+    y  = f[:w*h].reshape(h, w).astype(np.float32) - 16
     uv = f[w*h:w*h + w*h//2].reshape(h//2, w//2, 2).astype(np.float32) - 128
-    u = np.repeat(np.repeat(uv[..., 0], 2, axis=0), 2, axis=1)
-    v = np.repeat(np.repeat(uv[..., 1], 2, axis=0), 2, axis=1)
+    u  = np.repeat(np.repeat(uv[..., 0], 2, axis=0), 2, axis=1)
+    v  = np.repeat(np.repeat(uv[..., 1], 2, axis=0), 2, axis=1)
     r = 1.164*y + 1.793*v
     g = 1.164*y - 0.213*u - 0.533*v
     b = 1.164*y + 2.112*u
@@ -147,13 +157,14 @@ def psnr(a, b):
 def ssim(a, b):
     """Mean SSIM on luma (8x8 blocks, no external deps)."""
     from scipy.ndimage import uniform_filter
-    a = a.astype(np.float64); b = b.astype(np.float64)
+    a      = a.astype(np.float64)
+    b      = b.astype(np.float64)
     c1, c2 = (0.01*255)**2, (0.03*255)**2
     ma, mb = uniform_filter(a, 8), uniform_filter(b, 8)
-    va = uniform_filter(a*a, 8) - ma*ma
-    vb = uniform_filter(b*b, 8) - mb*mb
-    cab = uniform_filter(a*b, 8) - ma*mb
-    s = ((2*ma*mb + c1)*(2*cab + c2))/((ma*ma + mb*mb + c1)*(va + vb + c2))
+    va     = uniform_filter(a*a, 8) - ma*ma
+    vb     = uniform_filter(b*b, 8) - mb*mb
+    cab    = uniform_filter(a*b, 8) - ma*mb
+    s      = ((2*ma*mb + c1)*(2*cab + c2))/((ma*ma + mb*mb + c1)*(va + vb + c2))
     return float(np.mean(s))
 
 # Tests --------------------------------------------------------------------------------------------
@@ -180,14 +191,19 @@ def test_latency_pacing(node, fmt, w, h, fps, seconds):
     ts  = np.array([r[0] for r in rows])
     seq = np.array([r[2] for r in rows])
     dec = [r for r in rows if r[4] is not None]
-    lat_first    = np.array([((int(r[0]*1000) - r[4][0]) & 0xffffffff) for r in dec], dtype=np.int64)
-    lat_complete = np.array([((int(r[1]*1000) - r[4][0]) & 0xffffffff) for r in dec], dtype=np.int64)
+    lat_first    = np.array([(int(r[0]*1000) - r[4][0]) & 0xffffffff for r in dec], dtype=np.int64)
+    lat_complete = np.array([(int(r[1]*1000) - r[4][0]) & 0xffffffff for r in dec], dtype=np.int64)
     lat_first    = lat_first[lat_first < 1000]
     lat_complete = lat_complete[lat_complete < 1000]
     render_ms = [r[4][0] for r in dec]
-    dup = sum(1 for a, b in zip(render_ms, render_ms[1:]) if a == b)
-    dt  = np.diff(ts)*1000 if len(ts) > 1 else np.array([0])
-    cpu = (ru1.ru_utime + ru1.ru_stime - ru0.ru_utime - ru0.ru_stime)/max(seconds, 1)
+    dup       = sum(1 for a, b in zip(render_ms, render_ms[1:]) if a == b)
+    dt        = np.diff(ts)*1000 if len(ts) > 1 else np.array([0])
+    cpu       = (ru1.ru_utime + ru1.ru_stime - ru0.ru_utime - ru0.ru_stime)/max(seconds, 1)
+    def lat_stats(x):
+        if not len(x):
+            return None
+        stats = [("median", np.median), ("p95", lambda x: np.percentile(x, 95)), ("max", np.max)]
+        return {k: round(float(f(x)), 1) for k, f in stats}
     return {
         "frames":            len(rows),
         "decoded":           len(dec),
@@ -199,17 +215,17 @@ def test_latency_pacing(node, fmt, w, h, fps, seconds):
         "seq_gaps":          int(np.sum(np.diff(seq) > 1)) if len(seq) > 1 else 0,
         "duplicates":        dup,
         "short_frames":      sum(1 for r in rows if r[3] < w*h*(2 if fmt == "YUYV" else 1.5)),
-        "lat_first_ms":      {k: round(float(f(lat_first)), 1) for k, f in [("median", np.median), ("p95", lambda x: np.percentile(x, 95)), ("max", np.max)]} if len(lat_first) else None,
-        "lat_complete_ms":   {k: round(float(f(lat_complete)), 1) for k, f in [("median", np.median), ("p95", lambda x: np.percentile(x, 95)), ("max", np.max)]} if len(lat_complete) else None,
+        "lat_first_ms":      lat_stats(lat_first),
+        "lat_complete_ms":   lat_stats(lat_complete),
         "capture_cpu_pct":   round(cpu*100, 1),
     }
 
 def test_quality(node, fmt, w, h, fps, fw, tag):
     """PSNR/SSIM of charts vs rendered reference (barcode area excluded)."""
-    sw, sh, _, _ = output_geometry(OUTPUT)
+    sw, sh, _, _  = output_geometry(OUTPUT)
     block, x0, y0 = barcode_geometry(w, h)
-    mask_h = y0 + 4*block
-    results = {}
+    mask_h        = y0 + 4*block
+    results       = {}
     for name in ["bars", "zoneplate", "text", "levels", "gradient"]:
         src = Source(name)
         try:
@@ -236,7 +252,8 @@ def test_quality(node, fmt, w, h, fps, fw, tag):
     return results
 
 def test_modes(node):
-    out = subprocess.run(["v4l2-ctl", "-d", node, "--list-formats-ext"], capture_output=True, text=True).stdout
+    cmd = ["v4l2-ctl", "-d", node, "--list-formats-ext"]
+    out = subprocess.run(cmd, capture_output=True, text=True).stdout
     return [l.strip() for l in out.splitlines() if l.strip().startswith(("[", "Size", "Interval"))]
 
 def test_start_stop(node, fmt, w, h, fps, cycles=20):
@@ -251,23 +268,37 @@ def test_start_stop(node, fmt, w, h, fps, cycles=20):
                 ok += 1
         except OSError:
             time.sleep(0.5)
-    return {"cycles": cycles, "ok": ok, "first_frame_s_median": round(float(np.median(times)), 3) if times else None}
+    return {
+        "cycles":               cycles,
+        "ok":                   ok,
+        "first_frame_s_median": round(float(np.median(times)), 3) if times else None,
+    }
 
 # Runner -------------------------------------------------------------------------------------------
 
-# (source mode, rate, capture per firmware: fmt, w, h, fps)
+# Scenarios: (source mode, rate, capture per firmware: (fmt, w, h, fps)).
 SCENARIOS = {
-    "1080p60": ("1920x1080", 60, {"stock": ("YUYV", 1920, 1080, 60), "camlink_4k": ("YUYV", 1920, 1080, 60)}),
-    "1080p30": ("1920x1080", 29.97, {"stock": ("YUYV", 1920, 1080, 30), "camlink_4k": ("YUYV", 1920, 1080, 30)}),
-    "720p60":  ("1280x720", 60, {"stock": ("YUYV", 1280, 720, 60), "camlink_4k": ("YUYV", 1280, 720, 60)}),
-    "2160p30": ("3840x2160", 30, {"stock": ("NV12", 3840, 2160, 30), "camlink_4k": ("YUYV", 1920, 1080, 30)}),
+    "1080p60":  ("1920x1080", 60, {
+        "stock":      ("YUYV", 1920, 1080, 60),
+        "camlink_4k": ("YUYV", 1920, 1080, 60)}),
+    "1080p30":  ("1920x1080", 29.97, {
+        "stock":      ("YUYV", 1920, 1080, 30),
+        "camlink_4k": ("YUYV", 1920, 1080, 30)}),
+    "720p60":   ("1280x720", 60, {
+        "stock":      ("YUYV", 1280, 720, 60),
+        "camlink_4k": ("YUYV", 1280, 720, 60)}),
+    "2160p30":  ("3840x2160", 30, {
+        "stock":      ("NV12", 3840, 2160, 30),
+        "camlink_4k": ("YUYV", 1920, 1080, 30)}),
     # Native 4K30 (4:2:0 both): stock NV12, CamLink 4K M420 (firmware built with PLL_FBDIV=21).
-    "2160p30n": ("3840x2160", 30, {"stock": ("NV12", 3840, 2160, 30), "camlink_4k": ("M420", 3840, 2160, 30)}),
+    "2160p30n": ("3840x2160", 30, {
+        "stock":      ("NV12", 3840, 2160, 30),
+        "camlink_4k": ("M420", 3840, 2160, 30)}),
 }
 
 def run(fw, scenarios, seconds):
     os.makedirs(BENCH_DIR, exist_ok=True)
-    path = os.path.join(BENCH_DIR, f"results_{fw}.json")
+    path    = os.path.join(BENCH_DIR, f"results_{fw}.json")
     results = json.load(open(path)) if os.path.exists(path) else {}
     select_firmware(fw)
     for name in scenarios:
@@ -275,12 +306,16 @@ def run(fw, scenarios, seconds):
         fmt, w, h, fps = caps[fw]
         print(f"[{fw}] {name}: source {mode}@{rate}, capture {fmt} {w}x{h}@{fps}", flush=True)
         set_mode(mode, rate)
-        node = video_node(fw)
+        node  = video_node(fw)
         entry = {"source": f"{mode}@{rate}", "capture": f"{fmt} {w}x{h}@{fps}", "node": node,
                  "screen_locked": screen_locked()}
+        def quality():
+            if screen_locked():
+                return {"skipped": "screen locked"}
+            return test_quality(node, fmt, w, h, fps, fw, name)
         for test, fn in [
             ("latency_pacing", lambda: test_latency_pacing(node, fmt, w, h, fps, seconds)),
-            ("quality",        lambda: {"skipped": "screen locked"} if screen_locked() else test_quality(node, fmt, w, h, fps, fw, name)),
+            ("quality",        quality),
             ("start_stop",     lambda: test_start_stop(node, fmt, w, h, fps)),
             ("modes",          lambda: test_modes(node)),
         ]:
@@ -341,6 +376,8 @@ def report():
         lines.append("")
     open(os.path.join(ROOT, "doc", "BENCHMARK.md"), "w").write("\n".join(lines) + "\n")
     print("\n".join(lines))
+
+# Main ---------------------------------------------------------------------------------------------
 
 def main():
     parser = argparse.ArgumentParser(description="Stock vs CamLink 4K benchmark.")

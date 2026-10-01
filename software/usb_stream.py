@@ -10,14 +10,23 @@ import time
 
 import usb1
 
+# Constants ----------------------------------------------------------------------------------------
+
+# USB product strings of our firmware (current, and before the renames).
+PRODUCTS = ("CamLink 4K", "CamLinX 4K", "CamLinX", "LiteCamLink")
+
+# USB Stream Reader --------------------------------------------------------------------------------
+
 class USBStreamReader:
-    def __init__(self, vid=0x1209, pid=0x0001, ep=0x81, transfer_size=512*1024, transfers=8, interface=1):
+    """Bulk IN reader keeping several libusb transfers in flight."""
+    def __init__(self, vid=0x1209, pid=0x0001, ep=0x81, transfer_size=512*1024, transfers=8,
+        interface=1):
         self.ctx    = usb1.USBContext()
         self.handle = None
         for device in self.ctx.getDeviceIterator(skip_on_error=True):
             if (device.getVendorID(), device.getProductID()) == (vid, pid):
                 try:
-                    if device.getProduct() in ("CamLink 4K", "CamLinX 4K", "CamLinX", "LiteCamLink"): # Current, before renames.
+                    if device.getProduct() in PRODUCTS:
                         self.handle = device.open()
                         break
                 except usb1.USBError:
@@ -26,7 +35,7 @@ class USBStreamReader:
             raise RuntimeError("Device not found.")
         self.handle.setAutoDetachKernelDriver(True)
         self.handle.claimInterface(interface)
-        self.interface = interface
+        self.interface     = interface
         self.ep            = ep
         self.transfer_size = transfer_size
         self.transfers     = transfers
@@ -52,7 +61,10 @@ class USBStreamReader:
 
         for _ in range(self.transfers):
             transfer = self.handle.getTransfer()
-            transfer.setBulk(self.ep, self.transfer_size, callback=on_complete, timeout=int(timeout*1000))
+            transfer.setBulk(self.ep, self.transfer_size,
+                callback = on_complete,
+                timeout  = int(timeout*1000),
+            )
             state["submitted"] += self.transfer_size
             transfer.submit()
             pending.append(transfer)

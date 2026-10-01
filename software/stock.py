@@ -16,8 +16,12 @@ import os
 import glob
 import fcntl
 
+# Constants ----------------------------------------------------------------------------------------
+
 VID  = 0x0fd9
 PIDS = (0x0066, 0x0067)
+
+# Helpers ------------------------------------------------------------------------------------------
 
 def _ioc(d, t, nr, size):
     return (d << 30) | (size << 16) | (ord(t) << 8) | nr
@@ -26,6 +30,7 @@ def HIDIOCSOUTPUT(n):
     return _ioc(3, "H", 0x0b, n)
 
 def find_hidraw():
+    """Return the hidraw node of the stock Cam Link HID interface (None if not found)."""
     for node in sorted(glob.glob("/sys/class/hidraw/hidraw*")):
         try:
             uevent = open(os.path.join(node, "device/uevent")).read()
@@ -36,7 +41,10 @@ def find_hidraw():
                 return "/dev/" + os.path.basename(node)
     return None
 
+# Cold Reset ---------------------------------------------------------------------------------------
+
 def cold_reset():
+    """Cold reset the FX3 through the stock firmware HID interface."""
     path = find_hidraw()
     if path is None:
         raise RuntimeError("Stock Cam Link HID interface not found.")

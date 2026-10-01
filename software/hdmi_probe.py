@@ -10,8 +10,6 @@
 
 import os
 import sys
-import time
-import struct
 import argparse
 
 import numpy as np
@@ -22,7 +20,11 @@ from usb_stream import USBStreamReader
 
 import usb.util
 
-IT6802 = 0x49
+# Constants ----------------------------------------------------------------------------------------
+
+IT6802 = 0x49 # HDMI receiver I2C address.
+
+# Helpers ------------------------------------------------------------------------------------------
 
 def it_read(cl, reg, bank=0):
     cl.i2c_write(IT6802, bytes([0x0f]), bytes([bank]))
@@ -41,8 +43,11 @@ def status(cl, bus):
           f"overflow {bus.regs.hdmi_in_overflow.read()}")
     return st
 
+# Capture ------------------------------------------------------------------------------------------
+
 def yuy2_to_rgb(frame, width, height):
-    f = np.frombuffer(frame, dtype=np.uint8)[:width*height*2].reshape(height, width//2, 4).astype(np.float32)
+    f = np.frombuffer(frame, dtype=np.uint8)[:width*height*2]
+    f = f.reshape(height, width//2, 4).astype(np.float32)
     y0, u, y1, v = f[..., 0], f[..., 1] - 128, f[..., 2], f[..., 3] - 128
     y = np.stack([y0, y1], axis=-1).reshape(height, width) - 16
     u = np.repeat(u, 2, axis=1)
@@ -52,7 +57,8 @@ def yuy2_to_rgb(frame, width, height):
     b = 1.164*y + 2.112*u
     return np.clip(np.stack([r, g, b], axis=-1), 0, 255).astype(np.uint8)
 
-def capture(cl, bus, width, height, y_lane, c_lane, c_swap=0, ddr=0, ddr_swap=0, downscale=0, filename=None):
+def capture(cl, bus, width, height, y_lane, c_lane, c_swap=0, ddr=0, ddr_swap=0, downscale=0,
+    filename=None):
     """Capture one HDMI frame through the UVC packetizer over raw USB."""
     bus.regs.gpif_control.write(0)
     bus.regs.pattern_enable.write(0)
@@ -62,9 +68,9 @@ def capture(cl, bus, width, height, y_lane, c_lane, c_swap=0, ddr=0, ddr_swap=0,
         (ddr << 12) | (ddr_swap << 13) | (downscale << 14))
     cl.stream_start()
     bus.regs.gpif_control.write((4 << 8) | 3)
-    frame_size = width*height*2
+    frame_size   = width*height*2
     payload_size = bus.regs.uvc_payload_words.read()*4 + 12 # One FX3 DMA buffer.
-    state = {"frame": bytearray(), "frames": []}
+    state        = {"frame": bytearray(), "frames": []}
     def on_transfer(chunk):
         for off in range(0, len(chunk), payload_size):
             payload = chunk[off:off + payload_size]
@@ -83,19 +89,23 @@ def capture(cl, bus, width, height, y_lane, c_lane, c_swap=0, ddr=0, ddr_swap=0,
     bus.regs.hdmi_in_control.write(0)
     cl.stream_stop()
     good = [f for f in state["frames"] if len(f) == frame_size]
-    print(f"Capture y_lane={y_lane} c_lane={c_lane} c_swap={c_swap} ddr={ddr}/{ddr_swap} ds={downscale}: {len(state['frames'])} frames, "
-          f"{len(good)} complete, sizes {[len(f) for f in state['frames'][:4]]}")
+    print(f"Capture y_lane={y_lane} c_lane={c_lane} c_swap={c_swap} ddr={ddr}/{ddr_swap} "
+          f"ds={downscale}: {len(state['frames'])} frames, {len(good)} complete, "
+          f"sizes {[len(f) for f in state['frames'][:4]]}")
     if good and filename:
         from PIL import Image
         Image.fromarray(yuy2_to_rgb(good[-1], width, height)).save(filename)
         print(f"  saved {filename}")
     return good
 
+# Main ---------------------------------------------------------------------------------------------
+
 def main():
     parser = argparse.ArgumentParser(description="CamLink 4K HDMI bring-up helper.")
-    parser.add_argument("--capture", action="store_true", help="Capture frames for all Y/C lane combinations.")
-    parser.add_argument("--y-lane",  type=int, help="Only this Y lane.")
-    parser.add_argument("--c-lane",  type=int, help="Only this C lane.")
+    parser.add_argument("--capture",   action="store_true",
+        help="Capture frames for all Y/C lane combinations.")
+    parser.add_argument("--y-lane",    type=int, help="Only this Y lane.")
+    parser.add_argument("--c-lane",    type=int, help="Only this C lane.")
     parser.add_argument("--c-swap",    type=int, default=0)
     parser.add_argument("--ddr",       type=int, default=0)
     parser.add_argument("--ddr-swap",  type=int, default=0)
@@ -104,7 +114,7 @@ def main():
 
     cl  = CamLink()
     bus = CamLinkBus(cl)
-    st  = status(cl, bus)
+    status(cl, bus)
     if args.capture:
         width, height = bus.regs.hdmi_in_hres.read(), bus.regs.hdmi_in_vres.read()
         if args.ddr:
@@ -118,9 +128,13 @@ def main():
         if args.y_lane is not None:
             lanes = [(args.y_lane, args.c_lane)]
         for y, c in lanes:
-            capture(cl, bus, width, height, y, c, c_swap=args.c_swap, ddr=args.ddr, ddr_swap=args.ddr_swap,
-                downscale=args.downscale,
-                filename=f"build/hdmi_y{y}_c{c}_s{args.c_swap}_d{args.ddr_swap}.png")
+            capture(cl, bus, width, height, y, c,
+                c_swap    = args.c_swap,
+                ddr       = args.ddr,
+                ddr_swap  = args.ddr_swap,
+                downscale = args.downscale,
+                filename  = f"build/hdmi_y{y}_c{c}_s{args.c_swap}_d{args.ddr_swap}.png",
+            )
 
 if __name__ == "__main__":
     main()

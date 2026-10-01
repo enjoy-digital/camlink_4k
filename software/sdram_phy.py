@@ -4,8 +4,10 @@
 # Copyright (c) 2026 Florent Kermarrec <florent@enjoy-digital.fr>
 # SPDX-License-Identifier: BSD-2-Clause
 
-"""LiteDRAM PHY settings and DDR3 init sequence from the generated sdram_phy.h (host DRAM tools,
-FX3 firmware generator)."""
+"""LiteDRAM PHY settings and DDR3 init sequence from the generated sdram_phy.h.
+
+Used by the host DRAM tools and by the FX3 firmware generator.
+"""
 
 import re
 
@@ -23,7 +25,7 @@ DFII_COMMAND_RAS    = 0x08
 DFII_COMMAND_WRDATA = 0x10
 DFII_COMMAND_RDDATA = 0x20
 
-# PHY settings (from sdram_phy.h) ------------------------------------------------------------------
+# PHY Settings (from sdram_phy.h) ------------------------------------------------------------------
 
 class PhySettings:
     def __init__(self, header):
@@ -31,15 +33,15 @@ class PhySettings:
         def define(name, default=None):
             m = re.search(rf"#define {name} (\S+)", self.header)
             return int(m.group(1).rstrip("UL"), 0) if m else default
-        self.phases     = define("SDRAM_PHY_PHASES")
-        self.databits   = define("SDRAM_PHY_DATABITS")
+        self.phases       = define("SDRAM_PHY_PHASES")
+        self.databits     = define("SDRAM_PHY_DATABITS")
         self.dfi_databits = define("SDRAM_PHY_DFI_DATABITS")
-        self.rdphase    = define("SDRAM_PHY_RDPHASE")
-        self.wrphase    = define("SDRAM_PHY_WRPHASE")
-        self.modules    = define("SDRAM_PHY_MODULES")
-        self.delays     = define("SDRAM_PHY_DELAYS")
-        self.bitslips   = define("SDRAM_PHY_BITSLIPS")
-        self.memory     = define("SDRAM_PHY_SUPPORTED_MEMORY")
+        self.rdphase      = define("SDRAM_PHY_RDPHASE")
+        self.wrphase      = define("SDRAM_PHY_WRPHASE")
+        self.modules      = define("SDRAM_PHY_MODULES")
+        self.delays       = define("SDRAM_PHY_DELAYS")
+        self.bitslips     = define("SDRAM_PHY_BITSLIPS")
+        self.memory       = define("SDRAM_PHY_SUPPORTED_MEMORY")
 
     def init_sequence(self):
         """Parse init_sequence() into (kind, args) steps."""
@@ -47,10 +49,14 @@ class PhySettings:
         body  = body.split("\n}\n", 1)[0]
         steps = []
         flags = {
-            "DFII_CONTROL_SEL": DFII_CONTROL_SEL, "DFII_CONTROL_CKE": DFII_CONTROL_CKE,
-            "DFII_CONTROL_ODT": DFII_CONTROL_ODT, "DFII_CONTROL_RESET_N": DFII_CONTROL_RESET_N,
-            "DFII_COMMAND_CS": DFII_COMMAND_CS, "DFII_COMMAND_WE": DFII_COMMAND_WE,
-            "DFII_COMMAND_CAS": DFII_COMMAND_CAS, "DFII_COMMAND_RAS": DFII_COMMAND_RAS,
+            "DFII_CONTROL_SEL"     : DFII_CONTROL_SEL,
+            "DFII_CONTROL_CKE"     : DFII_CONTROL_CKE,
+            "DFII_CONTROL_ODT"     : DFII_CONTROL_ODT,
+            "DFII_CONTROL_RESET_N" : DFII_CONTROL_RESET_N,
+            "DFII_COMMAND_CS"      : DFII_COMMAND_CS,
+            "DFII_COMMAND_WE"      : DFII_COMMAND_WE,
+            "DFII_COMMAND_CAS"     : DFII_COMMAND_CAS,
+            "DFII_COMMAND_RAS"     : DFII_COMMAND_RAS,
         }
         def value(expr):
             expr = expr.strip()

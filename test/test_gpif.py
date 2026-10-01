@@ -26,16 +26,17 @@ class FX3Model:
 
     Waveform: IDLE/DATA on thread 0, DECIDE on ASEL|EOP (commit on EOP), AIDLE/ADATA on thread 1.
     DMA (per thread): ring of `buf_count` buffers of `buf_words` words, drained by the "USB" every
-    `drain` cycles. Buffer switch quirk seen on hardware: when a thread's next buffer becomes current
-    (immediately after a buffer is filled/committed if one is free, later otherwise), DQ is captured
-    as its first word and the first word pushed into it is dropped. FLAGs = current buffer available.
+    `drain` cycles. Buffer switch quirk seen on hardware: when a thread's next buffer becomes
+    current (immediately after a buffer is filled/committed if one is free, later otherwise), DQ is
+    captured as its first word and the first word pushed into it is dropped. FLAGs = current buffer
+    available.
     Stream start: hardware writes the GPIF input register (loaded on IDLE entry, see gpif.c), which
     holds the DQ presented by the FPGA streaming logic in reset (modelled as a DQ capture).
     Early sampling quirk (why the FPGA presents a word `head_lead` cycles before VALID): the first
     word after a gap (VALID low) is sampled one cycle early (previous cycle's DQ).
     """
-    def __init__(self, dut, buf_words=(64, 48), buf_count=(4, 4), drain=(80, 150), switch_delay=(2, 2),
-        dma_start=1):
+    def __init__(self, dut, buf_words=(64, 48), buf_count=(4, 4), drain=(80, 150),
+        switch_delay=(2, 2), dma_start=1):
         self.dma_start    = dma_start
         self.dut          = dut
         self.buf_words    = buf_words
@@ -55,18 +56,18 @@ class FX3Model:
         ctl     = self.dut.ctl
         state   = "IDLE"
         cycle   = 0
-        cur     = [None, None]          # Current buffer: {"words": [...], "skip": bool}.
+        cur     = [None, None] # Current buffer: {"words": [...], "skip": bool}.
         free    = [n - 1 for n in self.buf_count]
-        filled  = [0, 0]                # Completed buffers not yet drained.
-        switch  = [None, None]          # Cycle at which a pending switch happens.
+        filled  = [0, 0]       # Completed buffers not yet drained.
+        switch  = [None, None] # Cycle at which a pending switch happens.
         dq_hist = []
         valid_d = 0
         dq_d    = 0
-        started = False # DMA start: DQ captured as the first word of the first buffers.
+        started = False        # DMA start: DQ captured as the first word of the first buffers.
 
         def complete(t):
             self.buffers[t].append(cur[t]["words"])
-            cur[t]    = None
+            cur[t]     = None
             filled[t] += 1
 
         def push(t, word):
@@ -82,7 +83,8 @@ class FX3Model:
 
         while True:
             # FLAGs (active low in the FPGA: flag_invert=1).
-            yield ctl.i.eq((((cur[0] is None) << 1) | ((cur[1] is None) << 4)) if started else 0b10010)
+            flags = ((cur[0] is None) << 1) | ((cur[1] is None) << 4)
+            yield ctl.i.eq(flags if started else 0b10010)
             yield
             cycle += 1
             valid = (yield ctl.o[0])
@@ -138,20 +140,20 @@ class FX3Model:
                     cur[t]    = {"words": [dq], "skip": True}
                     switch[t] = None
 
-# Tests --------------------------------------------------------------------------------------------
+# DUT / Test Runner --------------------------------------------------------------------------------
 
 class DUT(LiteXModule):
     def __init__(self):
-        self.pads = pads = FX3Pads()
-        self.gpif = GPIFStreamer(pads, with_audio=True, audio_packet_words=48, sim=True)
+        self.pads    = pads = FX3Pads()
+        self.gpif    = GPIFStreamer(pads, with_audio=True, audio_packet_words=48, sim=True)
         self.ctl     = self.gpif.ctl
         self.pads_dq = pads.dq
 
-def run_video_audio(video_gap, drain=(80, 150), switch_delay=(2, 2), switch_guard=16, audio_batch=1,
-    audio_packets=4):
+def run_video_audio(video_gap, drain=(80, 150), switch_delay=(2, 2), switch_guard=16,
+    audio_batch=1, audio_packets=4):
     random.seed(0)
-    dut    = DUT()
-    fx3    = FX3Model(dut, drain=drain, switch_delay=switch_delay)
+    dut = DUT()
+    fx3 = FX3Model(dut, drain=drain, switch_delay=switch_delay)
     # Video payloads: full (64 words = one buffer/burst) and short (EOP commit) ones.
     lengths  = [64, 64, 40]*4
     payloads = []
@@ -221,6 +223,8 @@ def run_video_audio(video_gap, drain=(80, 150), switch_delay=(2, 2), switch_guar
     assert fx3.words(0)[1:len(video)] == video[1:]
     assert fx3.commits == lengths.count(40)
     return fx3
+
+# Tests --------------------------------------------------------------------------------------------
 
 def test_gpif_video_audio():
     run_video_audio(video_gap=0)
@@ -299,5 +303,10 @@ def test_gpif_first_word():
 
 def test_gpif_video_audio_batch():
     # Audio packets sent by batches of 3 per thread 1 phase (with buffer switch lag).
-    fx3 = run_video_audio(video_gap=0, switch_delay=(2, 20), switch_guard=64, audio_batch=3, audio_packets=6)
+    fx3 = run_video_audio(video_gap=0,
+        switch_delay  = (2, 20),
+        switch_guard  = 64,
+        audio_batch   = 3,
+        audio_packets = 6,
+    )
     assert fx3.audio_phases == 2

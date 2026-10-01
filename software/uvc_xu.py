@@ -25,12 +25,16 @@ import argparse
 
 from v4l2cap import find_device
 
+# Constants ----------------------------------------------------------------------------------------
+
 XU_UNIT_ID            = 4
 XU_INPUT_INFO_CONTROL = 1
 XU_CROP_CONTROL       = 2
 
 UVC_SET_CUR = 0x01
 UVC_GET_CUR = 0x81
+
+# Extension Unit Access ----------------------------------------------------------------------------
 
 class uvc_xu_control_query(ctypes.Structure):
     _fields_ = [
@@ -41,15 +45,18 @@ class uvc_xu_control_query(ctypes.Structure):
         ("data",     ctypes.POINTER(ctypes.c_uint8)),
     ]
 
-UVCIOC_CTRL_QUERY = 0xc0000000 | (ctypes.sizeof(uvc_xu_control_query) << 16) | (ord("u") << 8) | 0x21
+UVCIOC_CTRL_QUERY = (0xc0000000 | (ctypes.sizeof(uvc_xu_control_query) << 16) |
+    (ord("u") << 8) | 0x21)
 
 def xu_query(fd, selector, query, data):
+    """Query an Extension Unit control, return the (updated) data."""
     buf = (ctypes.c_uint8*len(data)).from_buffer_copy(bytes(data))
     q   = uvc_xu_control_query(XU_UNIT_ID, selector, query, len(data), buf)
     fcntl.ioctl(fd, UVCIOC_CTRL_QUERY, q)
     return bytes(buf)
 
 def input_info(fd, sys_clk_freq=100e6):
+    """Return the HDMI input info (resolution, fps, color space, signal)."""
     d = xu_query(fd, XU_INPUT_INFO_CONTROL, UVC_GET_CUR, bytes(24))
     present, sys_status, hpd, stable = d[:4]
     htotal, hactive, vtotal, vactive = struct.unpack("<4H", d[4:12])
@@ -64,8 +71,11 @@ def input_info(fd, sys_clk_freq=100e6):
         "generation": generation,
     }
 
+# Main ---------------------------------------------------------------------------------------------
+
 def main():
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--device", default=None)
     sub = parser.add_subparsers(dest="cmd", required=True)
     sub.add_parser("info")

@@ -12,17 +12,18 @@ Unlike `camlink.py uvc-raw-test` (vendor stream start), this goes through the fi
 it can run while the audio interface streams (arecord through snd-usb-audio).
 """
 
-import time
 import struct
 import argparse
 
 from usb_stream import USBStreamReader
 
-UVC_SET_CUR = 0x01
-UVC_GET_CUR = 0x81
+# Constants ----------------------------------------------------------------------------------------
+
+UVC_SET_CUR           = 0x01
+UVC_GET_CUR           = 0x81
 UVC_VS_PROBE_CONTROL  = 0x01
 UVC_VS_COMMIT_CONTROL = 0x02
-PAYLOAD_SIZE = 32768 # Default (negotiated value used when available).
+PAYLOAD_SIZE          = 32768 # Default (negotiated value used when available).
 
 FRAMES = {
     1: {1: (1920, 1080), 2: (1280, 720), 3: (640, 480)}, # YUY2.
@@ -31,26 +32,39 @@ FRAMES = {
 }
 BPP = {1: 16, 2: 12, 3: 12} # YUY2, M420, NV12 (frame buffer builds).
 
+# UVC Commit ---------------------------------------------------------------------------------------
+
 def uvc_commit(handle, frame_index, fps, format_index=1):
-    probe = struct.pack("<HBBIHHHHHIIIBBBB", 0, format_index, frame_index, 10000000//fps, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 1, 1, 1)
+    """UVC PROBE/COMMIT of a format/frame/fps, return the negotiated max payload size."""
+    probe = struct.pack("<HBBIHHHHHIIIBBBB", 0, format_index, frame_index, 10000000//fps,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1)
     for selector in (UVC_VS_PROBE_CONTROL, UVC_VS_COMMIT_CONTROL):
         handle.controlWrite(0x21, UVC_SET_CUR, selector << 8, 1, probe)
     # Negotiated dwMaxPayloadTransferSize (one FX3 DMA buffer per payload).
     cur = handle.controlRead(0xa1, UVC_GET_CUR, UVC_VS_COMMIT_CONTROL << 8, 1, len(probe))
     return struct.unpack_from("<I", bytes(cur), 22)[0]
 
-def raw_capture(frame=1, fps=30, seconds=4, format_index=1, dump=0, payload_size=None):
-    """Raw UVC capture (uvcvideo detached), returns statistics (frames, header errors...)."""
-    width, height = FRAMES[format_index][frame]
-    frame_size = width*height*BPP[format_index]//8
+# Raw Capture --------------------------------------------------------------------------------------
 
-    reader = USBStreamReader()
-    max_payload = uvc_commit(reader.handle, frame, fps, format_index)
+def raw_capture(frame=1, fps=30, seconds=4, format_index=1, dump=0, payload_size=None):
+    """Raw UVC capture (uvcvideo detached), return statistics (frames, header errors...)."""
+    width, height = FRAMES[format_index][frame]
+    frame_size    = width*height*BPP[format_index]//8
+
+    reader       = USBStreamReader()
+    max_payload  = uvc_commit(reader.handle, frame, fps, format_index)
     payload_size = payload_size or max_payload or PAYLOAD_SIZE
 
-    state = {"frame": 0, "frames": [], "fid": None, "errors": 0, "dumps": 0, "payloads": 0,
-        "short": [], "error_at": []}
+    state = {
+        "frame"    : 0,
+        "frames"   : [],
+        "fid"      : None,
+        "errors"   : 0,
+        "dumps"    : 0,
+        "payloads" : 0,
+        "short"    : [],
+        "error_at" : [],
+    }
     def on_transfer(chunk):
         for off in range(0, len(chunk), payload_size):
             payload = chunk[off:off + payload_size]
@@ -101,10 +115,14 @@ def raw_capture(frame=1, fps=30, seconds=4, format_index=1, dump=0, payload_size
         "error":         error,
     }
 
+# Main ---------------------------------------------------------------------------------------------
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--format",  type=int, default=1, help="UVC format index (1: YUY2, 2: M420).")
-    parser.add_argument("--frame",   type=int, default=1, help="UVC frame index (YUY2: 1080p/720p/480p, M420: 2160p/1080p).")
+    parser.add_argument("--format",  type=int, default=1,
+        help="UVC format index (1: YUY2, 2: M420).")
+    parser.add_argument("--frame",   type=int, default=1,
+        help="UVC frame index (YUY2: 1080p/720p/480p, M420: 2160p/1080p).")
     parser.add_argument("--fps",     type=int, default=30)
     parser.add_argument("--seconds", type=float, default=4)
     parser.add_argument("--dump",    type=int, default=4, help="Bad payloads to dump.")

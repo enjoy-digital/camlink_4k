@@ -24,16 +24,17 @@ V4L2_BUF_TYPE_VIDEO_CAPTURE = 1
 V4L2_MEMORY_MMAP            = 1
 V4L2_FIELD_NONE             = 1
 
-VIDIOC_S_FMT    = 0xc0d05605
-VIDIOC_REQBUFS  = 0xc0145608
-VIDIOC_QUERYBUF = 0xc0585609
-VIDIOC_QBUF     = 0xc058560f
-VIDIOC_DQBUF    = 0xc0585611
-VIDIOC_STREAMON = 0x40045612
-VIDIOC_STREAMOFF= 0x40045613
-VIDIOC_S_PARM   = 0xc0cc5616
+VIDIOC_S_FMT     = 0xc0d05605
+VIDIOC_REQBUFS   = 0xc0145608
+VIDIOC_QUERYBUF  = 0xc0585609
+VIDIOC_QBUF      = 0xc058560f
+VIDIOC_DQBUF     = 0xc0585611
+VIDIOC_STREAMON  = 0x40045612
+VIDIOC_STREAMOFF = 0x40045613
+VIDIOC_S_PARM    = 0xc0cc5616
 
 def fourcc(s):
+    """Return the V4L2 fourcc code of a 4-character string."""
     return struct.unpack("<I", s.encode())[0]
 
 # Helpers ------------------------------------------------------------------------------------------
@@ -52,7 +53,8 @@ def find_device(name="CamLink 4K"):
 
 def yuy2_to_rgb(frame, width, height):
     """YUY2 -> RGB (BT.709, limited range)."""
-    f = np.frombuffer(frame, dtype=np.uint8)[:width*height*2].reshape(height, width//2, 4).astype(np.float32)
+    f = np.frombuffer(frame, dtype=np.uint8)[:width*height*2]
+    f = f.reshape(height, width//2, 4).astype(np.float32)
     y = np.stack([f[..., 0], f[..., 2]], axis=-1).reshape(height, width) - 16
     u = np.repeat(f[..., 1] - 128, 2, axis=1)
     v = np.repeat(f[..., 3] - 128, 2, axis=1)
@@ -80,18 +82,21 @@ def m420_to_rgb(frame, width, height):
     return np.clip(np.stack([r, g, b], axis=-1), 0, 255).astype(np.uint8)
 
 def yuy2_luma(frame, width, height):
+    """YUY2 -> Y plane (h, w)."""
     f = np.frombuffer(frame, dtype=np.uint8)[:width*height*2].reshape(height, width*2)
     return f[:, 0::2]
 
 # Capture ------------------------------------------------------------------------------------------
 
 class Capture:
+    """V4L2 mmap capture of a video node (context manager)."""
     def __init__(self, device=None, width=1920, height=1080, fps=30, pixfmt="YUYV", buffers=4):
         self.device = device or find_device()
         if self.device is None:
             raise RuntimeError("Capture device not found.")
-        self.width, self.height = width, height
-        self.fd = os.open(self.device, os.O_RDWR)
+        self.width  = width
+        self.height = height
+        self.fd     = os.open(self.device, os.O_RDWR)
 
         # Format.
         fmt = bytearray(208)
@@ -110,16 +115,18 @@ class Capture:
         fcntl.ioctl(self.fd, VIDIOC_S_PARM, parm)
 
         # Buffers.
-        req = bytearray(struct.pack("<III8x", buffers, V4L2_BUF_TYPE_VIDEO_CAPTURE, V4L2_MEMORY_MMAP))
+        req = struct.pack("<III8x", buffers, V4L2_BUF_TYPE_VIDEO_CAPTURE, V4L2_MEMORY_MMAP)
+        req = bytearray(req)
         fcntl.ioctl(self.fd, VIDIOC_REQBUFS, req)
-        count = struct.unpack_from("<I", req, 0)[0]
+        count     = struct.unpack_from("<I", req, 0)[0]
         self.maps = []
         for i in range(count):
             buf = self._buffer(i)
             fcntl.ioctl(self.fd, VIDIOC_QUERYBUF, buf)
             offset = struct.unpack_from("<I", buf, 64)[0]
             length = struct.unpack_from("<I", buf, 72)[0]
-            self.maps.append(mmap.mmap(self.fd, length, mmap.MAP_SHARED, mmap.PROT_READ, offset=offset))
+            self.maps.append(mmap.mmap(self.fd, length, mmap.MAP_SHARED, mmap.PROT_READ,
+                offset=offset))
             fcntl.ioctl(self.fd, VIDIOC_QBUF, buf)
         self.streaming = False
 
@@ -135,8 +142,11 @@ class Capture:
         self.streaming = True
 
     def read(self, copy=True, timeout=2.0):
-        """Return (data, buffer_ts, sequence, dequeue_ts, bytesused, flags); timestamps in seconds
-        (CLOCK_MONOTONIC). Raises TimeoutError when no frame arrives within timeout."""
+        """Return (data, buffer_ts, sequence, dequeue_ts, bytesused, flags).
+
+        Timestamps are in seconds (CLOCK_MONOTONIC). Raise TimeoutError when no frame arrives within
+        timeout.
+        """
         if not select.select([self.fd], [], [], timeout)[0]:
             raise TimeoutError("No frame.")
         buf = self._buffer(0)
@@ -144,8 +154,8 @@ class Capture:
         t_dq = time.monotonic()
         index, _, bytesused, flags = struct.unpack_from("<IIII", buf, 0)
         sec, usec = struct.unpack_from("<qq", buf, 24)
-        seq = struct.unpack_from("<I", buf, 56)[0]
-        data = bytes(self.maps[index][:bytesused]) if copy else None
+        seq       = struct.unpack_from("<I", buf, 56)[0]
+        data      = bytes(self.maps[index][:bytesused]) if copy else None
         fcntl.ioctl(self.fd, VIDIOC_QBUF, buf)
         return data, sec + usec*1e-6, seq, t_dq, bytesused, flags
 

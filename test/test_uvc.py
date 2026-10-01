@@ -8,10 +8,10 @@ from migen import *
 
 from litex.gen import *
 
-from camlink_4k.gateware.video import VideoPatternGenerator, COLOR_BARS, yuy2_word
+from camlink_4k.gateware.video import VideoPatternGenerator, yuy2_word
 from camlink_4k.gateware.uvc   import UVCPacketizer
 
-# Test ---------------------------------------------------------------------------------------------
+# DUT ----------------------------------------------------------------------------------------------
 
 HWORDS = 16
 VRES   = 4
@@ -21,6 +21,8 @@ class DUT(LiteXModule):
         self.pattern = VideoPatternGenerator(sys_clk_freq=1e3)
         self.uvc     = UVCPacketizer(payload_words=10)
         self.comb += self.pattern.source.connect(self.uvc.sink)
+
+# Tests --------------------------------------------------------------------------------------------
 
 def test_pattern_uvc_payloads():
     dut      = DUT()

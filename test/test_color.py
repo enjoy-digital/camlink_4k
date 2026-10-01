@@ -12,6 +12,8 @@ from litex.gen import *
 
 from camlink_4k.gateware.color import ColorAdjust
 
+# Helpers ------------------------------------------------------------------------------------------
+
 def model(word, brightness, contrast, saturation):
     out = 0
     for i in range(4):
@@ -51,6 +53,8 @@ def run(brightness, contrast, saturation, ready=lambda i: 1):
 
     run_simulation(dut, [gen(), sink()])
     assert out == [model(w, brightness, contrast, saturation) for w in words]
+
+# Tests --------------------------------------------------------------------------------------------
 
 def test_color_identity():
     run(0, 128, 128)
