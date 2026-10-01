@@ -11,18 +11,24 @@ Commit/Push**. The stock firmware can be restored at any time from the flash bac
 
 ## Phases
 
-| #  | Phase                          | Content                                                                                     | Status |
-|----|--------------------------------|---------------------------------------------------------------------------------------------|--------|
-| 0  | Bootstrap                      | Repo, docs, platform, flash backup, stock I2C/EDID dumps, bench scripts.                    | Done   |
-| 1  | FX3 bare-metal hello           | Bare-metal C (fx3lafw register defs), RAM boot, EP0 vendor requests (ident, peek/poke).     | Done   |
-| 2  | FPGA configuration from FX3    | Slave-SPI bitstream load from the host, DONE readback. `camlink_4k.py --load`.                 | Done   |
-| 3  | FX3 USB streaming              | Bulk IN EP1 on SuperSpeed, async host reader: 300MB/s sustained (GPIF 96MHz x 32-bit).        | Done   |
-| 4  | GPIF-II + FPGA pattern         | GPIF master waveform, auto DMA, FPGA GPIFStreamer + counter/pattern sources, CRC-free counter check. | Done   |
-| 5  | UVC                            | UVC 1.1 YUY2 480p/720p/1080p @30/60, FPGA packetizer, probe/commit, works with uvcvideo/ffmpeg/VLC. | Done   |
-| 6  | DDR3 frame buffer              | LiteDRAM 1:4 DDR3-594 (upstreamed), NV12 frame buffer: 4K30 NV12 at 30 fps, DRAM init in the FX3 firmware, standalone flash boot (`doc/DRAM.md`). | Done   |
-| 7  | HDMI capture                   | IT6802 init/EDID/HPD, DDR capture + 2x downscale: MacBook 4K30 -> 1080p30 via uvcvideo/VLC. | WIP    |
-| 8  | Audio                          | I2S capture, in-band over GPIF, UAC 1.0, A/V sync.                                          |        |
-| 9  | Beyond stock                   | Low latency, extra modes/EDIDs (1440p...), scaling, formats (P010/RGB), stats, self-test.   |        |
+| #  | Phase                       | Content                                                                                              | Status               |
+|----|-----------------------------|------------------------------------------------------------------------------------------------------|----------------------|
+| 0  | Bootstrap                   | Repo, docs, platform, flash backup, stock I2C/EDID dumps, bench scripts.                             | Done                 |
+| 1  | FX3 bare-metal hello        | Bare-metal C (fx3lafw register defs), RAM boot, EP0 vendor requests (ident, peek/poke).              | Done                 |
+| 2  | FPGA configuration from FX3 | Slave-SPI bitstream load from the host, DONE readback. `camlink_4k.py --load`.                       | Done                 |
+| 3  | FX3 USB streaming           | Bulk IN EP1 on SuperSpeed, async host reader: 300MB/s sustained (GPIF 96MHz x 32-bit).               | Done                 |
+| 4  | GPIF-II + FPGA pattern      | GPIF master waveform, auto DMA, FPGA GPIFStreamer + counter/pattern sources, CRC-free counter check. | Done                 |
+| 5  | UVC                         | UVC 1.1 YUY2 480p/720p/1080p @30/60, FPGA packetizer, probe/commit, works with uvcvideo/ffmpeg/VLC.  | Done                 |
+| 6  | DDR3 frame buffer           | LiteDRAM 1:4 DDR3-594 (upstreamed), 4K30 NV12 frame buffer, DRAM init by the FX3 (`doc/DRAM.md`).    | Done                 |
+| 7  | HDMI capture                | IT6802 init/EDID/HPD, SDR (1080p60) and DDR (4K30) capture, CSC, 2x2 box downscale.                  | Done (4K30, 1080p60) |
+| 8  | Audio                       | HDMI I2S capture, in-band over GPIF (thread 1), UAC 1.0 48 kHz stereo.                               | Done (bit exact)     |
+| 9  | Beyond stock                | Low latency, extra modes/EDIDs (1440p...), scaling, formats (P010/RGB), stats, self-test.            | Partial              |
+
+Phase 9 detail: done: low latency line streaming (`doc/LATENCY.md`), low latency viewer
+(`software/viewer`), scaling (2x2 box downscale, letterbox, center crop), 4K crop (UVC Extension
+Unit), colour controls (brightness/contrast/saturation, RGB range), input info (Extension Unit),
+link stats (`camlink.py stats`), hardware self-test (`software/validate.py`). Open: extra modes
+and EDIDs (1440p, 1080p120), P010/RGB formats.
 
 ## Debug / Control Path
 
@@ -39,12 +45,17 @@ Commit/Push**. The stock firmware can be restored at any time from the flash bac
 - Frame timestamps, dropped frames/stats counters, input info exposed through UVC controls.
 - Test pattern / self-test mode, latency measurement tool, recovery/update tool.
 
-## Status Notes
+## Status
 
-- Development loop: `software/camlink.py boot` (FX3 RAM load + FPGA load), `camlink.py csr` (FPGA CSRs
-  through the FX3 I2C master and the FPGA I2C bridge), `stream-test`, `uvc-raw-test`, `i2c-dump`.
-- UVC measured through uvcvideo: 640x480@60 59.94fps, 1280x720@60 59.94fps, 1920x1080@60 59.94fps.
-- HDMI: MacBook Pro 4K30 input captured as 1920x1080@30 (downscaled), 30.00fps sustained, no dropped
-  frames. To do: colour validation with a known pattern, native 1080p60 (SDR path), full 4K modes.
-- Known limitations: the first frame after a stream start is lost (FX3 first-word quirk); a ZLP
-  follows each short payload (ignored by uvcvideo); 4K30 needs > 300MB/s or NV12.
+- Working capture card, standalone boot from the SPI flash (CamLink 4K FX3 image at 0, bitstream
+  with the `LCLK` header at 0x100000), FX3 boot watchdog + FPGA watchdog.
+- Video: 4K30 NV12 through the DDR3 frame buffer (LiteDRAM, ECP5 DDR3-594 at 1:4), 4K30 M420,
+  1080p60 YUY2 with scaling/crop/colour controls. Audio: HDMI over UAC, bit exact.
+- EDID generated by `software/edid.py` and loaded into the IT6802 EDID RAM by the firmware.
+- Validation: `python3 -m pytest test` (simulation and host tests), `software/validate.py` (12
+  hardware steps, 12/12). NV12 default build: seed 6, all clocks met.
+- Latency (1080p60, from the source render): first USB data ~3.5 ms, frame to application 19 ms
+  (stock 46 ms, MS2109 64 ms), see `doc/LATENCY.md` and `doc/COMPARISON.md`.
+- Upstream: LiteDRAM #408 (ECP5 DDR3 1:4) and LiteX-Boards #866 merged, LiteDRAM #409/#410 open
+  (`doc/upstream`).
+- Known limitations: see the README (4K max 30 fps, no HDCP, test USB PID).

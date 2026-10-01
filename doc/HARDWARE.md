@@ -11,7 +11,7 @@ Rev.3 (`0x00A1`) are different designs and are not covered.
 | FPGA                   | Lattice ECP5 `LFE5U-25F-8BG381C`         | IDCODE `0x41111043`, Slave-SPI config.    |
 | USB controller         | Cypress FX3 `CYUSB3014` (ARM926EJ-S)     | 512KB SRAM, GPIF-II 32-bit to the FPGA.   |
 | HDMI receiver          | ITE `IT6802` rev `0xB1` (IT6801FN marking)| Parallel video + I2S to the FPGA.        |
-| DRAM                   | Micron `MT41K64M16TW` DDR3L, 128MB x16   | Stock: SSTL15, LiteX: SSTL135 (both work?)|
+| DRAM                   | Micron `MT41K64M16TW` DDR3L, 128MB x16   | Stock: SSTL15, ours: SSTL135 (see below). |
 | SPI Flash              | Winbond `W25Q32JVIQ`, 4MB                | On FX3 SPI only.                          |
 | DDR termination        | Anpec `APL5338`                          |                                           |
 | Clock                  | 27MHz on FPGA `B11` (PCLKT0_0)           |                                           |
@@ -143,14 +143,15 @@ Tools: `camlink.py flash-bitstream`, `flash-fx3`, `flash-dump`, `fpga-boot`, and
 
 ## Missing / To Recover
 
-| # | Topic                                         | Plan                                                                 |
-|---|-----------------------------------------------|----------------------------------------------------------------------|
-| 1 | IT6802 init sequence (datasheet under NDA)    | Dump all IT6802 registers through the stock HID I2C tunnel per mode; sniff stock boot I2C with a logic analyzer; public vendor BSP drivers. |
-| 2 | IT6802 output format (SDR/DDR, YUV422/RGB, pixel clock at 4K) | Frequency counters and LiteScope on the FPGA side once IT6802 init is ours. |
-| 3 | DDR3 VCCIO (1.35V vs 1.5V)                    | Measure; LiteDRAM memtest with SSTL135 already passed in 2019.       |
-| 4 | Pin verification of the netlist spreadsheet   | FX3 <-> FPGA done (PinTest). IT6802/I2C/I2S pins still to verify.    |
-| 5 | Audio path                                    | Ours: I2S -> FPGA -> GPIF (in-band) -> FX3 -> UAC.                   |
-| 6 | Device at I2C `0x38`                          | Low priority.                                                        |
+| # | Topic                      | Plan                                                                                    |
+|---|----------------------------|-----------------------------------------------------------------------------------------|
+| 1 | DDR3 VCCIO (1.35V vs 1.5V) | Measure. The stock bitstream uses SSTL15, ours SSTL135: both work (DDR3-594 frame buffer, 64MB memtest). |
+| 2 | Device at I2C `0x38`       | Unknown, low priority.                                                                  |
+
+Resolved since the first version of this list: the IT6802 init sequence is our own
+(`firmware/fx3/it6802.c`), its output format is known (see IT6802 above), the IT6802 video, I2C and
+I2S pins are verified by working video and audio capture, and the audio path is implemented
+(I2S -> FPGA -> GPIF in-band -> FX3 -> UAC).
 
 ## References
 

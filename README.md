@@ -24,7 +24,9 @@ hardware:
   (made for agentic development: video/audio in, CSRs/flash/FPGA control out).
 
 > Status: working capture card, validated on hardware (`software/validate.py`), see
-> [doc/PLAN.md](doc/PLAN.md) and [doc/DRAM.md](doc/DRAM.md).
+> [doc/PLAN.md](doc/PLAN.md) and [doc/DRAM.md](doc/DRAM.md). Supported: the **1st gen** Cam Link 4K
+> only (`0fd9:0066`/`0067`); the Cam Link 4K MK.2 (`0fd9:007b`) and Rev.3 (`0fd9:00a1`) are
+> different designs.
 
 ## Inside
 
@@ -61,7 +63,7 @@ bridges CSRs and exposes the UVC/UAC interfaces to the host.
 | [![One 1080p60 frame slowed down: CamLink 4K streams lines as they arrive, stock buffers the frame](doc/images/camlink_4k-race.jpg)](doc/images/camlink_4k-race.jpg) | [![Latency measured on the same bench: MS2109, stock firmware, CamLink 4K](doc/images/camlink_4k-latency.jpg)](doc/images/camlink_4k-latency.jpg) |
 
 Measured on the same bench with one clock (1080p60, from the source render): frame delivered to
-applications in 19 ms (stock firmware 46 ms, a cheap MS2109 USB stick 64 ms), on screen in 37 ms with
+applications in 19 ms (stock firmware 46 ms, a cheap MS2109 USB stick 64 ms), on screen in 35-38 ms with
 `camlink_view` in a desktop window and 19-30 ms with direct display (Vulkan, no compositor). Method,
 per stage breakdown and tools: [doc/LATENCY.md](doc/LATENCY.md), [doc/COMPARISON.md](doc/COMPARISON.md).
 
@@ -74,7 +76,7 @@ Trellis; the SoC with [LiteX](https://github.com/enjoy-digital/litex), [Migen](h
 and [LiteX-Boards](https://github.com/litex-hub/litex-boards); the DDR3 frame buffer with
 [LiteDRAM](https://github.com/enjoy-digital/litedram); the FX3 firmware is bare-metal C built with GCC;
 the host tools and viewer are open too. CamLink 4K adds the capture pipeline and gives back ECP5 DDR3
-at 1:4 to LiteDRAM (#408 merged, #409/#410) and LiteX-Boards (#866 merged), see
+at 1:4 to LiteDRAM (#408 merged, #409/#410 open) and LiteX-Boards (#866 merged), see
 [doc/upstream](doc/upstream).
 
 ## Docs
@@ -86,17 +88,80 @@ at 1:4 to LiteDRAM (#408 merged, #409/#410) and LiteX-Boards (#866 merged), see
 - [doc/LATENCY.md](doc/LATENCY.md): latency measurements, low latency viewer (`software/viewer`), next steps.
 - [doc/COMPARISON.md](doc/COMPARISON.md): stock vs CamLink 4K vs a cheap USB 2.0 stick (MS2109), possibilities of each.
 - [doc/IDEAS_PCIE.md](doc/IDEAS_PCIE.md): design note, LitePCIe video input/output cards (line based capture, phase locked output, low latency streaming, IP-KVM).
-- [doc/ROADMAP.md](doc/ROADMAP.md): benchmarking vs stock, improvements and new features.
+- [doc/ROADMAP.md](doc/ROADMAP.md): improvements and new features.
+- [doc/BENCHMARK.md](doc/BENCHMARK.md), [doc/THROUGHPUT.md](doc/THROUGHPUT.md): stock comparison, USB/GPIF throughput.
+- [doc/VALIDATION.md](doc/VALIDATION.md): development log of the hardware validation (historical).
 - [doc/upstream](doc/upstream): LiteDRAM/LiteX-Boards contributions.
 
-## Build
+## Getting started
+
+> **Warning**: this replaces the firmware of your Cam Link 4K. Back up the full SPI flash first: it
+> holds the stock firmware (which this project does not and cannot distribute) and the unit serial
+> number. It may void your warranty; use at your own risk. The FX3 boot ROM always offers a USB
+> bootloader recovery (see below).
+
+### Requirements
+
+- Linux host (host tools, viewer and udev rules are Linux only).
+- FPGA: [LiteX](https://github.com/enjoy-digital/litex), [LiteDRAM](https://github.com/enjoy-digital/litedram)
+  and Migen (`litex_setup.py --init --install`, LiteDRAM with #408), Yosys, nextpnr-ecp5 and
+  Project Trellis (e.g. [OSS CAD Suite](https://github.com/YosysHQ/oss-cad-suite-build)).
+- FX3 firmware: `arm-none-eabi-gcc`.
+- Python: `pip3 install -e .` (pyusb, numpy; `.[bench]` adds libusb1, Pillow, scipy, pytest for the
+  bench and test tools).
+- Viewer (optional): libusb-1.0, SDL2, X11/Xrandr, GL, libdrm, xcb, Vulkan development packages.
+- USB access: `sudo cp software/udev/70-camlink.rules /etc/udev/rules.d/ && sudo udevadm control
+  --reload-rules && sudo udevadm trigger`.
+
+### Build
 
 ```sh
-./camlink_4k.py --build                 # Default: NV12 variant (DRAM frame buffer, 4K30 NV12).
+./camlink_4k.py --build                 # Gateware, default NV12 variant (DRAM frame buffer, 4K30 NV12).
 ./camlink_4k.py --build --variant base  # Without DRAM (YUY2/M420), --output-dir to keep both.
-make -C firmware/fx3                 # FX3 firmware for build/csr.csv (CSR_CSV=... otherwise).
-python3 software/camlink.py boot     # Load FX3 firmware + bitstream, HDMI and DRAM init.
+make -C firmware/fx3                    # FX3 firmware (uses build/csr.csv: build the gateware first).
+make -C software/viewer                 # Low latency viewer (optional).
+python3 -m pytest test                  # Simulation and host tests (~20 min).
 ```
+
+### Install
+
+1. Back up the stock flash with [cl4k-fwtool](https://github.com/schlarpc/elgato-cam-link-4k-firmware-re)
+   (stock firmware, vendor HID interface), twice, and compare:
+   `sudo ./tools/cl4k-fwtool.py dump flash_a.bin`, `... dump flash_b.bin`, `cmp flash_a.bin flash_b.bin`.
+2. Replace the stock FX3 image (flash offset 0) with the CamLink 4K one, with the same tool
+   (`flash --mcu firmware/fx3/build/fx3.img`, dry run, then `--commit`); the stock bitstream and
+   settings are left in place. Power cycle.
+3. Load the bitstream, then make the device standalone:
+
+```sh
+python3 software/camlink.py boot             # Device in the FX3 bootloader (04b4:00f3) or running our firmware.
+python3 software/camlink.py flash-bitstream  # Bitstream at 0x100000 (stock bitstream kept at 0x040000).
+python3 software/camlink.py flash-fx3        # FX3 image at 0 (standalone boot).
+python3 software/validate.py                 # Hardware checks (capture, audio, controls, 4K30).
+```
+
+The device then enumerates as `CamLink 4K` (UVC + UAC): `ffplay -f v4l2 /dev/videoN`, OBS, VLC, or
+`software/viewer/camlink_view` (lowest latency, see [doc/LATENCY.md](doc/LATENCY.md)).
+
+### Recovery and back to stock
+
+- `camlink.py flash-recover` erases the FX3 image (block 0): the FX3 boot ROM then falls back to the
+  USB bootloader (`04b4:00f3`), where `camlink.py boot` loads the firmware to RAM again.
+- A firmware that never enumerates returns to the bootloader by itself (boot watchdog).
+- Back to stock: `camlink.py flash-recover` then `camlink.py boot` (firmware running from RAM), then
+  `camlink.py flash-write flash_a.bin --force` (whole flash: erase/program/verify), power cycle.
+- Stock FX3 image in RAM without touching the flash (comparisons):
+  `camlink.py fx3-extract flash_a.bin stock_fx3.img`, then `camlink.py fx3-load stock_fx3.img` from
+  the bootloader (`software/fw_switch.py` automates it).
+
+### Known limitations
+
+- 4K is 30 fps maximum (IT6802 HDMI 1.4 receiver); 4K30 as NV12 (through the DDR3 frame buffer,
+  up to one more frame of latency) or M420; native 4K YUY2 does not fit USB 3 bandwidth.
+- No HDCP sources.
+- USB VID/PID: pid.codes test PID `1209:0001` (selected by product string, a dedicated PID is to be
+  requested).
+- The viewer `--drm` path (RandR lease) is untested; `--vk` (Vulkan direct display) is the tested one.
 
 ## Credits
 
@@ -117,7 +182,10 @@ for attribution and remain the property of their owners.
 
 ## License
 
-BSD-2-Clause, see [LICENSE](LICENSE).
+BSD-2-Clause, see [LICENSE](LICENSE). Third-party parts: `firmware/fx3/rdb/` register definitions
+are MIT (Marcus Comstedt, fx3lafw, see [LICENSES](LICENSES)); `camlink_4k/gateware/ecp5ddrphy.py`
+derives from LiteDRAM (BSD-2-Clause); `doc/pinout.csv` derives from the apertus/Greg Davill board
+netlist.
 
 Custom work, 15+ years of FPGA: [enjoy-digital.fr](https://enjoy-digital.fr).
 

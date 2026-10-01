@@ -2,6 +2,14 @@
 
 Same Cam Link 4K unit, same cable, host `HDMI-0` as source (`software/source.py`), captures through uvcvideo (`software/bench.py`). Latency: host render time (barcode) to first byte (V4L2 buffer timestamp) / frame complete (dequeue).
 
+Notes:
+- Latency is covered in [LATENCY.md](LATENCY.md) (per stage, both firmwares, display): the latency
+  rows of this harness were not filled ("-").
+- Image quality metrics (PSNR/SSIM per test pattern) were not run ("-").
+- The 2160p30 table compares stock NV12 3840x2160 with CamLink 4K YUY2 1920x1080 (2x2 downscale of
+  the 4K input), measured before the CamLink 4K 4K30 formats (M420, NV12 through DDR3) existed: it
+  does not compare native 4K captures.
+
 ## 1080p60
 
 | Metric | Stock | CamLink 4K |

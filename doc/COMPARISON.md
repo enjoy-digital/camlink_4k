@@ -1,7 +1,7 @@
 # Capture Devices: Comparison and Possibilities
 
-Three ways to capture this PC's HDMI output on the same bench (2026-10-01): the Elgato Cam Link 4K
-with its stock firmware, the same hardware with CamLink 4K, and a cheap USB 2.0 capture stick
+Three ways to capture the HDMI output of the bench host (2026-10-01): the Elgato Cam Link 4K with
+its stock firmware, the same hardware with CamLink 4K, and a cheap USB 2.0 capture stick
 (MacroSilicon MS2109). Measurements and method: [LATENCY.md](LATENCY.md).
 
 ## Hardware

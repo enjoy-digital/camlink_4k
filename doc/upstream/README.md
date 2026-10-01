@@ -34,15 +34,15 @@ not reachable on this board without the CamLink 4K I2C/UART bridge).
 
 ## Notes / Open Items
 
-- sys/sys2x crossing of the DFI rate converter (fixed locally, to upstream): `Serializer` samples
+- sys/sys2x crossing of the DFI rate converter (upstreamed as #410, open): `Serializer` samples
   each sys word on both sys2x edges (combinational slice select) and `Deserializer` hands the last
   slice to sys on the next edge. With the ECP5 CLKDIVF clocks (edges coincident or a quarter sys
   period apart, set at each PHY init), one sample is a hold race or has ~3.4ns of setup, and
   nextpnr does not check these cross-domain paths: DRAM worked on ~1 of 8 frame buffer builds
   (DFII writes did not land). `RateCrossing` (`camlink_4k/gateware/ecp5ddrphy.py`) captures each
   word once per sys cycle on a CSR-selected sys2x edge and aligns the read words with a runtime
-  shift: 8/8 loads OK on 2 builds. Candidate for `DFIRateConverter` (optional safe crossing).
-- ECP5DDRPHY IO gearing reset (fixed locally with `io_rst_init`, to upstream): the IOLOGIC/DQSBUFM
+  shift: 8/8 loads OK on 2 builds. Proposed for `DFIRateConverter` as an optional safe crossing.
+- ECP5DDRPHY IO gearing reset (`io_rst_init`, upstreamed as #409, open): the IOLOGIC/DQSBUFM
   `RST` pins use the sys reset, released after the edge clock restarts. Routed to the IOLOGICs with
   up to ~2.5ns of skew (> 1 ECLK period at DDR3-594 on some placements), the pins' gearboxes came
   out of reset on different ECLK edges: commands/data misaligned, DRAM dead on ~1 of 5 builds even
