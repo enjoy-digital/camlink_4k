@@ -598,5 +598,137 @@
         "date": "2026-10-01 09:11"
       }
     }
+  },
+  "viewer_vk_60hz": {
+    "direct": {
+      "top": {
+        "calibration": {
+          "samples": 726,
+          "median_ms": 1.1,
+          "mean_ms": 1.3,
+          "p5_ms": 0.5,
+          "p95_ms": 2.9,
+          "min_ms": 0.3,
+          "max_ms": 5.8,
+          "polls": 4667,
+          "invalid": 0,
+          "poll_hz": 1556
+        },
+        "output": [
+          "vk: DP-2.1 acquired, 1920x1080@60.00 Hz (1125 lines), shared (front buffer) present, direct display"
+        ],
+        "viewer_stages": {
+          "pos": "top",
+          "samples": 1189,
+          "first_payload_ms": 3.9,
+          "barcode_rows_ms": 7.4,
+          "present_ms": 7.9,
+          "rows_after_first_ms": 3.5,
+          "present_p5_ms": 5.6,
+          "present_p95_ms": 18.1,
+          "scanout_ms": 19.0,
+          "scanout_p5_ms": 16.8,
+          "scanout_p95_ms": 29.3
+        },
+        "date": "2026-10-01 09:25"
+      },
+      "bottom": {
+        "calibration": {
+          "samples": 562,
+          "median_ms": 1.1,
+          "mean_ms": 1.6,
+          "p5_ms": 0.5,
+          "p95_ms": 4.1,
+          "min_ms": 0.3,
+          "max_ms": 62.9,
+          "polls": 4650,
+          "invalid": 17,
+          "poll_hz": 1550
+        },
+        "output": [
+          "vk: DP-2.1 acquired, 1920x1080@60.00 Hz (1125 lines), shared (front buffer) present, direct display"
+        ],
+        "viewer_stages": {
+          "pos": "bottom",
+          "samples": 1157,
+          "first_payload_ms": 3.4,
+          "barcode_rows_ms": 18.1,
+          "present_ms": 18.4,
+          "rows_after_first_ms": 14.7,
+          "present_p5_ms": 16.3,
+          "present_p95_ms": 22.2,
+          "scanout_ms": 29.7,
+          "scanout_p5_ms": 27.6,
+          "scanout_p95_ms": 32.1
+        },
+        "date": "2026-10-01 09:25"
+      }
+    }
+  },
+  "viewer_vk_75hz": {
+    "direct": {
+      "top": {
+        "calibration": {
+          "samples": 729,
+          "median_ms": 1.2,
+          "mean_ms": 1.3,
+          "p5_ms": 0.5,
+          "p95_ms": 3.2,
+          "min_ms": 0.3,
+          "max_ms": 8.2,
+          "polls": 4646,
+          "invalid": 0,
+          "poll_hz": 1549
+        },
+        "output": [
+          "vk: DP-2.1 acquired, 1920x1080@74.97 Hz (1119 lines), shared (front buffer) present, direct display"
+        ],
+        "viewer_stages": {
+          "pos": "top",
+          "samples": 1142,
+          "first_payload_ms": 4.3,
+          "barcode_rows_ms": 7.8,
+          "present_ms": 9.4,
+          "rows_after_first_ms": 3.5,
+          "present_p5_ms": 5.8,
+          "present_p95_ms": 24.7,
+          "scanout_ms": 18.1,
+          "scanout_p5_ms": 9.6,
+          "scanout_p95_ms": 32.2
+        },
+        "date": "2026-10-01 09:26"
+      },
+      "bottom": {
+        "calibration": {
+          "samples": 729,
+          "median_ms": 1.1,
+          "mean_ms": 1.2,
+          "p5_ms": 0.5,
+          "p95_ms": 2.2,
+          "min_ms": 0.2,
+          "max_ms": 7.5,
+          "polls": 5269,
+          "invalid": 0,
+          "poll_hz": 1756
+        },
+        "output": [
+          "vk: DP-2.1 acquired, 1920x1080@74.97 Hz (1119 lines), shared (front buffer) present, direct display"
+        ],
+        "viewer_stages": {
+          "pos": "bottom",
+          "samples": 1148,
+          "first_payload_ms": 3.6,
+          "barcode_rows_ms": 18.2,
+          "present_ms": 18.7,
+          "rows_after_first_ms": 14.7,
+          "present_p5_ms": 16.5,
+          "present_p95_ms": 21.6,
+          "scanout_ms": 25.2,
+          "scanout_p5_ms": 18.7,
+          "scanout_p95_ms": 32.1
+        },
+        "date": "2026-10-01 09:27"
+      }
+    }
   }
 }

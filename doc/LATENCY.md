@@ -83,6 +83,38 @@ method as above (labels `viewer_*` in `doc/bench/latency_display.json`):
   ignored by GNOME's focus stealing prevention when another window has the focus; an obstructed
   window is always copied).
 
+## Direct display: no compositor (2026-10-01)
+
+`camlinx_view --vk DP-2.1` takes a third monitor from the X server with Vulkan
+(`VK_EXT_acquire_xlib_display`, the NVIDIA "direct mode" of VR runtimes: the NVIDIA X driver
+refuses RandR leases, `--drm` is the lease/KMS path for other GPUs, untested here) and writes the
+new rows into a shared presentable image (`VK_KHR_shared_presentable_image`, continuous refresh:
+the scanned out buffer itself), no compositor, no swap. The scanout of the barcode rows is
+computed from first pixel out display events (`VK_EXT_display_control`) and the RandR mode
+timings. 1080p60 capture, ms from the source render, median (p5-p95):
+
+| Display                           | Rows on USB | Rows in the scanned image | Scanout reaches the rows |
+|-----------------------------------|-------------|---------------------------|--------------------------|
+| Direct, 60 Hz, top                | 7.4         | 7.9                       | **19.0** (16.8-29.3)     |
+| Direct, 60 Hz, bottom             | 18.1        | 18.4                      | **29.7** (27.6-32.1)     |
+| Direct, 75 Hz, top                | 7.8         | 9.4                       | **18.1** (9.6-32.2)      |
+| Direct, 75 Hz, bottom             | 18.2        | 18.7                      | **25.2** (18.7-32.1)     |
+| Compositor `--front` (DP-1), top  | 7.2         | 20.0 (displayed buffer)   | ~23.6 (+ scan to row 240)  |
+| Compositor `--front`, bottom      | 18.0        | 36.4 (displayed buffer)   | ~51.5 (+ scan to row 1020) |
+
+- Direct display saves ~5 ms (top) and ~22 ms (bottom) over the best compositor path, and the
+  long tail (bottom p95 ~32 ms instead of ~68 ms).
+- After a line arrives, CamLinX + the viewer add ~0.3 ms before it is in the scanned buffer; the
+  device itself ~1 ms (line buffers, FX3 buffer, USB transfer).
+- What remains is the phase between the source and the display scans: at 60 Hz both outputs run
+  from the same GPU at the same rate, the phase is fixed (here the display scan trails by ~11 ms,
+  for every row); at 75 Hz it drifts and averages half a refresh (~6.7 ms). With an external
+  source the phase is random (half a refresh on average); a variable refresh display could start
+  each refresh right behind the incoming frame (~1 ms).
+- Setup: `xrandr --output DP-2.1 --off --set non-desktop 1`, then
+  `camlinx_view --vk DP-2.1 [--refresh 60] [--latency]`; back to the desktop:
+  `xrandr --output DP-2.1 --set non-desktop 0 --auto --right-of DP-1`.
+
 ## Earlier measurement
 
 | Date       | Firmware     | Source                   | Capture             | Render -> first byte | Render -> frame complete |
@@ -106,9 +138,10 @@ method as above (labels `viewer_*` in `doc/bench/latency_display.json`):
 
 ## Next
 
-1. Display stage of the viewer (~22 ms present -> displayed, bimodal): direct scanout below.
+1. Display phase: variable refresh (start each refresh behind the incoming frame), done: direct
+   display (no compositor) with `--vk`.
 2. 4K30 runs (NV12 through the frame buffer, M420 direct).
-3. Direct scanout (DRM lease of a monitor, YUY2/NV12 plane, no compositor) and VRR alignment.
+3. Direct display: YUY2/NV12 plane formats (no CPU conversion), M420 4K30.
 4. Low latency NV12: start reading the Y plane while the writer is a few lines ahead (reader
    chasing the writer in the same slot, UV plane read once the frame is written): saves ~1 frame.
 5. Device timestamps (PTS/SCR from the FPGA clock) for A/V sync and latency analysis without a
@@ -129,7 +162,8 @@ make -C software/viewer
 software/viewer/camlinx_view                                    # YUY2 1920x1080@60 (default)
 software/viewer/camlinx_view --size 1920x1080 --fps 30          # 4K30 source, 2x downscale
 software/viewer/camlinx_view --format m420 --size 3840x2160 --fps 30 --fullscreen  # 4K30 direct
-software/viewer/camlinx_view --front --fullscreen                # Lowest latency (YUY2, front buffer)
+software/viewer/camlinx_view --front --fullscreen                # Low latency in a desktop window
+software/viewer/camlinx_view --vk DP-2.1                         # Lowest: direct display (see above)
 ```
 
 `--front` (YUY2): OpenGL front buffer rendering (shader YUY2 -> RGB, only the new rows drawn, no

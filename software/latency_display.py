@@ -14,7 +14,8 @@ the barcode region of the screen (XShm) and timestamps the first appearance of e
 same probe on HDMI-0 itself gives the source's own render -> frame buffer time (calibration).
 Monitor scanout/processing is not included (same for all players).
 
-Players: ffplay (low latency options, fullscreen) and camlinx_view (CamLinX or stock, its own
+Players: ffplay (low latency options, fullscreen), "direct" (camlinx_view on a monitor taken from
+X with --vk/--drm in --viewer-args: stages and computed scanout from its own report) and camlinx_view (CamLinX or stock, its own
 stage timestamps: first payload of the frame, barcode rows received, present), plus the V4L2 path
 alone ("v4l2": uvcvideo buffer timestamp and dequeue time, what ffplay receives).
 Results are appended to doc/bench/latency_display.json (per sample CSVs in doc/bench/latency/).
@@ -35,7 +36,7 @@ RESULTS = os.path.join(ROOT, "doc", "bench", "latency_display.json")
 CSV_DIR = os.path.join(ROOT, "doc", "bench", "latency")
 
 W, H, FPS    = 1920, 1080, 60
-SOURCE_X     = 1920 # HDMI-0 position (right of DP-1).
+SOURCE_X     = 1920 # HDMI-0 position (read from xrandr at start).
 BLOCK        = W // (24 + 8)
 
 FFPLAY_LOW_LATENCY = ["-fflags", "nobuffer", "-flags", "low_delay", "-framedrop", "-sync", "ext",
@@ -109,6 +110,23 @@ def measure(player, pos, seconds, tries=3):
             "--content", "gray", "--barcode-pos", pos, "--duration", str(seconds + 30)])
         time.sleep(3)
         calib = latgrab(SOURCE_X + BLOCK, y0, 3) # Source render -> HDMI-0 frame buffer.
+        if player == "direct":
+            # camlinx_view on a monitor taken from X (--vk/--drm in --viewer-args): no X probe
+            # possible, the viewer reports its stages and the computed scanout of the rows.
+            csv = os.path.join(CSV_DIR, f"{LABEL}_direct_{pos}.csv")
+            out = subprocess.run([VIEWER, "--device", "stock" if FIRMWARE == "stock" else "camlinx", "--format", "yuy2",
+                "--size", f"{W}x{H}", "--fps", str(FPS), "--latency", "--seconds", str(seconds), "--csv", csv] + VIEWER_ARGS,
+                capture_output=True, text=True).stdout
+            stop(src)
+            time.sleep(2)
+            res = {"calibration": calib, "output": [l for l in out.splitlines() if l.startswith(("vk:", "drm:"))]}
+            for line in out.splitlines():
+                if line.startswith("{") and f'"pos": "{pos}"' in line:
+                    res["viewer_stages"] = json.loads(line)
+            if "viewer_stages" in res:
+                return res
+            print(f"  retry ({player}, {pos}): {out[-300:]}", flush=True)
+            continue
         if player == "v4l2":
             res = measure_v4l2(pos, seconds)
             stop(src)
@@ -167,6 +185,9 @@ def main():
     print(f"device: {DEVICE}", flush=True)
     subprocess.run(["xrandr", "--output", "HDMI-0", "--mode", f"{W}x{H}", "--rate", str(FPS)], check=True)
     time.sleep(6)
+    global SOURCE_X
+    from source import output_geometry
+    SOURCE_X = output_geometry("HDMI-0")[2]
     results = json.load(open(RESULTS)) if os.path.exists(RESULTS) else {}
     for player in args.players.split(","):
         for pos in args.pos.split(","):

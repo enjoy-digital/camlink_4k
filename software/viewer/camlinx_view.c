@@ -19,6 +19,14 @@
  * straight into the displayed (front) buffer, no swap: no present queue (tearing, like a beam
  * racing display) when the window is flipped/unredirected.
  *
+ * --drm OUTPUT (YUY2): direct scanout on a monitor leased from the X server (turn it off in the
+ * desktop first: xrandr --output OUTPUT --off), rows converted straight into the scanned out
+ * buffer: no compositor, no swap (drm_out.c).
+ *
+ * --vk OUTPUT (YUY2): direct display with Vulkan (VK_EXT_acquire_xlib_display, the NVIDIA way:
+ * NVIDIA refuses RandR leases): xrandr --output OUTPUT --off --set non-desktop 1 first, shared
+ * presentable image (front buffer scanned continuously) or immediate presents (vk_out.c).
+ *
  * --latency: decodes the software/source.py barcode (host CLOCK_MONOTONIC ms, top or bottom of the
  * frame) from the incoming YUY2 data and timestamps, per frame: the first payload of the frame,
  * the arrival of the barcode rows and the present showing them (per stage latency, doc/LATENCY.md).
@@ -40,6 +48,9 @@
 #include <SDL_syswm.h>
 #define GL_GLEXT_PROTOTYPES
 #include <SDL_opengl.h>
+
+#include "drm_out.h"
+#include "vk_out.h"
 
 /* Device ---------------------------------------------------------------------------------------- */
 
@@ -87,6 +98,7 @@ struct sample {
     double   t_first;        /* First payload of the frame received (host ms).                     */
     double   t_rows;         /* Transfer completing the barcode rows received.                     */
     double   t_present;      /* Present including the barcode rows returned.                       */
+    double   t_scan;         /* --drm: scanout of the last barcode row (computed from vblank).     */
 };
 
 /* Shared state (USB thread -> display thread) --------------------------------------------------- */
@@ -168,7 +180,7 @@ static void latency_rows(int rows)
             continue;
         V.last_src = (uint32_t)v;
         pthread_mutex_lock(&V.lock);
-        V.pending = (struct sample){(uint32_t)v, pos, V.t_first, V.t_xfer, 0};
+        V.pending = (struct sample){(uint32_t)v, pos, V.t_first, V.t_xfer, 0, 0};
         V.pending_seq   = V.frame_seq;
         V.pending_valid = 1;
         pthread_mutex_unlock(&V.lock);
@@ -479,10 +491,11 @@ static void latency_report(const char *csv)
 {
     static const char *pos_name[2] = {"top", "bottom"};
     FILE *f = csv ? fopen(csv, "w") : NULL;
-    if (f) fprintf(f, "pos,src_ms,first_ms,rows_ms,present_ms\n");
+    if (f) fprintf(f, "pos,src_ms,first_ms,rows_ms,present_ms,scanout_ms\n");
     for (int pos = 0; pos < 2; pos++) {
         double *a = malloc(V.nsamples*sizeof(double)), *b = malloc(V.nsamples*sizeof(double));
         double *c = malloc(V.nsamples*sizeof(double)), *d = malloc(V.nsamples*sizeof(double));
+        double *e = malloc(V.nsamples*sizeof(double));
         size_t n = 0;
         for (size_t i = 0; i < V.nsamples; i++) {
             struct sample *s = &V.samples[i];
@@ -492,17 +505,22 @@ static void latency_report(const char *csv)
             b[n] = since_src(s->t_rows, s->src_ms);
             c[n] = since_src(s->t_present, s->src_ms);
             d[n] = s->t_rows - s->t_first;
-            if (f) fprintf(f, "%s,%u,%.3f,%.3f,%.3f\n", pos_name[pos], s->src_ms, a[n], b[n], c[n]);
+            e[n] = s->t_scan > 0 ? since_src(s->t_scan, s->src_ms) : 0;
+            if (f) fprintf(f, "%s,%u,%.3f,%.3f,%.3f,%.3f\n", pos_name[pos], s->src_ms, a[n], b[n], c[n], e[n]);
             if (a[n] < 1000 && c[n] < 1000) n++;
         }
         if (n) {
             qsort(a, n, sizeof(double), cmp_double); qsort(b, n, sizeof(double), cmp_double);
             qsort(c, n, sizeof(double), cmp_double); qsort(d, n, sizeof(double), cmp_double);
+            qsort(e, n, sizeof(double), cmp_double);
             printf("{\"pos\": \"%s\", \"samples\": %zu, \"first_payload_ms\": %.1f, \"barcode_rows_ms\": %.1f, "
-                   "\"present_ms\": %.1f, \"rows_after_first_ms\": %.1f, \"present_p5_ms\": %.1f, \"present_p95_ms\": %.1f}\n",
+                   "\"present_ms\": %.1f, \"rows_after_first_ms\": %.1f, \"present_p5_ms\": %.1f, \"present_p95_ms\": %.1f",
                 pos_name[pos], n, a[n/2], b[n/2], c[n/2], d[n/2], c[n*5/100], c[n*95/100]);
+            if (e[n - 1] > 0)
+                printf(", \"scanout_ms\": %.1f, \"scanout_p5_ms\": %.1f, \"scanout_p95_ms\": %.1f", e[n/2], e[n*5/100], e[n*95/100]);
+            printf("}\n");
         }
-        free(a); free(b); free(c); free(d);
+        free(a); free(b); free(c); free(d); free(e);
     }
     if (f) fclose(f);
 }
@@ -515,7 +533,7 @@ static void usage(const char *prog)
 {
     fprintf(stderr,
         "Usage: %s [--device auto|camlinx|stock] [--format yuy2|m420] [--size WxH] [--fps N]\n"
-        "          [--fullscreen] [--vsync] [--front] [--latency] [--csv file] [--seconds S]\n"
+        "          [--fullscreen] [--vsync] [--front] [--drm OUTPUT] [--vk OUTPUT [--refresh HZ]] [--latency] [--csv file] [--seconds S]\n"
         "  CamLinX yuy2: 1920x1080 (default), 1280x720, 640x480 at 30/60 fps\n"
         "  CamLinX m420: 3840x2160 at 30 fps, 1920x1080 at 30/60 fps\n"
         "  stock: YUY2 at the input resolution/rate\n", prog);
@@ -523,9 +541,9 @@ static void usage(const char *prog)
 
 int main(int argc, char **argv)
 {
-    const char *which = "auto", *csv = NULL;
+    const char *which = "auto", *csv = NULL, *drm_name = NULL, *vk_name = NULL;
     int fullscreen = 0, vsync = 0, front = 0;
-    double seconds = 0;
+    double seconds = 0, refresh = 0;
     struct stream *s = &V.s;
     s->format = FMT_YUY2; s->width = 1920; s->height = 1080; s->fps = 60;
     for (int i = 1; i < argc; i++) {
@@ -538,12 +556,16 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--fullscreen"))              fullscreen = 1;
         else if (!strcmp(argv[i], "--vsync"))                   vsync = 1;
         else if (!strcmp(argv[i], "--front"))                   front = 1;
+        else if (!strcmp(argv[i], "--drm") && i + 1 < argc)     drm_name = argv[++i];
+        else if (!strcmp(argv[i], "--vk") && i + 1 < argc)      vk_name = argv[++i];
+        else if (!strcmp(argv[i], "--refresh") && i + 1 < argc) refresh = atof(argv[++i]);
         else if (!strcmp(argv[i], "--latency"))                 V.latency = 1;
         else if (!strcmp(argv[i], "--csv") && i + 1 < argc)     csv = argv[++i];
         else if (!strcmp(argv[i], "--seconds") && i + 1 < argc) seconds = atof(argv[++i]);
         else { usage(argv[0]); return 1; }
     }
-    if ((V.latency || front) && s->format != FMT_YUY2) { fprintf(stderr, "--latency/--front need YUY2.\n"); return 1; }
+    if ((V.latency || front || drm_name || vk_name) && s->format != FMT_YUY2) { fprintf(stderr, "--latency/--front/--drm/--vk need YUY2.\n"); return 1; }
+    int direct = drm_name || vk_name; /* No SDL window. */
     int width = s->width, height = s->height;
     V.frame_size = s->format == FMT_YUY2 ? (size_t)width*height*2 : (size_t)width*height*3/2;
     V.fid = -1;
@@ -579,7 +601,23 @@ int main(int argc, char **argv)
     printf("%s: interface %d, endpoint 0x%02x, format %d frame %d, payload %d bytes\n", s->device,
         s->interface, s->endpoint, s->format_index, s->frame_index, payload);
 
-    /* Display. */
+    /* Display: direct scanout (--drm) or an SDL window. */
+    struct drm_out dout;
+    SDL_Window *win = NULL;
+    SDL_Renderer *ren = NULL;
+    SDL_Texture  *tex = NULL;
+    struct front gl;
+    struct vk_out *vout = NULL;
+    if (drm_name) {
+        if (drm_out_open(&dout, drm_name, width, height))
+            return 1;
+        goto stream;
+    }
+    if (vk_name) {
+        if (!(vout = vk_out_open(vk_name, width, height, refresh)))
+            return 1;
+        goto stream;
+    }
     SDL_SetHint(SDL_HINT_RENDER_VSYNC, vsync ? "1" : "0");
     if (SDL_Init(SDL_INIT_VIDEO)) { fprintf(stderr, "SDL: %s\n", SDL_GetError()); return 1; }
     char title[128];
@@ -590,12 +628,9 @@ int main(int argc, char **argv)
         SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
         SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 1);
     }
-    SDL_Window *win = SDL_CreateWindow(title, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
+    win = SDL_CreateWindow(title, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
         width > 1920 ? width/2 : width, width > 1920 ? height/2 : height,
         SDL_WINDOW_RESIZABLE | (front ? SDL_WINDOW_OPENGL : 0) | (fullscreen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0));
-    SDL_Renderer *ren = NULL;
-    SDL_Texture  *tex = NULL;
-    struct front gl;
     if (front) {
         if (!win || !SDL_GL_CreateContext(win)) { fprintf(stderr, "SDL GL: %s\n", SDL_GetError()); return 1; }
         SDL_GL_SetSwapInterval(0);
@@ -607,6 +642,8 @@ int main(int argc, char **argv)
         if (!win || !ren || !tex) { fprintf(stderr, "SDL: %s\n", SDL_GetError()); return 1; }
     }
     activate_window(win);
+
+stream:
 
     /* Stream: transfers of whole payloads (a short payload ends its transfer). */
     V.running = 1;
@@ -626,7 +663,7 @@ int main(int argc, char **argv)
     uint64_t last_bytes = 0, last_frames = 0, presents = 0;
     while (V.running) {
         SDL_Event e;
-        while (SDL_PollEvent(&e))
+        while (!direct && SDL_PollEvent(&e))
             if (e.type == SDL_QUIT || (e.type == SDL_KEYDOWN && (e.key.keysym.sym == SDLK_q || e.key.keysym.sym == SDLK_ESCAPE)))
                 V.running = 0;
             else if (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_f) {
@@ -644,10 +681,14 @@ int main(int argc, char **argv)
         V.rows_shown = r1;
         pthread_mutex_unlock(&V.lock);
         if (r1 <= r0) {
-            SDL_Delay(0);
+            if (direct) { struct timespec ts = {0, 50000}; nanosleep(&ts, NULL); } else SDL_Delay(0);
             continue;
         }
-        if (front) {
+        if (vout) {
+            vk_out_write_yuy2(vout, V.y, width, r0, r1);
+        } else if (drm_name) {
+            drm_out_write_yuy2(&dout, V.y, width, r0, r1);
+        } else if (front) {
             front_draw(&gl, win, width, height, r0, r1);
         } else {
             SDL_Rect rect = {0, r0, width, r1 - r0};
@@ -665,6 +706,10 @@ int main(int argc, char **argv)
             pthread_mutex_lock(&V.lock);
             if (V.pending_valid && V.pending_seq == seq && r1 >= V.bar_y[V.pending.pos] + 3*V.bar_block) {
                 V.pending.t_present = now_ms();
+                if (drm_name)
+                    V.pending.t_scan = drm_out_scanout_ms(&dout, V.bar_y[V.pending.pos] + 3*V.bar_block - 1, V.pending.t_present);
+                if (vout)
+                    V.pending.t_scan = vk_out_scanout_ms(vout, V.bar_y[V.pending.pos] + 3*V.bar_block - 1, V.pending.t_present);
                 if (V.nsamples < MAX_SAMPLES)
                     V.samples[V.nsamples++] = V.pending;
                 V.pending_valid = 0;
@@ -696,7 +741,12 @@ int main(int argc, char **argv)
     libusb_exit(ctx);
     if (V.usb_error)
         fprintf(stderr, "USB transfer error: %s\n", libusb_error_name(V.usb_error));
-    SDL_Quit();
+    if (vout)
+        vk_out_close(vout);
+    else if (drm_name)
+        drm_out_close(&dout);
+    else
+        SDL_Quit();
     if (V.latency)
         latency_report(csv);
     printf("frames %llu (bad %llu), header errors %llu\n", (unsigned long long)V.frames,
