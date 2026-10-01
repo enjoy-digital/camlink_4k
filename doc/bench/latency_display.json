@@ -1,167 +1,373 @@
 {
   "camlinx_4k": {
-    "ffplay": {
+    "v4l2": {
       "top": {
-        "samples": 862,
-        "median_ms": 84.1,
-        "mean_ms": 84.1,
-        "p5_ms": 71.1,
-        "p95_ms": 101.1,
-        "min_ms": 63.1,
-        "max_ms": 173.5,
-        "polls": 9298,
-        "invalid": 1792,
-        "poll_hz": 465,
+        "buffer_timestamp": {
+          "samples": 1200,
+          "median_ms": 3.6,
+          "p5_ms": 1.6,
+          "p95_ms": 5.3
+        },
+        "dequeue": {
+          "samples": 1200,
+          "median_ms": 19.4,
+          "p5_ms": 17.5,
+          "p95_ms": 21.2
+        },
         "calibration": {
-          "samples": 729,
+          "samples": 733,
+          "median_ms": 1.2,
+          "mean_ms": 1.2,
+          "p5_ms": 0.5,
+          "p95_ms": 1.8,
+          "min_ms": 0.3,
+          "max_ms": 3.8,
+          "polls": 4745,
+          "invalid": 0,
+          "poll_hz": 1582
+        },
+        "date": "2026-10-01 08:19"
+      },
+      "bottom": {
+        "buffer_timestamp": {
+          "samples": 1200,
+          "median_ms": 2.9,
+          "p5_ms": 0.9,
+          "p95_ms": 5.3
+        },
+        "dequeue": {
+          "samples": 1200,
+          "median_ms": 18.9,
+          "p5_ms": 16.8,
+          "p95_ms": 21.2
+        },
+        "calibration": {
+          "samples": 555,
           "median_ms": 1.2,
           "mean_ms": 1.5,
           "p5_ms": 0.5,
-          "p95_ms": 3.7,
+          "p95_ms": 4.5,
           "min_ms": 0.3,
-          "max_ms": 5.7,
-          "polls": 4165,
+          "max_ms": 36.6,
+          "polls": 4780,
           "invalid": 0,
-          "poll_hz": 1388
+          "poll_hz": 1593
+        },
+        "date": "2026-10-01 08:20"
+      }
+    },
+    "ffplay": {
+      "top": {
+        "samples": 1603,
+        "median_ms": 71.6,
+        "mean_ms": 75.5,
+        "p5_ms": 68.7,
+        "p95_ms": 88.9,
+        "min_ms": 67.6,
+        "max_ms": 107.3,
+        "polls": 36690,
+        "invalid": 0,
+        "poll_hz": 1834,
+        "calibration": {
+          "samples": 727,
+          "median_ms": 1.0,
+          "mean_ms": 1.1,
+          "p5_ms": 0.5,
+          "p95_ms": 2.1,
+          "min_ms": 0.2,
+          "max_ms": 9.5,
+          "polls": 5421,
+          "invalid": 0,
+          "poll_hz": 1807
         },
         "attempt": 1,
-        "date": "2026-09-30 19:06"
+        "date": "2026-10-01 08:21"
       },
       "bottom": {
-        "samples": 1681,
-        "median_ms": 71.5,
-        "mean_ms": 75.4,
-        "p5_ms": 68.6,
-        "p95_ms": 88.5,
-        "min_ms": 67.4,
-        "max_ms": 90.4,
-        "polls": 36588,
+        "samples": 1630,
+        "median_ms": 71.6,
+        "mean_ms": 75.7,
+        "p5_ms": 68.4,
+        "p95_ms": 88.6,
+        "min_ms": 66.9,
+        "max_ms": 108.0,
+        "polls": 36824,
         "invalid": 0,
-        "poll_hz": 1829,
+        "poll_hz": 1841,
         "calibration": {
-          "samples": 301,
-          "median_ms": 1.7,
-          "mean_ms": 4.0,
-          "p5_ms": 0.7,
-          "p95_ms": 8.1,
-          "min_ms": 0.4,
-          "max_ms": 95.8,
-          "polls": 3620,
-          "invalid": 18,
-          "poll_hz": 1207
+          "samples": 730,
+          "median_ms": 1.1,
+          "mean_ms": 1.1,
+          "p5_ms": 0.5,
+          "p95_ms": 2.0,
+          "min_ms": 0.2,
+          "max_ms": 5.3,
+          "polls": 5267,
+          "invalid": 0,
+          "poll_hz": 1756
         },
         "attempt": 1,
-        "date": "2026-09-30 19:07"
+        "date": "2026-10-01 08:21"
       }
     },
     "viewer": {
       "top": {
-        "samples": 1525,
-        "median_ms": 22.7,
-        "mean_ms": 29.5,
+        "samples": 1467,
+        "median_ms": 34.6,
+        "mean_ms": 29.9,
         "p5_ms": 18.4,
-        "p95_ms": 52.6,
+        "p95_ms": 52.7,
         "min_ms": 16.7,
-        "max_ms": 73.3,
-        "polls": 25525,
+        "max_ms": 57.9,
+        "polls": 25254,
         "invalid": 0,
-        "poll_hz": 1276,
-        "calibration": {
-          "samples": 729,
-          "median_ms": 1.2,
-          "mean_ms": 1.2,
-          "p5_ms": 0.6,
-          "p95_ms": 1.9,
-          "min_ms": 0.4,
-          "max_ms": 5.4,
-          "polls": 4328,
-          "invalid": 0,
-          "poll_hz": 1443
+        "poll_hz": 1263,
+        "viewer_stages": {
+          "pos": "top",
+          "samples": 1347,
+          "first_payload_ms": 3.7,
+          "barcode_rows_ms": 7.3,
+          "present_ms": 12.2,
+          "rows_after_first_ms": 3.5,
+          "present_p5_ms": 9.4,
+          "present_p95_ms": 14.7
         },
-        "attempt": 1,
-        "date": "2026-09-30 19:08"
-      },
-      "bottom": {
-        "samples": 1652,
-        "median_ms": 50.5,
-        "mean_ms": 46.4,
-        "p5_ms": 34.4,
-        "p95_ms": 69.9,
-        "min_ms": 33.1,
-        "max_ms": 73.5,
-        "polls": 25983,
-        "invalid": 0,
-        "poll_hz": 1299,
         "calibration": {
-          "samples": 731,
+          "samples": 728,
           "median_ms": 1.1,
           "mean_ms": 1.2,
-          "p5_ms": 0.5,
-          "p95_ms": 1.8,
-          "min_ms": 0.4,
-          "max_ms": 3.9,
-          "polls": 4776,
+          "p5_ms": 0.4,
+          "p95_ms": 2.4,
+          "min_ms": 0.2,
+          "max_ms": 6.6,
+          "polls": 5291,
           "invalid": 0,
-          "poll_hz": 1592
+          "poll_hz": 1764
         },
         "attempt": 1,
-        "date": "2026-09-30 19:08"
+        "date": "2026-10-01 08:22"
+      },
+      "bottom": {
+        "samples": 1491,
+        "median_ms": 38.0,
+        "mean_ms": 44.0,
+        "p5_ms": 34.6,
+        "p95_ms": 58.8,
+        "min_ms": 33.1,
+        "max_ms": 83.4,
+        "polls": 24820,
+        "invalid": 0,
+        "poll_hz": 1241,
+        "viewer_stages": {
+          "pos": "bottom",
+          "samples": 838,
+          "first_payload_ms": 3.5,
+          "barcode_rows_ms": 18.2,
+          "present_ms": 22.3,
+          "rows_after_first_ms": 14.7,
+          "present_p5_ms": 20.2,
+          "present_p95_ms": 24.5
+        },
+        "calibration": {
+          "samples": 718,
+          "median_ms": 1.2,
+          "mean_ms": 1.3,
+          "p5_ms": 0.6,
+          "p95_ms": 2.4,
+          "min_ms": 0.3,
+          "max_ms": 10.5,
+          "polls": 4549,
+          "invalid": 0,
+          "poll_hz": 1516
+        },
+        "attempt": 1,
+        "date": "2026-10-01 08:22"
       }
     }
   },
   "stock": {
+    "v4l2": {
+      "top": {
+        "buffer_timestamp": {
+          "samples": 1197,
+          "median_ms": 35.2,
+          "p5_ms": 33.2,
+          "p95_ms": 37.2
+        },
+        "dequeue": {
+          "samples": 1197,
+          "median_ms": 46.1,
+          "p5_ms": 44.1,
+          "p95_ms": 48.1
+        },
+        "calibration": {
+          "samples": 732,
+          "median_ms": 1.1,
+          "mean_ms": 1.2,
+          "p5_ms": 0.5,
+          "p95_ms": 1.8,
+          "min_ms": 0.3,
+          "max_ms": 3.3,
+          "polls": 4833,
+          "invalid": 0,
+          "poll_hz": 1611
+        },
+        "date": "2026-10-01 08:23"
+      },
+      "bottom": {
+        "buffer_timestamp": {
+          "samples": 1197,
+          "median_ms": 34.4,
+          "p5_ms": 32.3,
+          "p95_ms": 36.5
+        },
+        "dequeue": {
+          "samples": 1197,
+          "median_ms": 45.3,
+          "p5_ms": 43.1,
+          "p95_ms": 47.4
+        },
+        "calibration": {
+          "samples": 734,
+          "median_ms": 1.1,
+          "mean_ms": 1.2,
+          "p5_ms": 0.5,
+          "p95_ms": 1.9,
+          "min_ms": 0.3,
+          "max_ms": 5.1,
+          "polls": 4846,
+          "invalid": 0,
+          "poll_hz": 1615
+        },
+        "date": "2026-10-01 08:24"
+      }
+    },
     "ffplay": {
       "top": {
-        "samples": 1619,
-        "median_ms": 87.8,
-        "mean_ms": 91.6,
-        "p5_ms": 84.9,
-        "p95_ms": 104.8,
-        "min_ms": 83.9,
-        "max_ms": 123.7,
-        "polls": 35630,
+        "samples": 1507,
+        "median_ms": 88.4,
+        "mean_ms": 94.1,
+        "p5_ms": 85.2,
+        "p95_ms": 119.8,
+        "min_ms": 84.0,
+        "max_ms": 123.8,
+        "polls": 36172,
         "invalid": 0,
-        "poll_hz": 1782,
+        "poll_hz": 1809,
+        "calibration": {
+          "samples": 731,
+          "median_ms": 1.2,
+          "mean_ms": 1.2,
+          "p5_ms": 0.6,
+          "p95_ms": 1.9,
+          "min_ms": 0.3,
+          "max_ms": 3.4,
+          "polls": 4733,
+          "invalid": 0,
+          "poll_hz": 1578
+        },
+        "attempt": 2,
+        "date": "2026-10-01 08:25"
+      },
+      "bottom": {
+        "samples": 1686,
+        "median_ms": 87.0,
+        "mean_ms": 91.2,
+        "p5_ms": 83.8,
+        "p95_ms": 104.3,
+        "min_ms": 82.7,
+        "max_ms": 123.2,
+        "polls": 36758,
+        "invalid": 0,
+        "poll_hz": 1838,
+        "calibration": {
+          "samples": 728,
+          "median_ms": 1.2,
+          "mean_ms": 1.3,
+          "p5_ms": 0.5,
+          "p95_ms": 2.7,
+          "min_ms": 0.3,
+          "max_ms": 7.0,
+          "polls": 4814,
+          "invalid": 0,
+          "poll_hz": 1605
+        },
+        "attempt": 1,
+        "date": "2026-10-01 08:26"
+      }
+    },
+    "viewer": {
+      "top": {
+        "samples": 1374,
+        "median_ms": 69.5,
+        "mean_ms": 71.4,
+        "p5_ms": 67.3,
+        "p95_ms": 86.4,
+        "min_ms": 66.6,
+        "max_ms": 88.7,
+        "polls": 26995,
+        "invalid": 0,
+        "poll_hz": 1350,
+        "viewer_stages": {
+          "pos": "top",
+          "samples": 1346,
+          "first_payload_ms": 35.1,
+          "barcode_rows_ms": 37.5,
+          "present_ms": 41.3,
+          "rows_after_first_ms": 2.4,
+          "present_p5_ms": 39.3,
+          "present_p95_ms": 43.3
+        },
+        "calibration": {
+          "samples": 732,
+          "median_ms": 1.1,
+          "mean_ms": 1.2,
+          "p5_ms": 0.6,
+          "p95_ms": 1.9,
+          "min_ms": 0.3,
+          "max_ms": 3.0,
+          "polls": 4909,
+          "invalid": 0,
+          "poll_hz": 1636
+        },
+        "attempt": 1,
+        "date": "2026-10-01 08:26"
+      },
+      "bottom": {
+        "samples": 1368,
+        "median_ms": 68.4,
+        "mean_ms": 70.1,
+        "p5_ms": 66.3,
+        "p95_ms": 84.4,
+        "min_ms": 65.6,
+        "max_ms": 87.2,
+        "polls": 26996,
+        "invalid": 0,
+        "poll_hz": 1350,
+        "viewer_stages": {
+          "pos": "bottom",
+          "samples": 1343,
+          "first_payload_ms": 34.0,
+          "barcode_rows_ms": 44.0,
+          "present_ms": 49.9,
+          "rows_after_first_ms": 10.0,
+          "present_p5_ms": 47.9,
+          "present_p95_ms": 52.0
+        },
         "calibration": {
           "samples": 733,
           "median_ms": 1.2,
           "mean_ms": 1.2,
           "p5_ms": 0.6,
-          "p95_ms": 2.0,
+          "p95_ms": 1.9,
           "min_ms": 0.3,
-          "max_ms": 6.1,
-          "polls": 4783,
+          "max_ms": 4.1,
+          "polls": 4776,
           "invalid": 0,
-          "poll_hz": 1594
+          "poll_hz": 1592
         },
         "attempt": 1,
-        "date": "2026-09-30 19:36"
-      },
-      "bottom": {
-        "samples": 1619,
-        "median_ms": 87.8,
-        "mean_ms": 91.6,
-        "p5_ms": 84.9,
-        "p95_ms": 104.8,
-        "min_ms": 83.4,
-        "max_ms": 122.5,
-        "polls": 34143,
-        "invalid": 0,
-        "poll_hz": 1707,
-        "calibration": {
-          "samples": 731,
-          "median_ms": 1.2,
-          "mean_ms": 1.3,
-          "p5_ms": 0.6,
-          "p95_ms": 2.1,
-          "min_ms": 0.3,
-          "max_ms": 6.1,
-          "polls": 4592,
-          "invalid": 0,
-          "poll_hz": 1531
-        },
-        "attempt": 1,
-        "date": "2026-09-30 19:37"
+        "date": "2026-10-01 08:27"
       }
     }
   }

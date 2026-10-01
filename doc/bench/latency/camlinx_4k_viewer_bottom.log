@@ -1,0 +1,3 @@
+CamLinX: interface 1, endpoint 0x81, format 1 frame 1, payload 32768 bytes
+{"pos": "bottom", "samples": 838, "first_payload_ms": 3.5, "barcode_rows_ms": 18.2, "present_ms": 22.3, "rows_after_first_ms": 14.7, "present_p5_ms": 20.2, "present_p95_ms": 24.5}
+frames 1346 (bad 2), header errors 0

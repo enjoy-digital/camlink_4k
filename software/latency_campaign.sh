@@ -19,8 +19,8 @@ SECONDS_PER_RUN=${SECONDS_PER_RUN:-20}
 make -C software/viewer -s
 make -C firmware/fx3 -s
 
-rm -f doc/bench/latency_display.json
-python3 software/latency_display.py --firmware camlinx_4k --players ffplay,viewer --pos top,bottom --seconds $SECONDS_PER_RUN
+rm -rf doc/bench/latency_display.json doc/bench/latency
+python3 software/latency_display.py --firmware camlinx_4k --players v4l2,ffplay,viewer --pos top,bottom --seconds $SECONDS_PER_RUN
 
 # Stock: the CamLinX FPGA watchdog (still configured) would reset the FX3 without our heartbeat:
 # disable it, erase our FX3 image to reach the bootloader, load the stock image to RAM.
@@ -28,7 +28,7 @@ python3 software/camlink.py csr fx3_watchdog_control 0
 python3 software/camlink.py flash-recover
 sleep 5
 python3 -c "import sys; sys.path.insert(0, 'software'); import bench; bench.select_firmware('stock')"
-python3 software/latency_display.py --firmware stock --players ffplay --pos top,bottom --seconds $SECONDS_PER_RUN
+python3 software/latency_display.py --firmware stock --players v4l2,ffplay,viewer --pos top,bottom --seconds $SECONDS_PER_RUN
 
 # Restore CamLinX: bootloader, RAM boot (retried: the first load after a stock session can miss
 # the enumeration), FX3 image back to the flash, standalone reboot.
