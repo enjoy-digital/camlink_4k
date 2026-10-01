@@ -62,15 +62,17 @@ def stop(proc):
             os.killpg(proc.pid, signal.SIGKILL)
             proc.wait()
 
-DEVICE   = "/dev/video0"
-FIRMWARE = "camlinx_4k"
+DEVICE      = "/dev/video0"
+FIRMWARE    = "camlinx_4k"
+VIEWER_ARGS = []
+LABEL       = "camlinx_4k"
 
 def player_cmd(player):
     if player == "ffplay":
         return ["ffplay", "-hide_banner", "-loglevel", "quiet", "-fs", "-left", "0", "-top", "0"] + FFPLAY_LOW_LATENCY + \
             ["-f", "v4l2", "-input_format", "yuyv422", "-video_size", f"{W}x{H}", "-framerate", str(FPS), "-i", DEVICE]
     return [VIEWER, "--device", "stock" if FIRMWARE == "stock" else "camlinx", "--format", "yuy2",
-        "--size", f"{W}x{H}", "--fps", str(FPS), "--fullscreen", "--latency"]
+        "--size", f"{W}x{H}", "--fps", str(FPS), "--fullscreen", "--latency"] + VIEWER_ARGS
 
 def stats(values):
     import numpy as np
@@ -114,11 +116,11 @@ def measure(player, pos, seconds, tries=3):
             res["calibration"] = calib
             return res
         proc = None
-        log = open(os.path.join(CSV_DIR, f"{FIRMWARE}_{player}_{pos}.log"), "w") if player == "viewer" else None
+        log = open(os.path.join(CSV_DIR, f"{LABEL}_{player}_{pos}.log"), "w") if player == "viewer" else None
         if player != "none":
             cmd = player_cmd(player)
             if player == "viewer":
-                cmd += ["--csv", os.path.join(CSV_DIR, f"{FIRMWARE}_viewer_{pos}.csv")]
+                cmd += ["--csv", os.path.join(CSV_DIR, f"{LABEL}_viewer_{pos}.csv")]
             proc = start(cmd, log)
             # Wait for the player to show the barcode (valid decodes on DP-1).
             deadline = time.time() + 10
@@ -149,10 +151,16 @@ def main():
     parser.add_argument("--players",  default="ffplay,viewer")
     parser.add_argument("--pos",      default="top,bottom")
     parser.add_argument("--seconds",  type=float, default=20)
+    parser.add_argument("--label",    help="Results key (default: the firmware), e.g. for viewer/driver variants.")
+    parser.add_argument("--viewer-args", default="", help="Extra camlinx_view arguments (e.g. --front).")
     args = parser.parse_args()
 
-    global DEVICE, FIRMWARE
-    FIRMWARE = args.firmware
+    global DEVICE, FIRMWARE, VIEWER_ARGS
+    FIRMWARE    = args.firmware
+    VIEWER_ARGS = args.viewer_args.split()
+    label       = args.label or args.firmware
+    global LABEL
+    LABEL = label
     os.makedirs(CSV_DIR, exist_ok=True)
     from v4l2cap import find_device
     DEVICE = find_device("Cam Link 4K" if args.firmware == "stock" else "CamLinX") or DEVICE
@@ -162,10 +170,10 @@ def main():
     results = json.load(open(RESULTS)) if os.path.exists(RESULTS) else {}
     for player in args.players.split(","):
         for pos in args.pos.split(","):
-            print(f"{args.firmware} / {player} / barcode {pos}...", flush=True)
+            print(f"{label} / {player} / barcode {pos}...", flush=True)
             res = measure(player, pos, args.seconds)
             res["date"] = time.strftime("%Y-%m-%d %H:%M")
-            results.setdefault(args.firmware, {}).setdefault(player, {})[pos] = res
+            results.setdefault(label, {}).setdefault(player, {})[pos] = res
             print(f"  {json.dumps(res)}", flush=True)
             json.dump(results, open(RESULTS, "w"), indent=2)
 

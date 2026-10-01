@@ -15,12 +15,16 @@
  * streaming interface, endpoint and format/frame indexes are read from the UVC descriptors.
  * Formats: YUY2, and M420 (CamLinX: 4K30 direct path, no DRAM frame buffer).
  *
+ * --front (YUY2): OpenGL without double buffering, the new rows are converted by a shader and drawn
+ * straight into the displayed (front) buffer, no swap: no present queue (tearing, like a beam
+ * racing display) when the window is flipped/unredirected.
+ *
  * --latency: decodes the software/source.py barcode (host CLOCK_MONOTONIC ms, top or bottom of the
  * frame) from the incoming YUY2 data and timestamps, per frame: the first payload of the frame,
  * the arrival of the barcode rows and the present showing them (per stage latency, doc/LATENCY.md).
  *
  * Usage: camlinx_view [--device auto|camlinx|stock] [--format yuy2|m420] [--size WxH] [--fps N]
- *                     [--fullscreen] [--vsync] [--latency] [--csv file] [--seconds S]
+ *                     [--fullscreen] [--vsync] [--front] [--latency] [--csv file] [--seconds S]
  */
 
 #include <pthread.h>
@@ -33,6 +37,9 @@
 
 #include <libusb.h>
 #include <SDL.h>
+#include <SDL_syswm.h>
+#define GL_GLEXT_PROTOTYPES
+#include <SDL_opengl.h>
 
 /* Device ---------------------------------------------------------------------------------------- */
 
@@ -362,6 +369,98 @@ static void *usb_thread(void *arg)
     return NULL;
 }
 
+/* Window activation (X11): an obstructed window is copied (blit) by the compositor instead of
+ * flipped; _NET_ACTIVE_WINDOW with a pager source passes the window manager's focus stealing
+ * prevention (a plain raise does not when another window has the focus). */
+static void activate_window(SDL_Window *win)
+{
+    SDL_SysWMinfo wm;
+    SDL_VERSION(&wm.version);
+    SDL_RaiseWindow(win);
+    if (!SDL_GetWindowWMInfo(win, &wm) || wm.subsystem != SDL_SYSWM_X11)
+        return;
+    Display *dpy = wm.info.x11.display;
+    XEvent e = {0};
+    e.xclient.type         = ClientMessage;
+    e.xclient.window       = wm.info.x11.window;
+    e.xclient.message_type = XInternAtom(dpy, "_NET_ACTIVE_WINDOW", False);
+    e.xclient.format       = 32;
+    e.xclient.data.l[0]    = 2; /* Source: pager. */
+    e.xclient.data.l[1]    = CurrentTime;
+    XSendEvent(dpy, DefaultRootWindow(dpy), False, SubstructureRedirectMask | SubstructureNotifyMask, &e);
+    XFlush(dpy);
+}
+
+/* Front buffer rendering (--front) ------------------------------------------------------------- */
+
+static const char *front_vs =
+    "#version 120\n"
+    "attribute vec2 pos; varying vec2 uv;\n"
+    "void main() { uv = vec2((pos.x + 1.0)*0.5, (1.0 - pos.y)*0.5); gl_Position = vec4(pos, 0.0, 1.0); }\n";
+
+/* YUY2 texels (RGBA = Y0 U Y1 V) -> RGB, BT.709 limited range. */
+static const char *front_fs =
+    "#version 120\n"
+    "uniform sampler2D tex; uniform float width; varying vec2 uv;\n"
+    "void main() {\n"
+    "  vec4 t = texture2D(tex, uv);\n"
+    "  float y = mod(floor(uv.x*width), 2.0) < 0.5 ? t.r : t.b;\n"
+    "  y = (y - 16.0/255.0)*1.164; float u = (t.g - 0.5)*1.138; float v = (t.a - 0.5)*1.138;\n"
+    "  gl_FragColor = vec4(y + 1.793*v, y - 0.213*u - 0.533*v, y + 2.112*u, 1.0);\n"
+    "}\n";
+
+struct front {
+    GLuint tex, prog;
+    GLint  pos;
+};
+
+static GLuint front_shader(GLenum type, const char *src)
+{
+    GLuint sh = glCreateShader(type);
+    GLint ok;
+    glShaderSource(sh, 1, &src, NULL);
+    glCompileShader(sh);
+    glGetShaderiv(sh, GL_COMPILE_STATUS, &ok);
+    if (!ok) { char log[512]; glGetShaderInfoLog(sh, sizeof(log), NULL, log); fprintf(stderr, "GLSL: %s\n", log); }
+    return sh;
+}
+
+static void front_init(struct front *f, int width, int height)
+{
+    f->prog = glCreateProgram();
+    glAttachShader(f->prog, front_shader(GL_VERTEX_SHADER, front_vs));
+    glAttachShader(f->prog, front_shader(GL_FRAGMENT_SHADER, front_fs));
+    glLinkProgram(f->prog);
+    glUseProgram(f->prog);
+    f->pos = glGetAttribLocation(f->prog, "pos");
+    glUniform1i(glGetUniformLocation(f->prog, "tex"), 0);
+    glUniform1f(glGetUniformLocation(f->prog, "width"), width);
+    glGenTextures(1, &f->tex);
+    glBindTexture(GL_TEXTURE_2D, f->tex);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width/2, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+    glDrawBuffer(GL_FRONT);
+    glEnable(GL_SCISSOR_TEST);
+}
+
+/* Uploads rows [r0, r1) and draws them (scissored) into the front buffer. */
+static void front_draw(struct front *f, SDL_Window *win, int width, int height, int r0, int r1)
+{
+    static const GLfloat quad[] = {-1, -1, 1, -1, -1, 1, 1, 1};
+    int ww, wh;
+    SDL_GL_GetDrawableSize(win, &ww, &wh);
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, r0, width/2, r1 - r0, GL_RGBA, GL_UNSIGNED_BYTE, V.y + (size_t)r0*width*2);
+    int y0 = (int)((long)r0*wh/height), y1 = (int)(((long)r1*wh + height - 1)/height);
+    glViewport(0, 0, ww, wh);
+    glScissor(0, wh - y1, ww, y1 - y0);
+    glVertexAttribPointer(f->pos, 2, GL_FLOAT, GL_FALSE, 0, quad);
+    glEnableVertexAttribArray(f->pos);
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    glFlush();
+}
+
 /* Latency report -------------------------------------------------------------------------------- */
 
 static int cmp_double(const void *a, const void *b)
@@ -416,7 +515,7 @@ static void usage(const char *prog)
 {
     fprintf(stderr,
         "Usage: %s [--device auto|camlinx|stock] [--format yuy2|m420] [--size WxH] [--fps N]\n"
-        "          [--fullscreen] [--vsync] [--latency] [--csv file] [--seconds S]\n"
+        "          [--fullscreen] [--vsync] [--front] [--latency] [--csv file] [--seconds S]\n"
         "  CamLinX yuy2: 1920x1080 (default), 1280x720, 640x480 at 30/60 fps\n"
         "  CamLinX m420: 3840x2160 at 30 fps, 1920x1080 at 30/60 fps\n"
         "  stock: YUY2 at the input resolution/rate\n", prog);
@@ -425,7 +524,7 @@ static void usage(const char *prog)
 int main(int argc, char **argv)
 {
     const char *which = "auto", *csv = NULL;
-    int fullscreen = 0, vsync = 0;
+    int fullscreen = 0, vsync = 0, front = 0;
     double seconds = 0;
     struct stream *s = &V.s;
     s->format = FMT_YUY2; s->width = 1920; s->height = 1080; s->fps = 60;
@@ -438,12 +537,13 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--fps") && i + 1 < argc)     s->fps = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--fullscreen"))              fullscreen = 1;
         else if (!strcmp(argv[i], "--vsync"))                   vsync = 1;
+        else if (!strcmp(argv[i], "--front"))                   front = 1;
         else if (!strcmp(argv[i], "--latency"))                 V.latency = 1;
         else if (!strcmp(argv[i], "--csv") && i + 1 < argc)     csv = argv[++i];
         else if (!strcmp(argv[i], "--seconds") && i + 1 < argc) seconds = atof(argv[++i]);
         else { usage(argv[0]); return 1; }
     }
-    if (V.latency && s->format != FMT_YUY2) { fprintf(stderr, "--latency needs YUY2.\n"); return 1; }
+    if ((V.latency || front) && s->format != FMT_YUY2) { fprintf(stderr, "--latency/--front need YUY2.\n"); return 1; }
     int width = s->width, height = s->height;
     V.frame_size = s->format == FMT_YUY2 ? (size_t)width*height*2 : (size_t)width*height*3/2;
     V.fid = -1;
@@ -485,13 +585,28 @@ int main(int argc, char **argv)
     char title[128];
     snprintf(title, sizeof(title), "CamLinX 4K low latency · %s · %s %dx%d@%d", s->device,
         s->format == FMT_YUY2 ? "YUY2" : "M420", width, height, s->fps);
+    if (front) {
+        SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 0);
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 1);
+    }
     SDL_Window *win = SDL_CreateWindow(title, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
         width > 1920 ? width/2 : width, width > 1920 ? height/2 : height,
-        SDL_WINDOW_RESIZABLE | (fullscreen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0));
-    SDL_Renderer *ren = SDL_CreateRenderer(win, -1, SDL_RENDERER_ACCELERATED | (vsync ? SDL_RENDERER_PRESENTVSYNC : 0));
-    SDL_Texture *tex = SDL_CreateTexture(ren, s->format == FMT_YUY2 ? SDL_PIXELFORMAT_YUY2 : SDL_PIXELFORMAT_NV12,
-        SDL_TEXTUREACCESS_STREAMING, width, height);
-    if (!win || !ren || !tex) { fprintf(stderr, "SDL: %s\n", SDL_GetError()); return 1; }
+        SDL_WINDOW_RESIZABLE | (front ? SDL_WINDOW_OPENGL : 0) | (fullscreen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0));
+    SDL_Renderer *ren = NULL;
+    SDL_Texture  *tex = NULL;
+    struct front gl;
+    if (front) {
+        if (!win || !SDL_GL_CreateContext(win)) { fprintf(stderr, "SDL GL: %s\n", SDL_GetError()); return 1; }
+        SDL_GL_SetSwapInterval(0);
+        front_init(&gl, width, height);
+    } else {
+        ren = win ? SDL_CreateRenderer(win, -1, SDL_RENDERER_ACCELERATED | (vsync ? SDL_RENDERER_PRESENTVSYNC : 0)) : NULL;
+        tex = ren ? SDL_CreateTexture(ren, s->format == FMT_YUY2 ? SDL_PIXELFORMAT_YUY2 : SDL_PIXELFORMAT_NV12,
+            SDL_TEXTUREACCESS_STREAMING, width, height) : NULL;
+        if (!win || !ren || !tex) { fprintf(stderr, "SDL: %s\n", SDL_GetError()); return 1; }
+    }
+    activate_window(win);
 
     /* Stream: transfers of whole payloads (a short payload ends its transfer). */
     V.running = 1;
@@ -532,13 +647,17 @@ int main(int argc, char **argv)
             SDL_Delay(0);
             continue;
         }
-        SDL_Rect rect = {0, r0, width, r1 - r0};
-        if (s->format == FMT_YUY2)
-            SDL_UpdateTexture(tex, &rect, V.y + (size_t)r0*width*2, width*2);
-        else
-            SDL_UpdateNVTexture(tex, &rect, V.y + (size_t)r0*width, width, V.uv + (size_t)(r0/2)*width, width);
-        SDL_RenderCopy(ren, tex, NULL, NULL);
-        SDL_RenderPresent(ren);
+        if (front) {
+            front_draw(&gl, win, width, height, r0, r1);
+        } else {
+            SDL_Rect rect = {0, r0, width, r1 - r0};
+            if (s->format == FMT_YUY2)
+                SDL_UpdateTexture(tex, &rect, V.y + (size_t)r0*width*2, width*2);
+            else
+                SDL_UpdateNVTexture(tex, &rect, V.y + (size_t)r0*width, width, V.uv + (size_t)(r0/2)*width, width);
+            SDL_RenderCopy(ren, tex, NULL, NULL);
+            SDL_RenderPresent(ren);
+        }
         presents++;
 
         /* Latency: the decoded barcode rows of this frame are now presented. */

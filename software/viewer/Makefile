@@ -7,7 +7,7 @@
 # CamLinX 4K low latency viewer (needs libusb-1.0 and SDL2 development packages).
 
 CFLAGS ?= -O2 -Wall -Wextra
-PKGS    = libusb-1.0 sdl2
+PKGS    = libusb-1.0 sdl2 x11 gl
 
 all: camlinx_view latgrab
 

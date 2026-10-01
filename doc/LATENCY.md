@@ -59,6 +59,30 @@ monitor's scanout and processing (the same for all).
   ffplay 84.1/71.5 ms, CamLinX + viewer 22.7/50.5 ms (top/bottom): same picture, with the run to
   run spread of the display stage (one DP-1 refresh).
 
+## Display stage experiments (2026-10-01)
+
+CamLinX + `camlinx_view`, 1080p60, displayed frame buffer (median, p5-p95 in parentheses), same
+method as above (labels `viewer_*` in `doc/bench/latency_display.json`):
+
+| Variant                                              | Draw done after the rows arrive | Displayed, top     | Displayed, bottom  |
+|------------------------------------------------------|---------------------------------|--------------------|--------------------|
+| A: SDL renderer (present/swap)                       | ~5 ms                           | 21.8 (18.0-51.8)   | 37.7 (34.7-55.7)   |
+| B: SDL + `__GL_MaxFramesAllowed=1 __GL_SYNC_TO_VBLANK=0` | ~6 ms                       | 37.4 (34.5-54.4)   | 37.7 (34.2-56.2)   |
+| C: `--front` (OpenGL front buffer rendering)          | **0.1-0.3 ms**                  | **20.0 (17.9-36.6)** | **36.4 (34.2-53.0)** |
+
+- Front buffer rendering removes the viewer's present cost (~5 ms -> ~0.2 ms) and the long tail
+  (top p95 52 -> 37 ms): the best variant. The NVIDIA frame queue limit does not help.
+- The NVIDIA OSD (`__GL_SHOW_GRAPHICS_OSD=1`) shows **BLIT, not FLIP**, even fullscreen and
+  unobstructed: the X screen spans both monitors (3840x1080) and NVIDIA only flips windows covering
+  the whole X screen, so GNOME's compositor (mutter) composites the window on DP-1's frame clock.
+  The remaining 13-18 ms after the draw is that composition, quantized to DP-1 refreshes (the
+  run to run "one refresh" spread).
+- Next: no compositor on the display (direct scanout of a monitor leased from the desktop, or a
+  single monitor session), a high refresh monitor (the floor drops from 16.7 ms to 4-7 ms).
+- The viewer activates its window with a pager `_NET_ACTIVE_WINDOW` request (a plain raise is
+  ignored by GNOME's focus stealing prevention when another window has the focus; an obstructed
+  window is always copied).
+
 ## Earlier measurement
 
 | Date       | Firmware     | Source                   | Capture             | Render -> first byte | Render -> frame complete |
@@ -105,9 +129,12 @@ make -C software/viewer
 software/viewer/camlinx_view                                    # YUY2 1920x1080@60 (default)
 software/viewer/camlinx_view --size 1920x1080 --fps 30          # 4K30 source, 2x downscale
 software/viewer/camlinx_view --format m420 --size 3840x2160 --fps 30 --fullscreen  # 4K30 direct
+software/viewer/camlinx_view --front --fullscreen                # Lowest latency (YUY2, front buffer)
 ```
 
-Also with the stock firmware (`--device stock`, YUY2 at the input mode): the streaming interface,
+`--front` (YUY2): OpenGL front buffer rendering (shader YUY2 -> RGB, only the new rows drawn, no
+swap), the lowest latency mode (see the display stage experiments). Also with the stock firmware
+(`--device stock`, YUY2 at the input mode): the streaming interface,
 endpoint and format/frame indexes are read from the UVC descriptors. `--latency [--csv file]`:
 per stage timestamps from the source barcode (see above).
 
