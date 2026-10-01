@@ -160,6 +160,18 @@ software/viewer/camlinx_view --vk DP-2.1 --refresh 60              # Ctrl+C to s
 xrandr --output DP-2.1 --set non-desktop 0 --auto --right-of DP-1
 ```
 
+MS2109 (manual): the stick asserts hot plug only while streaming, so start the player first, then
+give HDMI-0 its mode (closing the player disconnects HDMI-0 again):
+
+```sh
+# 1080p input, MJPEG 1080p30 (its best 1080p mode), player on the third monitor (DP-2.1):
+ffplay -fs -left 1920 -top 0 -fflags nobuffer -flags low_delay -framedrop -sync ext -probesize 32 \
+       -analyzeduration 0 -f v4l2 -input_format mjpeg -video_size 1920x1080 -framerate 30 -i /dev/video0 &
+sleep 4; xrandr --output HDMI-0 --mode 1920x1080 --rate 59.94 --right-of DP-2.1
+# 720p60 (its only 60 fps mode): -video_size 1280x720 -framerate 60, then
+#   xrandr --output HDMI-0 --mode 1280x720 --rate 60 --right-of DP-2.1
+```
+
 ## Earlier measurement
 
 | Date       | Firmware     | Source                   | Capture             | Render -> first byte | Render -> frame complete |
