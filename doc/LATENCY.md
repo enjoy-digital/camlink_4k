@@ -137,7 +137,8 @@ render:
 - The MS2109 buffers (~1.5-2 frames) and compresses: first data ~30 ms after the render, frame
   delivered 43-48 ms (720p60) / 62-66 ms (1080p, 30 fps output), on screen with ffplay ~105 ms;
   it cannot use the low latency viewer (isochronous USB 2.0, MJPEG).
-- Hands on: a lot laggier at 1080p than the Cam Link (see the manual commands below).
+- Hands on: a lot laggier at 1080p than the Cam Link, better at 720p60 but still more lag (see
+  the manual commands below).
 - Ranking (frame to the application at 1080p): CamLinX 19 ms, stock 46 ms, MS2109 63-66 ms
   (30 fps); displayed with ffplay: 72 / 88 / 103-113 ms; with the CamLinX viewer: 35-38 ms in a
   window, 19-30 ms direct display.
@@ -175,7 +176,8 @@ pkill -x ffplay   # Stop (q only works once the ffplay window has the keyboard f
 ```
 
 Hands on (2026-10-01): the MS2109 at 1080p is a lot laggier than the Cam Link (direct display:
-no noticeable difference with the native screen).
+no noticeable difference with the native screen); better at 720p60, but still more lag than the
+Cam Link.
 
 ## Earlier measurement
 
