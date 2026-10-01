@@ -111,9 +111,30 @@ timings. 1080p60 capture, ms from the source render, median (p5-p95):
   for every row); at 75 Hz it drifts and averages half a refresh (~6.7 ms). With an external
   source the phase is random (half a refresh on average); a variable refresh display could start
   each refresh right behind the incoming frame (~1 ms).
+- Hands on (2026-10-01): moving the mouse on the source desktop (HDMI-0 -> Cam Link) and
+  watching it on the direct display, no noticeable difference with the native screen.
 - Setup: `xrandr --output DP-2.1 --off --set non-desktop 1`, then
   `camlinx_view --vk DP-2.1 [--refresh 60] [--latency]`; back to the desktop:
   `xrandr --output DP-2.1 --set non-desktop 0 --auto --right-of DP-1`.
+
+## Side by side comparison (manual)
+
+`software/fw_switch.py stock|camlinx|status` switches the firmware: stock in RAM (CamLinX FPGA
+watchdog off, our FX3 image erased from flash block 0 to reach the bootloader, bitstreams
+untouched), CamLinX back to the flash; the HDMI output feeding the Cam Link is re-probed in place.
+After a power cycle in stock mode the FX3 is in its bootloader: `fw_switch.py camlinx` restores.
+
+```sh
+# Source: this PC's HDMI-0 (1920x1080@60) -> Cam Link; move the mouse/windows there.
+python3 software/fw_switch.py stock        # or: camlinx
+# Players (same for both firmwares, the viewer finds either device):
+ffplay -fs -fflags nobuffer -flags low_delay -framedrop -sync ext -probesize 32 -analyzeduration 0 \
+       -f v4l2 -input_format yuyv422 -video_size 1920x1080 -framerate 60 -i /dev/video0
+software/viewer/camlinx_view --front --fullscreen                  # in the desktop (f, q)
+xrandr --output DP-2.1 --off --set non-desktop 1                   # direct display
+software/viewer/camlinx_view --vk DP-2.1 --refresh 60              # Ctrl+C to stop
+xrandr --output DP-2.1 --set non-desktop 0 --auto --right-of DP-1
+```
 
 ## Earlier measurement
 
