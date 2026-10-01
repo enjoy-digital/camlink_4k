@@ -730,5 +730,229 @@
         "date": "2026-10-01 09:27"
       }
     }
+  },
+  "ms2109_1080p30": {
+    "v4l2": {
+      "top": {
+        "buffer_timestamp": {
+          "samples": 600,
+          "median_ms": 29.2,
+          "p5_ms": 22.2,
+          "p95_ms": 39.2
+        },
+        "dequeue": {
+          "samples": 600,
+          "median_ms": 62.3,
+          "p5_ms": 55.2,
+          "p95_ms": 72.3
+        },
+        "calibration": {
+          "samples": 730,
+          "median_ms": 1.2,
+          "mean_ms": 1.3,
+          "p5_ms": 0.5,
+          "p95_ms": 2.5,
+          "min_ms": 0.3,
+          "max_ms": 6.7,
+          "polls": 4678,
+          "invalid": 0,
+          "poll_hz": 1559
+        },
+        "date": "2026-10-01 09:46"
+      },
+      "bottom": {
+        "buffer_timestamp": {
+          "samples": 585,
+          "median_ms": 32.4,
+          "p5_ms": 23.4,
+          "p95_ms": 44.4
+        },
+        "dequeue": {
+          "samples": 585,
+          "median_ms": 65.5,
+          "p5_ms": 55.6,
+          "p95_ms": 77.3
+        },
+        "calibration": {
+          "samples": 728,
+          "median_ms": 1.1,
+          "mean_ms": 1.3,
+          "p5_ms": 0.6,
+          "p95_ms": 2.6,
+          "min_ms": 0.3,
+          "max_ms": 7.4,
+          "polls": 4689,
+          "invalid": 0,
+          "poll_hz": 1563
+        },
+        "date": "2026-10-01 09:46"
+      }
+    },
+    "ffplay": {
+      "top": {
+        "samples": 737,
+        "median_ms": 112.9,
+        "mean_ms": 118.0,
+        "p5_ms": 97.1,
+        "p95_ms": 154.7,
+        "min_ms": 93.1,
+        "max_ms": 174.1,
+        "polls": 36465,
+        "invalid": 0,
+        "poll_hz": 1823,
+        "calibration": {
+          "samples": 731,
+          "median_ms": 1.0,
+          "mean_ms": 1.2,
+          "p5_ms": 0.5,
+          "p95_ms": 2.3,
+          "min_ms": 0.2,
+          "max_ms": 8.3,
+          "polls": 5311,
+          "invalid": 0,
+          "poll_hz": 1770
+        },
+        "attempt": 1,
+        "date": "2026-10-01 09:47"
+      },
+      "bottom": {
+        "samples": 711,
+        "median_ms": 102.6,
+        "mean_ms": 105.4,
+        "p5_ms": 85.6,
+        "p95_ms": 138.2,
+        "min_ms": 77.1,
+        "max_ms": 158.4,
+        "polls": 36190,
+        "invalid": 0,
+        "poll_hz": 1810,
+        "calibration": {
+          "samples": 733,
+          "median_ms": 1.0,
+          "mean_ms": 1.1,
+          "p5_ms": 0.5,
+          "p95_ms": 2.1,
+          "min_ms": 0.2,
+          "max_ms": 5.4,
+          "polls": 5229,
+          "invalid": 0,
+          "poll_hz": 1743
+        },
+        "attempt": 1,
+        "date": "2026-10-01 09:47"
+      }
+    }
+  },
+  "ms2109_720p60": {
+    "v4l2": {
+      "top": {
+        "buffer_timestamp": {
+          "samples": 1170,
+          "median_ms": 27.0,
+          "p5_ms": 21.1,
+          "p95_ms": 33.0
+        },
+        "dequeue": {
+          "samples": 1170,
+          "median_ms": 43.1,
+          "p5_ms": 38.1,
+          "p95_ms": 49.1
+        },
+        "calibration": {
+          "samples": 732,
+          "median_ms": 1.0,
+          "mean_ms": 1.0,
+          "p5_ms": 0.4,
+          "p95_ms": 1.7,
+          "min_ms": 0.2,
+          "max_ms": 4.4,
+          "polls": 6533,
+          "invalid": 0,
+          "poll_hz": 2178
+        },
+        "date": "2026-10-01 09:48"
+      },
+      "bottom": {
+        "buffer_timestamp": {
+          "samples": 1149,
+          "median_ms": 31.1,
+          "p5_ms": 25.1,
+          "p95_ms": 51.1
+        },
+        "dequeue": {
+          "samples": 1149,
+          "median_ms": 48.1,
+          "p5_ms": 41.2,
+          "p95_ms": 67.1
+        },
+        "calibration": {
+          "samples": 421,
+          "median_ms": 1.2,
+          "mean_ms": 6.7,
+          "p5_ms": 0.5,
+          "p95_ms": 12.3,
+          "min_ms": 0.3,
+          "max_ms": 933.7,
+          "polls": 6081,
+          "invalid": 10,
+          "poll_hz": 2027
+        },
+        "date": "2026-10-01 09:49"
+      }
+    },
+    "ffplay": {
+      "top": {
+        "samples": 1965,
+        "median_ms": 105.1,
+        "mean_ms": 107.1,
+        "p5_ms": 87.2,
+        "p95_ms": 122.1,
+        "min_ms": 84.7,
+        "max_ms": 124.5,
+        "polls": 36756,
+        "invalid": 0,
+        "poll_hz": 1838,
+        "calibration": {
+          "samples": 731,
+          "median_ms": 1.0,
+          "mean_ms": 1.3,
+          "p5_ms": 0.4,
+          "p95_ms": 3.2,
+          "min_ms": 0.2,
+          "max_ms": 7.1,
+          "polls": 5761,
+          "invalid": 0,
+          "poll_hz": 1920
+        },
+        "attempt": 1,
+        "date": "2026-10-01 09:49"
+      },
+      "bottom": {
+        "samples": 1895,
+        "median_ms": 104.1,
+        "mean_ms": 103.3,
+        "p5_ms": 86.3,
+        "p95_ms": 121.7,
+        "min_ms": 84.3,
+        "max_ms": 124.3,
+        "polls": 36416,
+        "invalid": 0,
+        "poll_hz": 1821,
+        "calibration": {
+          "samples": 733,
+          "median_ms": 1.1,
+          "mean_ms": 1.3,
+          "p5_ms": 0.4,
+          "p95_ms": 3.1,
+          "min_ms": 0.2,
+          "max_ms": 6.8,
+          "polls": 5755,
+          "invalid": 0,
+          "poll_hz": 1918
+        },
+        "attempt": 1,
+        "date": "2026-10-01 09:50"
+      }
+    }
   }
 }

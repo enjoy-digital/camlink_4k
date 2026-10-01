@@ -117,6 +117,30 @@ timings. 1080p60 capture, ms from the source render, median (p5-p95):
   `camlinx_view --vk DP-2.1 [--refresh 60] [--latency]`; back to the desktop:
   `xrandr --output DP-2.1 --set non-desktop 0 --auto --right-of DP-1`.
 
+## Cheap USB capture stick: MacroSilicon MS2109 (2026-10-01)
+
+MS2109 (`534d:2109`, "usb video"): USB 2.0, HDMI in up to 1080p60, capture in MJPEG (1080p30 max,
+720p60) or YUYV (5-10 fps only). It asserts hot plug only while streaming (`latency_display.py
+--hpd-on-stream`: the capture/player opens the device first, then the source mode is set). Same
+method as above (`--pixfmt MJPG`, JPEG decoded after the timestamps), medians in ms from the source
+render:
+
+| Device, mode                                   | First data (buffer ts) | Frame to apps (dequeue) | ffplay displayed |
+|------------------------------------------------|------------------------|-------------------------|------------------|
+| MS2109, 1080p59.94 in, MJPEG 1080p30, top      | 29.2                   | 62.3                    | 112.9            |
+| MS2109, 1080p59.94 in, MJPEG 1080p30, bottom   | 32.4                   | 65.5                    | 102.6            |
+| MS2109, 720p60 in, MJPEG 720p60, top           | 27.0                   | 43.1                    | 105.1            |
+| MS2109, 720p60 in, MJPEG 720p60, bottom        | 31.1                   | 48.1                    | 104.1            |
+| CamLinX, 1080p60 YUY2, top / bottom            | 3.6 / 2.9              | 19.4 / 18.9             | 71.6 / 71.6      |
+| Stock, 1080p60 YUY2, top / bottom              | 35.2 / 34.4            | 46.1 / 45.3             | 88.4 / 87.0      |
+
+- The MS2109 buffers (~1.5-2 frames) and compresses: first data ~30 ms after the render, frame
+  delivered 43-48 ms (720p60) / 62-66 ms (1080p, 30 fps output), on screen with ffplay ~105 ms;
+  it cannot use the low latency viewer (isochronous USB 2.0, MJPEG).
+- Ranking (frame to the application at 1080p): CamLinX 19 ms, stock 46 ms, MS2109 63-66 ms
+  (30 fps); displayed with ffplay: 72 / 88 / 103-113 ms; with the CamLinX viewer: 35-38 ms in a
+  window, 19-30 ms direct display.
+
 ## Side by side comparison (manual)
 
 `software/fw_switch.py stock|camlinx|status` switches the firmware: stock in RAM (CamLinX FPGA
