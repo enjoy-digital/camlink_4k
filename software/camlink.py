@@ -29,6 +29,12 @@ STOCK_PIDS   = (0x0066, 0x0067)
 FX3_REQ_FW   = 0xa0 # FX3 boot ROM firmware download/upload/jump request.
 FX3_CHUNK    = 2048
 
+# Default build outputs (resolved from the repository, any working directory).
+ROOT         = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+CSR_CSV      = os.path.join(ROOT, "build", "csr.csv")
+BITSTREAM    = os.path.join(ROOT, "build", "gateware", "camlink_4k.bit")
+FX3_IMAGE    = os.path.join(ROOT, "firmware", "fx3", "build", "fx3.img")
+
 # Helpers ------------------------------------------------------------------------------------------
 
 # USB product strings of our firmware (current, and before the LiteCamLink -> CamLinX -> CamLinX 4K
@@ -52,6 +58,16 @@ def find_device(vid, pid, timeout=0.0):
         if dev is not None or time.time() >= deadline:
             return dev
         time.sleep(0.1)
+
+def fx3_image_size(data):
+    """Size in bytes of the FX3 boot image at the start of data (header to checksum)."""
+    offset = 4
+    while True:
+        length, _ = struct.unpack_from("<II", data, offset)
+        offset += 8
+        if length == 0:
+            return offset + 4
+        offset += 4*length
 
 def parse_fx3_image(data):
     """Parse a FX3 boot image ("CY" header, sections, entry point, checksum)."""
@@ -140,6 +156,21 @@ FLASH_BLOCK_SIZE      = 0x10000
 FLASH_BITSTREAM_HDR   = 0x100000
 FLASH_BITSTREAM       = 0x100100
 FLASH_BITSTREAM_MAGIC = 0x4b4c434c # "LCLK".
+FLASH_SIZE            = 0x400000
+FLASH_FX3_MAX         = 0x040000
+FLASH_STOCK_REGIONS   = [ # Kept untouched (stock FX3 image RAM-load, see doc/HARDWARE.md).
+    (0x040000, 0x100000, "stock bitstream"),
+    (0x3f0000, 0x400000, "stock settings"),
+]
+
+def check_flash_range(addr, size, force=False):
+    """Refuse writes outside the flash or over the stock regions (unless forced)."""
+    if addr < 0 or addr + size > FLASH_SIZE:
+        raise ValueError(f"Write 0x{addr:06x}-0x{addr + size:06x} outside the 4MB flash.")
+    for start, end, name in FLASH_STOCK_REGIONS:
+        if addr < end and addr + size > start and not force:
+            raise ValueError(f"Write 0x{addr:06x}-0x{addr + size:06x} overlaps the {name} "
+                f"(0x{start:06x}-0x{end:06x}): use --force (e.g. to restore a stock backup).")
 SYS_CLK_FREQ          = 100e6      # FPGA sys clock (default build).
 
 GPIF_OMEGA_EMPTY_FULL_TH0 = 16
@@ -297,6 +328,7 @@ class CamLink:
         """
         bitstream = open(filename, "rb").read()
         size      = len(bitstream)
+        check_flash_range(FLASH_BITSTREAM_HDR, 256 + size)
         header    = struct.pack("<III", size, ~size & 0xffffffff, FLASH_BITSTREAM_MAGIC)
         header    = header.ljust(256, b"\xff")
         self.flash_write(FLASH_BITSTREAM_HDR, b"\xff"*256 + bitstream)
@@ -394,7 +426,7 @@ FPGA_I2C_ADDR = 0x10
 
 class CamLinkBus(CSRBuilder):
     """FPGA SoC bus access through the FX3 I2C master and the FPGA I2CBridge."""
-    def __init__(self, cl=None, csr_csv="build/csr.csv"):
+    def __init__(self, cl=None, csr_csv=CSR_CSV):
         self.cl = CamLink() if cl is None else cl
         CSRBuilder.__init__(self, comm=self, csr_csv=csr_csv)
 
@@ -523,7 +555,7 @@ def uvc_raw_test(cl, bus, width=1920, height=1080, fps=30, frames=60, clk_div_x2
         number = sum(((int(f[i]) & 0xff) > 128) << i for i in range(32))
         print(f"Sample frame number: {number}, bars: " +
               " ".join(f"{int(f[width + i*(width//16) + 8]):08x}" for i in range(8)))
-        np.save("build/uvc_frame.npy", f)
+        np.save(os.path.join(ROOT, "build", "uvc_frame.npy"), f)
     return good >= frames - 2 and state["errors"] == 0
 
 # Terminal (UART Crossover) ------------------------------------------------------------------------
@@ -608,15 +640,15 @@ def pintest(cl, id_bits=8):
 
 def main():
     parser = argparse.ArgumentParser(description="CamLink 4K host tool.")
-    parser.add_argument("--csr-csv", default="build/csr.csv", help="FPGA CSR map (build directory csr.csv).")
+    parser.add_argument("--csr-csv", default=CSR_CSV, help="FPGA CSR map (build directory csr.csv).")
     sub    = parser.add_subparsers(dest="cmd", required=True)
 
     p = sub.add_parser("fx3-load", help="Load a FX3 image to RAM (device in FX3 bootloader).")
     p.add_argument("image")
 
     p = sub.add_parser("boot", help="Boot: load FX3 firmware (if in bootloader) and FPGA bitstream.")
-    p.add_argument("--fx3", default="firmware/fx3/build/fx3.img")
-    p.add_argument("--bit", default="build/gateware/camlink_4k.bit")
+    p.add_argument("--fx3", default=FX3_IMAGE)
+    p.add_argument("--bit", default=BITSTREAM)
 
     p = sub.add_parser("fpga-load", help="Load a bitstream to the FPGA (through the FX3).")
     p.add_argument("bitstream")
@@ -660,10 +692,14 @@ def main():
     p = sub.add_parser("flash-write", help="Write a file to the SPI flash (erase/program/verify).")
     p.add_argument("filename")
     p.add_argument("--offset", default=0, type=lambda x: int(x, 0))
+    p.add_argument("--force",  action="store_true", help="Allow writes over the stock regions.")
     p = sub.add_parser("flash-bitstream", help="Write a CamLink 4K bitstream (header + data at 0x100000).")
-    p.add_argument("bitstream", nargs="?", default="build/gateware/camlink_4k.bit")
+    p.add_argument("bitstream", nargs="?", default=BITSTREAM)
     p = sub.add_parser("flash-fx3", help="Write a FX3 image at offset 0 (standalone boot).")
-    p.add_argument("image", nargs="?", default="firmware/fx3/build/fx3.img")
+    p.add_argument("image", nargs="?", default=FX3_IMAGE)
+    p = sub.add_parser("fx3-extract", help="Extract the FX3 image of a flash dump (stock RAM-load).")
+    p.add_argument("dump")
+    p.add_argument("image")
     sub.add_parser("flash-recover", help="Erase the FX3 image and reboot to the USB bootloader.")
     sub.add_parser("fpga-boot", help="Load the FPGA from the flash bitstream.")
     sub.add_parser("stats", help="Show FX3 debug counters (link fallbacks, PHY timeouts, streams).")
@@ -702,6 +738,8 @@ def main():
                     break
                 except usb.core.USBError: # Just enumerated: udev permissions not applied yet.
                     time.sleep(0.5)
+            else:
+                raise RuntimeError("FX3 firmware load failed (USB access, see software/udev).")
             time.sleep(1.0) # Let the host (uvcvideo) finish enumeration/probing.
         for retry in range(20): # Firmware (re-)enumeration.
             try:
@@ -722,6 +760,8 @@ def main():
                 break
             except usb.core.USBError:
                 time.sleep(0.5)
+        else:
+            raise RuntimeError("FPGA/HDMI/DRAM init failed.")
 
     if args.cmd == "sdram-init":
         print(CamLink().sdram_init())
@@ -799,7 +839,9 @@ def main():
         print(f"Dumped {len(data)} bytes to {args.filename}.")
 
     if args.cmd == "flash-write":
-        CamLink().flash_write(args.offset, open(args.filename, "rb").read())
+        data = open(args.filename, "rb").read()
+        check_flash_range(args.offset, len(data), force=args.force)
+        CamLink().flash_write(args.offset, data)
 
     if args.cmd == "flash-bitstream":
         CamLink().flash_bitstream(args.bitstream)
@@ -807,7 +849,16 @@ def main():
     if args.cmd == "flash-fx3":
         image = open(args.image, "rb").read()
         parse_fx3_image(image) # Check signature/checksum.
+        if len(image) > FLASH_FX3_MAX:
+            raise ValueError(f"FX3 image too large ({len(image)} > {FLASH_FX3_MAX} bytes).")
         CamLink().flash_write(0, image)
+
+    if args.cmd == "fx3-extract":
+        dump  = open(args.dump, "rb").read()
+        image = dump[:fx3_image_size(dump)]
+        parse_fx3_image(image) # Check signature/checksum.
+        open(args.image, "wb").write(image)
+        print(f"Extracted a {len(image)} bytes FX3 image to {args.image}.")
 
     if args.cmd == "flash-recover":
         CamLink().flash_recover()

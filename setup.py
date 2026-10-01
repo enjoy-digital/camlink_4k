@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
 
+#
+# This file is part of CamLink 4K.
+#
+# Copyright (c) 2026 Florent Kermarrec <florent@enjoy-digital.fr>
+# SPDX-License-Identifier: BSD-2-Clause
+
 from setuptools import setup
 from setuptools import find_packages
 
@@ -19,17 +25,18 @@ setup(
     url                           = "https://github.com/enjoy-digital/camlink_4k",
     license                       = "BSD-2-Clause",
     python_requires               = ">=3.9",
-    install_requires              = ["litex", "litedram", "pyusb"],
+    install_requires              = ["litex", "litedram", "pyusb", "numpy"],
+    extras_require                = {"bench": ["libusb1", "Pillow", "scipy", "pytest"]},
     packages                      = find_packages(exclude=["test*"]),
     py_modules                    = ["camlink_4k_platform"],
-    keywords                      = "HDL ASIC FPGA hardware design",
+    keywords                      = "FPGA LiteX ECP5 FX3 UVC HDMI capture",
     classifiers                   = [
         "Topic :: Scientific/Engineering :: Electronic Design Automation (EDA)",
         "Environment :: Console",
-        "Development Status :: 2 - Pre-Alpha",
+        "Development Status :: 3 - Alpha",
         "Intended Audience :: Developers",
         "License :: OSI Approved :: BSD License",
-        "Operating System :: OS Independent",
+        "Operating System :: POSIX :: Linux",
         "Programming Language :: Python",
     ],
 )

@@ -1,0 +1,8 @@
+# Elgato Cam Link 4K (stock firmware, SuperSpeed/High-Speed).
+SUBSYSTEM=="usb",    ATTRS{idVendor}=="0fd9", ATTRS{idProduct}=="0066", TAG+="uaccess"
+SUBSYSTEM=="usb",    ATTRS{idVendor}=="0fd9", ATTRS{idProduct}=="0067", TAG+="uaccess"
+KERNEL=="hidraw*",   ATTRS{idVendor}=="0fd9", TAG+="uaccess"
+# Cypress FX3 USB bootloader.
+SUBSYSTEM=="usb",    ATTRS{idVendor}=="04b4", ATTRS{idProduct}=="00f3", TAG+="uaccess"
+# CamLink 4K firmware (pid.codes test VID/PID).
+SUBSYSTEM=="usb",    ATTRS{idVendor}=="1209", ATTRS{idProduct}=="0001", TAG+="uaccess"

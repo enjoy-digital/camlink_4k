@@ -3,6 +3,7 @@
 #
 # Copyright (c) 2019 David Shah <dave@ds0.me>
 # Copyright (c) 2019-2020 Florent Kermarrec <florent@enjoy-digital.fr>
+# Copyright (c) 2026 Florent Kermarrec <florent@enjoy-digital.fr> (CamLink 4K: 1:4 IO reset, rate crossing)
 # SPDX-License-Identifier: BSD-2-Clause
 
 # 1:2 frequency-ratio DDR3 PHY for Lattice's ECP5

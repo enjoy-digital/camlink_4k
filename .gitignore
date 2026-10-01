@@ -7,3 +7,5 @@ __pycache__
 /firmware/fx3/build
 !/doc/*.csv
 generated/
+.claude/
+*.vcd

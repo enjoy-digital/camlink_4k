@@ -9,7 +9,9 @@
 """CamLink 4K: LiteX based gateware for the Elgato Cam Link 4K."""
 
 import os
+import sys
 import argparse
+import subprocess
 
 from migen import *
 from migen.fhdl.specials import Tristate
@@ -360,7 +362,8 @@ def main():
 
     if args.load:
         bitstream = os.path.join(builder.gateware_dir, "camlink_4k.bit")
-        os.system(f"python3 software/camlink.py fpga-load {bitstream}")
+        camlink_py = os.path.join(os.path.dirname(os.path.abspath(__file__)), "software", "camlink.py")
+        subprocess.run([sys.executable, camlink_py, "fpga-load", bitstream], check=True)
 
 if __name__ == "__main__":
     main()

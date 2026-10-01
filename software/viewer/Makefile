@@ -4,12 +4,14 @@
 # Copyright (c) 2026 Florent Kermarrec <florent@enjoy-digital.fr>
 # SPDX-License-Identifier: BSD-2-Clause
 
-# CamLink 4K low latency viewer (needs libusb-1.0 and SDL2 development packages).
+# CamLink 4K low latency viewer (development packages: libusb-1.0, SDL2, X11/Xrandr, GL, libdrm,
+# xcb/xcb-randr, Vulkan).
 
 CFLAGS ?= -O2 -Wall -Wextra
 PKGS    = libusb-1.0 sdl2 x11 gl libdrm xcb vulkan
 # libxcb-randr (RandR 1.6 lease) by path: its development package is not always installed.
-XCB_RANDR = $(firstword $(wildcard /usr/lib/x86_64-linux-gnu/libxcb-randr.so /usr/lib/x86_64-linux-gnu/libxcb-randr.so.0 /usr/lib/libxcb-randr.so*))
+XCB_RANDR = $(or $(shell pkg-config --libs xcb-randr 2>/dev/null), \
+    $(firstword $(wildcard $(addprefix /usr/lib/$(shell $(CC) -print-multiarch)/, libxcb-randr.so libxcb-randr.so.0) /usr/lib/libxcb-randr.so*)))
 
 all: camlink_view latgrab
 

@@ -37,7 +37,8 @@ import usb.core
 ROOT       = os.path.join(os.path.dirname(__file__), "..")
 BENCH_DIR  = os.path.join(ROOT, "doc", "bench")
 CAMLINK_PY = os.path.join(ROOT, "software", "camlink.py")
-STOCK_IMG  = os.path.expanduser("~/camlink_backup/stock_fx3.img")
+# Stock FX3 image of your unit (camlink.py fx3-extract <flash dump>), never in the repository.
+STOCK_IMG  = os.path.expanduser(os.environ.get("CAMLINK_STOCK_FX3", "~/camlink_backup/stock_fx3.img"))
 OUTPUT     = "HDMI-0"
 
 # Firmware Switching -------------------------------------------------------------------------------
@@ -61,13 +62,19 @@ def wait_state(target, timeout=20):
     return False
 
 def to_bootloader():
+    """Reset the device to the FX3 bootloader.
+
+    Needs flash block 0 erased (`camlink.py flash-recover`): with a standalone CamLink 4K or stock
+    image in flash, a reset boots that image again.
+    """
     state = usb_state()
     if state == "camlink_4k":
         subprocess.run([sys.executable, CAMLINK_PY, "reboot"], cwd=ROOT)
     elif state == "stock":
         stock.cold_reset()
     if not wait_state("bootloader"):
-        raise RuntimeError(f"Could not reach the FX3 bootloader (state {usb_state()}).")
+        raise RuntimeError(f"Could not reach the FX3 bootloader (state {usb_state()}): "
+            "erase flash block 0 first (camlink.py flash-recover).")
 
 def select_firmware(fw):
     if usb_state() == fw:

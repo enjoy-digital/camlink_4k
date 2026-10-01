@@ -12,7 +12,7 @@ VERSION := $(shell git describe --always --dirty 2>/dev/null || echo unknown)
 CFLAGS  = -std=gnu11 -mcpu=arm926ej-s -marm -Os -g
 CFLAGS += -Wall -Wextra -Werror -ffunction-sections -fdata-sections -fno-stack-protector
 CFLAGS += -I. -MMD -MP -DGIT_VERSION=\"$(VERSION)\"
-# FX3 PLL: 20 = 384MHz (default), 21 = 403.2MHz (GPIF at 100.8MHz for 4K30 M420).
+# FX3 PLL: 20 = 384MHz, 21 = 403.2MHz (default: GPIF at 100.8MHz for 4K30 M420).
 PLL_FBDIV ?= 21
 CFLAGS += -DFX3_PLL_FBDIV=$(PLL_FBDIV)
 ifdef NO_FLASH_BOOT
@@ -36,6 +36,13 @@ $(BUILD)/fx3.elf: $(OBJS) fx3.ld
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(OBJS)
 
 CSR_CSV ?= ../../build/csr.csv
+
+# The firmware uses the CSR map (and DRAM PHY settings) of a gateware build.
+ifneq ($(MAKECMDGOALS),clean)
+ifeq ($(wildcard $(CSR_CSV)),)
+$(error $(CSR_CSV) not found: build the gateware first (./camlink_4k.py --build) or set CSR_CSV=...)
+endif
+endif
 
 generated/fpga_csr.h: $(CSR_CSV) csr2h.py
 	mkdir -p generated
