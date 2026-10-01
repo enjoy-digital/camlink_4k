@@ -1,0 +1,9 @@
+node_modules/
+*.mp4
+_raw.png
+camlink_4k-*.png
+ref/
+_preview.html
+music.wav
+_part*
+_snap_*

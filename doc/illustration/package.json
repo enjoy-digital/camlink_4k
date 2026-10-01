@@ -1,0 +1,6 @@
+{
+  "name": "camlink_4k-illustration",
+  "private": true,
+  "description": "Headless rendering of the CamLink 4K promo video/stills",
+  "dependencies": { "puppeteer-core": "^23.0.0" }
+}

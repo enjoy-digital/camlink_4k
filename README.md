@@ -1,5 +1,11 @@
 # CamLink 4K
 
+https://github.com/user-attachments/assets/6385cdc9-6985-4505-b17b-bf5836295ad3
+
+<sub>▶ Promo video (66 s, with sound: rendered with three.js and a synthesized soundtrack from
+[`doc/illustration`](doc/illustration)). Also as [mp4](doc/images/camlink_4k.mp4) and
+[still](doc/images/camlink_4k-hires.jpg).</sub>
+
 **CamLink 4K**: open gateware and firmware for the **Elgato Cam Link 4K** (1st gen,
 USB `0fd9:0066`), a real UVC/UAC capture card that goes further than the stock firmware on the same
 hardware:
@@ -20,7 +26,16 @@ hardware:
 > Status: working capture card, validated on hardware (`software/validate.py`), see
 > [doc/PLAN.md](doc/PLAN.md) and [doc/DRAM.md](doc/DRAM.md).
 
+## Inside
+
+| Vendor code out | HDMI → DDR3 → USB |
+|:---:|:---:|
+| [![The board: ECP5, FX3, IT6802, DDR3, flash](doc/images/camlink_4k-inside.jpg)](doc/images/camlink_4k-inside.jpg) | [![Data path: HDMI, IT6802, ECP5, DDR3 frame buffer, FX3, USB](doc/images/camlink_4k-datapath.jpg)](doc/images/camlink_4k-datapath.jpg) |
+| Lattice ECP5 (LiteX gateware), Cypress FX3 (bare-metal C), ITE IT6802 HDMI receiver, 128 MB DDR3L, SPI flash. | 4K30 through the open NV12 frame buffer in DDR3, out as UVC over USB 3.0 (the window is a real capture). |
+
 ## Architecture
+
+[![CamLink 4K internal architecture](doc/images/camlink_4k-architecture.jpg)](doc/images/camlink_4k-architecture.jpg)
 
 The ECP5 runs one LiteX SoC ([`camlink_4k.py`](camlink_4k.py)): the IT6802 video is captured (`HDMIIn`),
 cropped/scaled (`Canvas`), color adjusted (`ColorAdjust`), written as NV12 planes to DDR3
@@ -41,12 +56,18 @@ bridges CSRs and exposes the UVC/UAC interfaces to the host.
 
 ## Low latency
 
+| Lines, not frames | Measured |
+|:---:|:---:|
+| [![One 1080p60 frame slowed down: CamLink 4K streams lines as they arrive, stock buffers the frame](doc/images/camlink_4k-race.jpg)](doc/images/camlink_4k-race.jpg) | [![Latency measured on the same bench: MS2109, stock firmware, CamLink 4K](doc/images/camlink_4k-latency.jpg)](doc/images/camlink_4k-latency.jpg) |
+
 Measured on the same bench with one clock (1080p60, from the source render): frame delivered to
 applications in 19 ms (stock firmware 46 ms, a cheap MS2109 USB stick 64 ms), on screen in 37 ms with
 `camlink_view` in a desktop window and 19-30 ms with direct display (Vulkan, no compositor). Method,
 per stage breakdown and tools: [doc/LATENCY.md](doc/LATENCY.md), [doc/COMPARISON.md](doc/COMPARISON.md).
 
 ## Open source, all the way down
+
+[![Open source stack: silicon, toolchain, framework, cores, firmware, host](doc/images/camlink_4k-opensource.jpg)](doc/images/camlink_4k-opensource.jpg)
 
 No vendor tool, IP or firmware: the ECP5 bitstream is built with Yosys, nextpnr-ecp5 and Project
 Trellis; the SoC with [LiteX](https://github.com/enjoy-digital/litex), [Migen](https://github.com/m-labs/migen)
@@ -79,11 +100,20 @@ python3 software/camlink.py boot     # Load FX3 firmware + bitstream, HDMI and D
 
 ## Credits
 
+[![Credits](doc/images/camlink_4k-credits.jpg)](doc/images/camlink_4k-credits.jpg)
+
 Builds on the reverse engineering work of ktemkin (camlink-re), Greg Davill and the apertus
 team (netlist), Mike Walters, Chaz Schlarp (elgato-cam-link-4k-firmware-re) and Marcus Comstedt
 (fx3lafw), on LiteX/LiteDRAM/Migen, and on the open ECP5 toolchain from YosysHQ (Yosys, nextpnr,
 Project Trellis). Code written by a Claude agent (Anthropic), directed by
 [Enjoy-Digital](https://enjoy-digital.fr).
+
+About the video: the board and enclosure models follow public board and product photos (Greg
+Davill, apertus wiki), rendered with [three.js](https://threejs.org); the capture window is a real
+4K NV12 frame captured through CamLink 4K; the soundtrack is synthesized by
+[`doc/illustration/music.py`](doc/illustration/music.py) (adapted from the TriXium video). The
+logos in the credits (LiteX, Enjoy-Digital, M-Labs, YosysHQ, apertus, Anthropic) are used unaltered
+for attribution and remain the property of their owners.
 
 ## License
 

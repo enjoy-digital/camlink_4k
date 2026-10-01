@@ -1,0 +1,954 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>CamLink 4K</title>
+<style>
+  :root { --bg: #08090b; --ink: #e9edf3; --dim: #8b93a1; --faint: #505866; --cyan: #3fd4ff; }
+  html, body { margin: 0; padding: 0; background: var(--bg); overflow: hidden; }
+  canvas { display: block; }
+  #overlay { position: absolute; inset: 0; pointer-events: none; font-family: Ubuntu, sans-serif; color: var(--ink); }
+  .o { position: absolute; will-change: opacity, transform; }
+  .mono { font-family: 'Ubuntu Mono', monospace; }
+  svg#hud { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+  svg#hud .ln { fill: none; stroke: var(--cyan); stroke-width: 0.09vw; }
+  svg#hud .ln.dash { stroke-dasharray: 0.35vw 0.3vw; stroke-width: 0.07vw; }
+  svg#hud .dim { fill: none; stroke: var(--dim); stroke-width: 0.06vw; }
+  svg#hud circle { fill: var(--bg); stroke: var(--cyan); stroke-width: 0.1vw; }
+  /* callouts */
+  .tag { position: absolute; font-family: 'Ubuntu Mono', monospace; white-space: nowrap; line-height: 1.25; }
+  .tag .t { font-size: 1.02vw; letter-spacing: 0.08em; color: var(--ink); }
+  .tag .s { font-size: 0.95vw; letter-spacing: 0.03em; color: var(--dim); }
+  .tag .s.x { text-decoration: line-through; text-decoration-color: var(--dim); }
+  .tag .s.open { color: var(--cyan); }
+  .dimlabel { position: absolute; font-family: 'Ubuntu Mono', monospace; font-size: 0.78vw; color: var(--dim); letter-spacing: 0.08em; }
+  /* gateware blocks */
+  .blk { position: absolute; transform: translate(-50%, -50%); font-family: 'Ubuntu Mono', monospace; text-align: center; white-space: nowrap;
+         background: rgba(10,13,18,0.86); border: 1px solid var(--cyan); padding: 0.45vw 0.9vw 0.5vw; }
+  .blk .t { font-size: 0.98vw; letter-spacing: 0.1em; color: var(--ink); }
+  .blk .s { font-size: 0.85vw; color: var(--dim); margin-top: 0.15vw; }
+  .blk::before, .blk::after { content: ''; position: absolute; width: 0.45vw; height: 0.45vw; border: 0 solid var(--cyan); }
+  .blk::before { left: -0.3vw; top: -0.3vw; border-left-width: 2px; border-top-width: 2px; }
+  .blk::after { right: -0.3vw; bottom: -0.3vw; border-right-width: 2px; border-bottom-width: 2px; }
+  /* terminal */
+  #term { right: 3.4vw; top: 50vh; width: 31vw; background: rgba(9,11,15,0.9); border: 1px solid rgba(139,147,161,0.3); }
+  #term .bar { display: flex; justify-content: space-between; padding: 0.55vw 0.9vw; border-bottom: 1px solid rgba(139,147,161,0.2);
+               font-size: 0.72vw; letter-spacing: 0.14em; color: var(--dim); }
+  #term .bar b { color: var(--cyan); font-weight: 400; }
+  #term pre { margin: 0; padding: 0.9vw 1.1vw 1.1vw; font-family: 'Ubuntu Mono', monospace; font-size: 0.86vw; line-height: 1.55; color: var(--ink); min-height: 12.5vw; }
+  #term .c { color: #6c7584; } #term .k { color: var(--cyan); } #term .p { color: #6c7584; } #term .ok { color: var(--cyan); }
+  #term .cur { display: inline-block; width: 0.5vw; height: 1.05vw; background: var(--cyan); vertical-align: -0.15vw; }
+  /* captured frame */
+  #frame { left: 0; top: 0; width: 27vw; transform-origin: 0 0; background: rgba(9,11,15,0.92); border: 1px solid rgba(139,147,161,0.35); }
+  #frame img { display: block; width: calc(100% - 1vw); margin: 0.5vw; }
+  #frame .bar { display: flex; justify-content: space-between; padding: 0 0.6vw 0.5vw; font-family: 'Ubuntu Mono', monospace; font-size: 0.72vw; letter-spacing: 0.08em; color: var(--dim); }
+  #frame .bar b { color: var(--cyan); font-weight: 400; }
+  /* captions */
+  #caption { left: 3.4vw; bottom: 6vh; font-family: 'Ubuntu Mono', monospace; font-size: 1.05vw; letter-spacing: 0.2em; text-transform: uppercase; }
+  #caption .n { color: var(--cyan); margin-right: 1.2vw; }
+  #caption .d { color: var(--dim); }
+  #caprule { left: 3.4vw; bottom: 4.9vh; height: 1px; width: 26vw; transform-origin: 0 0; background: linear-gradient(90deg, var(--cyan), rgba(63,212,255,0)); }
+  #timecode { right: 3.4vw; bottom: 6vh; font-family: 'Ubuntu Mono', monospace; font-size: 0.78vw; letter-spacing: 0.14em; color: var(--faint); }
+  /* end card */
+  #title { left: 4.6vw; top: 13vh; margin: 0; font-weight: 700; font-size: 5.6vw; letter-spacing: 0.04em; line-height: 1; }
+  #title .x { color: var(--cyan); display: inline-block; transform: skewX(-12deg); }
+  #sub { left: 4.7vw; top: 25.4vh; margin: 0; font-size: 1.32vw; font-weight: 300; color: #b7bfcc; line-height: 1.45; }
+  #specs { left: 4.7vw; top: 38vh; font-family: 'Ubuntu Mono', monospace; font-size: 0.92vw; color: var(--dim); line-height: 2.25; letter-spacing: 0.05em; }
+  #specs b { color: var(--ink); font-weight: 400; letter-spacing: 0.1em; display: inline-block; width: 10.5vw; }
+  #specs div { border-bottom: 1px solid rgba(139,147,161,0.14); width: 34vw; white-space: nowrap; }
+  #cta { left: 4.7vw; top: 70vh; font-family: 'Ubuntu Mono', monospace; font-size: 1.15vw; color: var(--dim); letter-spacing: 0.04em; }
+  #cta b { color: var(--ink); font-weight: 400; }
+  #litex { right: 3.4vw; bottom: 4.5vh; height: 7vh; }
+  #credits { left: 4.7vw; bottom: 4.6vh; font-family: 'Ubuntu Mono', monospace; font-size: 0.85vw; color: var(--dim); letter-spacing: 0.06em; }
+  #title .k4 { color: #9aa3b1; font-weight: 300; font-size: 0.5em; margin-left: 0.3em; letter-spacing: 0.1em; }
+  #logos { right: 3.4vw; bottom: 4.5vh; display: flex; gap: 1.2vw; align-items: center; }
+  #logos img { height: 7vh; display: block; }
+  #logos .tile { background: #f3f5f7; padding: 0.25vw; height: 7vh; box-sizing: border-box; }
+  #logos .tile img { height: 100%; }
+  /* full screen scenes over the dimmed 3D */
+  #dim { position: absolute; inset: 0; background: rgba(8,9,11,0.8); backdrop-filter: blur(6px); }
+  .scene { position: absolute; inset: 0; visibility: hidden; }
+  .scene h2 { position: absolute; left: 4.6vw; top: 7.5vh; margin: 0; font-weight: 700; font-size: 2.9vw; letter-spacing: 0.02em; }
+  .scene h2 .x { color: var(--cyan); display: inline-block; transform: skewX(-12deg); }
+  .scene .lede { position: absolute; left: 4.7vw; top: 15vh; font-family: 'Ubuntu Mono', monospace; font-size: 0.95vw; color: var(--dim); letter-spacing: 0.05em; }
+  #archsvg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  #archsvg text { font-family: 'Ubuntu Mono', monospace; }
+  /* latency */
+  #lat .group { position: absolute; left: 4.7vw; right: 4vw; }
+  #lat .gl { font-family: 'Ubuntu Mono', monospace; font-size: 0.85vw; letter-spacing: 0.18em; color: var(--dim); margin-bottom: 1.4vh; }
+  #lat .row { display: flex; align-items: center; height: 4.6vh; }
+  #lat .rl { width: 24vw; flex: none; font-size: 1.05vw; color: #c9d0dc; }
+  #lat .rl i { font-style: normal; font-family: 'Ubuntu Mono', monospace; font-size: 0.85vw; color: var(--dim); margin-left: 0.5vw; }
+  #lat .bar { height: 2.2vh; background: #4b5566; flex: none; }
+  #lat .val { font-family: 'Ubuntu Mono', monospace; font-size: 1vw; color: #c9d0dc; margin-left: 0.8vw; white-space: nowrap; }
+  #lat .us .rl { color: var(--ink); font-weight: 700; } #lat .us .bar { background: var(--cyan); } #lat .us .val { color: var(--cyan); }
+  #lat .note { position: absolute; left: 4.7vw; top: 86vh; font-family: 'Ubuntu Mono', monospace; font-size: 0.85vw; color: var(--dim); }
+  #lat .note b { color: var(--cyan); font-weight: 400; }
+  /* race: one frame, slowed down */
+  #race .clock { position: absolute; right: 3.4vw; top: 7.5vh; font-family: 'Ubuntu Mono', monospace; font-size: 2.9vw; color: var(--ink); }
+  #race .clock i { font-style: normal; font-size: 0.9vw; color: var(--dim); letter-spacing: 0.14em; margin-right: 0.8vw; }
+  #race .pn { position: absolute; top: 25vh; width: 28.6vw; }
+  #race .pn .pt { font-family: 'Ubuntu Mono', monospace; font-size: 0.95vw; letter-spacing: 0.16em; color: var(--dim); margin-bottom: 1vh; }
+  #race .pn.us .pt { color: var(--cyan); }
+  #race .scr { position: relative; width: 28.6vw; height: 16.09vw; background: #101318; border: 1px solid #4b5566; overflow: hidden; }
+  #race .pn.us .scr { border-color: var(--cyan); }
+  #race .scr img { position: absolute; inset: 0; width: 100%; height: 100%; }
+  #race .scr .sl { position: absolute; left: 0; right: 0; height: 2px; background: var(--cyan); box-shadow: 0 0 0.6vw var(--cyan); }
+  #race .ev { font-family: 'Ubuntu Mono', monospace; font-size: 0.95vw; color: var(--dim); margin-top: 1.2vh; line-height: 1.6; min-height: 3.2vw; }
+  #race .ev b { color: var(--ink); font-weight: 400; } #race .pn.us .ev b { color: var(--cyan); }
+  #race .ruler { position: absolute; left: 4.7vw; right: 3.4vw; top: 70vh; height: 4vh; border-top: 1px solid #4b5566; }
+  #race .ruler span { position: absolute; top: 0.8vh; transform: translateX(-50%); font-family: 'Ubuntu Mono', monospace; font-size: 0.85vw; color: var(--dim); white-space: nowrap; }
+  #race .ruler .tk { position: absolute; top: -1vh; width: 1px; height: 2vh; background: #6d7888; }
+  #race .ruler .cur { position: absolute; top: -1.6vh; width: 2px; height: 3.2vh; background: var(--cyan); box-shadow: 0 0 0.6vw var(--cyan); }
+  #race .verdict { position: absolute; left: 4.7vw; top: 80vh; font-size: 1.8vw; font-weight: 700; color: var(--ink); opacity: 0; }
+  #race .verdict b { color: var(--cyan); }
+  #lat .ext { height: 2.2vh; flex: none; background: repeating-linear-gradient(135deg, var(--cyan) 0 0.25vw, transparent 0.25vw 0.55vw); opacity: 0.8; }
+  #lat .tick { position: absolute; top: 3.2vh; bottom: 0; width: 1px; background: rgba(139,147,161,0.22); }
+  #lat .tick span { position: absolute; top: -2.6vh; transform: translateX(-50%); font-family: 'Ubuntu Mono', monospace; font-size: 0.8vw; color: var(--faint); white-space: nowrap; }
+  #lat .head { position: absolute; right: 4vw; top: 8.4vh; font-size: 1.9vw; font-weight: 700; color: var(--cyan); opacity: 0; text-align: right; }
+  #lat .head span { display: block; font-family: 'Ubuntu Mono', monospace; font-size: 0.9vw; font-weight: 400; color: var(--dim); margin-top: 0.6vh; }
+  #stamp { left: 50%; top: 40vh; text-align: center; font-family: 'Ubuntu Mono', monospace; padding: 1.4vh 2.2vw;
+           border: 2px solid var(--cyan); background: rgba(8,9,11,0.82); visibility: hidden; }
+  #stamp b { display: block; font-size: 2.4vw; letter-spacing: 0.14em; color: var(--ink); font-weight: 700; }
+  #stamp span { display: block; font-size: 0.95vw; color: var(--dim); margin-top: 0.8vh; }
+  #cta2 { left: 4.7vw; top: 74.5vh; font-family: 'Ubuntu Mono', monospace; font-size: 0.95vw; color: var(--dim); letter-spacing: 0.04em; }
+  #cta2 b { color: var(--cyan); font-weight: 400; }
+  #frame .bar .live { color: var(--cyan); }
+  /* open source stack */
+  #oss .layer { position: absolute; left: 4.7vw; right: 3.4vw; height: 8.6vh; display: flex; align-items: center; gap: 1.2vw;
+                border: 1px solid #4b5566; background: rgba(10,12,16,0.72); padding: 0 1.2vw; box-sizing: border-box; }
+  #oss .layer .lab { width: 10vw; flex: none; font-family: 'Ubuntu Mono', monospace; font-size: 0.9vw; letter-spacing: 0.16em; color: var(--cyan); }
+  #oss .layer .items { flex: 1; font-size: 1.1vw; color: var(--ink); }
+  #oss .layer .items span { font-family: 'Ubuntu Mono', monospace; font-size: 0.88vw; color: var(--dim); margin-left: 0.4vw; }
+  #oss .layer img { height: 5.6vh; background: #f3f5f7; padding: 0.3vh; box-sizing: border-box; filter: grayscale(1); }
+  #oss .layer .ok { font-family: 'Ubuntu Mono', monospace; font-size: 0.9vw; letter-spacing: 0.16em; color: var(--cyan); opacity: 0; white-space: nowrap; }
+  #oss .final { position: absolute; left: 4.7vw; top: 14.6vh; font-size: 1.6vw; font-weight: 700; color: var(--cyan); letter-spacing: 0.02em; opacity: 0; }
+  #oss .layer.si { border-color: #6d7888; } #oss .layer.si .lab { color: #b9c2d0; }
+  #oss .foot { position: absolute; left: 4.7vw; right: 3.4vw; top: 87vh; font-family: 'Ubuntu Mono', monospace; font-size: 0.85vw; color: var(--dim); }
+  #oss .foot b { color: var(--cyan); font-weight: 400; }
+  /* credits */
+  #thanks .grid { position: absolute; left: 4.7vw; right: 3.4vw; top: 24vh; display: grid; grid-template-columns: 1fr 1fr 1fr; column-gap: 2.6vw; row-gap: 4.6vh; }
+  #thanks .it { display: flex; gap: 1.1vw; align-items: center; }
+  #thanks .lg { width: 3.6vw; height: 3.6vw; flex: none; background: #f3f5f7; display: flex; align-items: center; justify-content: center; box-sizing: border-box; padding: 0.3vw; }
+  #thanks .lg img { max-width: 100%; max-height: 100%; }
+  #thanks .lg.mono { background: none; border: 1px solid #6d7888; font-family: 'Ubuntu Mono', monospace; font-size: 0.95vw; color: #b9c2d0; letter-spacing: 0.05em; }
+  #thanks .it b { display: block; font-size: 1.2vw; font-weight: 700; }
+  #thanks .it span { display: block; font-family: 'Ubuntu Mono', monospace; font-size: 0.8vw; color: var(--dim); margin-top: 0.3vh; }
+  #thanks .foot { position: absolute; left: 0; right: 0; top: 88vh; text-align: center; font-family: 'Ubuntu Mono', monospace; font-size: 0.8vw; color: var(--faint); letter-spacing: 0.06em; }
+  #playhint { left: 50%; top: 50%; transform: translate(-50%, -50%); font-family: 'Ubuntu Mono', monospace; font-size: 1.2vw; letter-spacing: 0.2em;
+              padding: 1vw 2vw; border: 1px solid var(--cyan); background: rgba(8,9,11,0.85); color: var(--ink); display: none; pointer-events: auto; cursor: pointer; }
+  #fade { position: absolute; inset: 0; background: var(--bg); }
+</style>
+</head>
+<body>
+<div id="overlay">
+  <svg id="hud"></svg>
+  <div id="tags"></div>
+  <div class="o" id="term"><div class="bar"><span>TERMINAL</span><b id="termtitle">camlink_4k.py</b></div><pre id="code"></pre></div>
+  <div class="o" id="frame"><img src="uvc_capture.png"><div class="bar"><span><span class="live">● LIVE</span> · real UVC capture · CamLink 4K</span><b>3840x2160 · NV12 · 30 fps</b></div></div>
+  <div class="o" id="caption"></div>
+  <div class="o" id="caprule"></div>
+  <div class="o" id="timecode"></div>
+  <div id="dim" class="o"></div>
+  <div class="scene" id="arch"><h2>Inside CamLink <span class="x">4K</span></h2>
+    <div class="lede">the capture pipeline is new · the infrastructure around it is LiteX · 145 CSRs · 16 gateware modules</div>
+    <svg id="archsvg" viewBox="0 0 1920 1080"></svg></div>
+  <div class="scene" id="race"><h2>Lines, <span class="x">not frames</span>.</h2>
+    <div class="lede">one 1080p60 frame, slowed down ~80x · times from the source render, measured (doc/LATENCY.md)</div>
+    <div class="clock" id="rclock"><i>T +</i>00.0 ms</div>
+    <div class="pn " style="left:4.7vw"><div class="pt">SOURCE · HDMI OUT</div><div class="scr"><img src="uvc_capture.png"><div class="sl"></div></div><div class="ev"></div></div>
+    <div class="pn us" style="left:35.9vw"><div class="pt">CAMLINK 4K · USB</div><div class="scr"><img src="uvc_capture.png"><div class="sl"></div></div><div class="ev"></div></div>
+    <div class="pn " style="left:67.1vw"><div class="pt">ELGATO STOCK · USB</div><div class="scr"><img src="uvc_capture.png"><div class="sl"></div></div><div class="ev"></div></div>
+    <div class="ruler"><div class="cur"></div></div>
+    <div class="verdict">first data on USB: <b>3.5 ms</b> vs 35 ms · frame to the app: <b>19 ms</b> vs 46 ms</div>
+  </div>
+  <div class="scene" id="lat"><h2>Low latency, <span class="x">measured</span>.</h2>
+    <div class="lede">1080p60 · time from the source render · same bench, one clock · doc/LATENCY.md</div>
+    <div class="head">2.4x sooner to the app<span>than the stock firmware · 10x sooner on USB</span></div>
+    <div class="group" style="top:21vh"><div class="gl">FRAME DELIVERED TO THE APPLICATION</div>
+      <div class="row" data-ms="64"><div class="rl">MS2109 USB 2.0 stick<i>MJPEG 1080p30</i></div><div class="bar"></div><div class="val">64 ms</div></div>
+      <div class="row" data-ms="46"><div class="rl">Elgato stock firmware<i>frame buffered</i></div><div class="bar"></div><div class="val">46 ms</div></div>
+      <div class="row us" data-ms="19"><div class="rl">CamLink 4K<i>lines streamed</i></div><div class="bar"></div><div class="val">19 ms</div></div>
+    </div>
+    <div class="group" style="top:44.8vh"><div class="gl">ON SCREEN</div>
+      <div class="row" data-ms="108"><div class="rl">MS2109 + ffplay<i></i></div><div class="bar"></div><div class="val">108 ms</div></div>
+      <div class="row" data-ms="88"><div class="rl">Elgato stock + ffplay<i></i></div><div class="bar"></div><div class="val">88 ms</div></div>
+      <div class="row" data-ms="72"><div class="rl">CamLink 4K + ffplay<i></i></div><div class="bar"></div><div class="val">72 ms</div></div>
+      <div class="row us" data-ms="37"><div class="rl">CamLink 4K + camlink_view<i>desktop window</i></div><div class="bar"></div><div class="val">37 ms</div></div>
+      <div class="row us" data-ms="19" data-ms2="30"><div class="rl">CamLink 4K + camlink_view<i>direct display (Vulkan)</i></div><div class="bar"></div><div class="ext"></div><div class="val">19-30 ms</div></div>
+    </div>
+  </div>
+  <div class="scene" id="oss"><h2>Open source, <span class="x">all the way down</span>.</h2>
+    <div class="lede">from the bitstream compiler to the host viewer: no vendor tool, no vendor IP, no vendor firmware</div>
+    <div class="layer si" style="top:76.0vh"><div class="lab">SILICON</div><div class="items">Lattice ECP5 LFE5U-25F <span>bitstream format documented by Project Trellis</span></div><div class="ok">✓ OPEN</div></div>
+    <div class="layer " style="top:65.8vh"><div class="lab">TOOLCHAIN</div><div class="items">Yosys · nextpnr-ecp5 · Project Trellis <span>synthesis · place and route · bitstream</span></div><img src="logos/yosyshq.png"><div class="ok">✓ OPEN</div></div>
+    <div class="layer " style="top:55.6vh"><div class="lab">FRAMEWORK</div><div class="items">LiteX · Migen · LiteX-Boards <span>SoC builder · Python HDL · board support</span></div><img src="logos/litex.png"><div class="ok">✓ OPEN</div></div>
+    <div class="layer " style="top:45.4vh"><div class="lab">CORES</div><div class="items">LiteDRAM · LiteX streams/CSRs · CamLink 4K cores <span>DDR3 1:4 · HDMIIn · NV12 FB · UVC/UAC · GPIF</span></div><div class="ok">✓ OPEN</div></div>
+    <div class="layer " style="top:35.2vh"><div class="lab">FIRMWARE</div><div class="items">FX3 bare-metal C · GCC <span>no vendor SDK · standalone boot from flash</span></div><div class="ok">✓ OPEN</div></div>
+    <div class="layer " style="top:25.0vh"><div class="lab">HOST</div><div class="items">Python tools · camlink_view <span>boot · flash · validate · bench · libusb · SDL2 · Vulkan direct display</span></div><div class="ok">✓ OPEN</div></div>
+    <div class="final">0 vendor tools · 0 vendor IP · 0 vendor firmware</div>
+    <div class="foot"><b>UPSTREAMED</b> LiteDRAM #408 (merged) · #409 · #410 (open) · LiteX-Boards #866 (merged) · LiteX-Boards target since 2019 · BSD-2-Clause</div>
+  </div>
+  <div class="scene" id="thanks"><h2>Thanks.</h2>
+    <div class="lede">built on the work of the open-source and reverse-engineering community</div>
+    <div class="grid">
+      <div class="it"><div class="lg"><img src="logos/litex.png"></div><div><b>LiteX · Enjoy-Digital</b><span>SoC builder · LiteDRAM · 300+ contributors since 2011</span></div></div>
+      <div class="it"><div class="lg"><img src="logos/migen.png"></div><div><b>Migen · M-Labs</b><span>the Python HDL under LiteX</span></div></div>
+      <div class="it"><div class="lg"><img src="logos/yosyshq.png"></div><div><b>YosysHQ</b><span>Yosys · nextpnr · Project Trellis</span></div></div>
+      <div class="it"><div class="lg mono">gc</div><div><b>gatecat</b><span>Project Trellis · nextpnr-ecp5 · ECP5 DDR3 PHY</span></div></div>
+      <div class="it"><div class="lg"><img src="logos/apertus.png"></div><div><b>apertus°</b><span>Cam Link 4K board netlist</span></div></div>
+      <div class="it"><div class="lg mono">GD</div><div><b>Greg Davill</b><span>board netlist and photos</span></div></div>
+      <div class="it"><div class="lg mono">kt</div><div><b>ktemkin</b><span>camlink-re · the first reverse engineering</span></div></div>
+      <div class="it"><div class="lg mono">RE</div><div><b>Mike Walters · Chaz Schlarp</b><span>stock firmware reverse engineering</span></div></div>
+      <div class="it"><div class="lg mono">FX3</div><div><b>fx3lafw · Marcus Comstedt</b><span>bare-metal FX3 reference</span></div></div>
+      <div class="it"><div class="lg mono">3D</div><div><b>three.js</b><span>this film, rendered in a browser</span></div></div>
+      <div class="it"><div class="lg"><img src="logos/anthropic.png"></div><div><b>Anthropic · Claude</b><span>code by a Claude agent, directed by Enjoy-Digital</span></div></div>
+      <div class="it"><div class="lg mono">CL</div><div><b>Elgato</b><span>the Cam Link 4K hardware</span></div></div>
+    </div>
+    <div class="foot">Elgato and Cam Link are trademarks of Corsair · CamLink 4K is not affiliated with them · logos belong to their owners</div>
+  </div>
+  <div class="o" id="stamp"><b>VENDOR CODE: 0 BYTES</b><span>stock bitstream + FX3 firmware → camlink_4k.py + bare-metal C</span></div>
+  <h1 class="o" id="title">CAMLINK <span class="x">4K</span></h1>
+  <p class="o" id="sub">The Elgato Cam Link 4K, rebuilt with open-source<br>LiteX gateware and bare-metal FX3 firmware.</p>
+  <div class="o" id="specs">
+    <div><b>CAPTURE</b>4K30 NV12 · M420 · 1080p60 · audio</div>
+    <div><b>LATENCY</b>19 ms to the app · 19-30 ms on screen</div>
+    <div><b>OPEN SOURCE</b>LiteX · LiteDRAM · Yosys/nextpnr/Trellis</div>
+    <div><b>UPSTREAM</b>ECP5 DDR3 1:4 → LiteDRAM · LiteX-Boards</div>
+    <div><b>FIRMWARE</b>FX3 bare-metal C · no vendor SDK</div>
+  </div>
+  <div class="o" id="cta">github.com/<b>enjoy-digital/camlink_4k</b></div>
+  <div class="o" id="cta2">built with <b>LiteX</b> · github.com/enjoy-digital/litex</div>
+  <div class="o" id="credits">BSD-2-CLAUSE · FORK IT, PORT IT, OR HIRE US: ENJOY-DIGITAL.FR</div>
+  <div class="o" id="logos"><div class="tile"><img src="litex.svg"></div><div class="tile"><img src="logos/enjoy-digital.png"></div></div>
+  <div class="o" id="playhint">▶ CLICK TO PLAY WITH SOUND</div>
+  <audio id="music" src="music.mp3" preload="auto"></audio>
+  <div id="fade"></div>
+</div>
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/" } }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
+import { buildBoard, PCB_W, PCB_T } from './board.js';
+
+const Q = new URLSearchParams(location.search);
+const W = innerWidth, H = innerHeight;
+const DURATION = window.DURATION = 66.0;      // 33 bars at 120 BPM (music.py), cuts on the bar grid
+const HERO_T = 65.0;                         // frame used for the stills
+// Film time -> story time of the 3D beats (frozen under the full screen scenes).
+const STORY = [[0, 0], [14, 12.2], [20, 16.8], [26, 16.8], [34, 21.2], [54, 21.2], [58, 24.2], [66, 26.0]];
+function story(T) {
+  for (let i = 0; i < STORY.length - 1; i++) {
+    const [a, sa] = STORY[i], [b, sb] = STORY[i + 1];
+    if (T <= b) return sa + (sb - sa) * Math.max(0, T - a) / (b - a);
+  }
+  return STORY[STORY.length - 1][1];
+}
+const STILL = Q.has('still');                // hero still: no captions, no fade
+if (Q.get('overlay') === '0') document.getElementById('overlay').style.display = 'none';
+const CLEAN = Q.has('clean');                // README snapshots: no captions, timecode or fade
+const CYAN = 0x3fd4ff, BLUE = 0x2d6cff;   // light bar: stock cyan, then LiteX blue once the bitstream is replaced
+
+// ---------------------------------------------------------------- utils
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const seg = (t, a, b) => clamp((t - a) / (b - a));
+const lerp = (a, b, k) => a + (b - a) * k;
+const win = (t, a, b, f = 0.4) => Math.min(seg(t, a, a + f), 1 - seg(t, b - f, b));   // fade in at a, out at b
+const E = {
+  inOut: x => x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2,
+  out: x => 1 - Math.pow(1 - x, 3),
+  outExpo: x => x === 1 ? 1 : 1 - Math.pow(2, -10 * x),
+  inQuad: x => x * x,
+};
+function canvasTex(w, h, draw) {
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8;
+  t.redraw = (...a) => { const g = c.getContext('2d'); g.clearRect(0, 0, w, h); draw(g, w, h, ...a); t.needsUpdate = true; };
+  t.redraw(); return t;
+}
+
+// ---------------------------------------------------------------- renderer / studio
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+renderer.setPixelRatio(1); renderer.setSize(W, H);
+renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.0;
+renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.localClippingEnabled = true;
+document.body.prepend(renderer.domElement);
+const scene = new THREE.Scene();
+scene.environment = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), 0.02).texture;
+scene.background = new THREE.Color(0x08090b);
+scene.fog = new THREE.Fog(0x08090b, 20, 44);
+{   // matte floor with a fine engineering grid
+  const tex = canvasTex(2048, 2048, (g, w, h) => {
+    g.fillStyle = '#0d0f12'; g.fillRect(0, 0, w, h);
+    for (let i = 0; i <= w; i += 32) {
+      const major = i % 256 === 0;
+      g.strokeStyle = major ? 'rgba(150,165,190,0.10)' : 'rgba(150,165,190,0.04)'; g.lineWidth = major ? 2 : 1;
+      g.beginPath(); g.moveTo(i, 0); g.lineTo(i, h); g.stroke(); g.beginPath(); g.moveTo(0, i); g.lineTo(w, i); g.stroke();
+    }
+  });
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping; tex.repeat.set(4, 4);
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(160, 160),
+    new THREE.MeshStandardMaterial({ map: tex, roughness: 0.55, metalness: 0.3, envMapIntensity: 0.25 }));
+  floor.rotation.x = -Math.PI / 2; floor.position.y = -2.2; floor.receiveShadow = true;
+  scene.add(floor);
+}
+scene.add(new THREE.HemisphereLight(0xd6e0ee, 0x0a0b0e, 0.3));
+const key = new THREE.DirectionalLight(0xffffff, 2.4);
+key.position.set(-6, 14, 9); key.castShadow = true; key.shadow.mapSize.set(2048, 2048);
+Object.assign(key.shadow.camera, { left: -12, right: 12, top: 12, bottom: -12, near: 1, far: 50 });
+key.shadow.bias = -0.0004; key.shadow.radius = 8; scene.add(key);
+const rim = new THREE.DirectionalLight(0xb8d4ff, 1.8); rim.position.set(6, 6, -12); scene.add(rim);
+const camera = new THREE.PerspectiveCamera(30, W / H, 0.1, 200);
+
+// ================================================================= board (procedural model of the real PCB, see board.js)
+// Rig frame = board frame: X across, Z along (USB plug at -Z, HDMI at +Z). USB toward the viewer, on the left.
+const rig = new THREE.Group(); scene.add(rig);
+rig.rotation.y = Math.PI / 2 + 0.42;
+const B = buildBoard();
+// The board sits side B up in the case (its LED D1, side B, lights the top light bar): it turns
+// around its long axis to show side A (ECP5, FX3, DDR3) once the case is open.
+const boardPivot = new THREE.Group(); rig.add(boardPivot);
+boardPivot.add(B.group);
+const u4 = B.u4pos.clone(), CS = B.U4_SIZE;
+{
+  const nickel = new THREE.MeshStandardMaterial({ color: 0x8e949c, roughness: 0.42, metalness: 1, envMapIntensity: 0.6 });
+  B.group.traverse(o => { if (o.isMesh && !o.isInstancedMesh && o.material.color?.getHex() === 0xd8b25a) o.material = nickel; });
+}
+const fpgaLabel = canvasTex(1024, 1024, (g, w, h, open = 0) => {
+  g.fillStyle = '#111317'; g.fillRect(0, 0, w, h);
+  g.textAlign = 'center'; g.fillStyle = '#7b8290';
+  g.font = 'italic 700 112px Ubuntu'; g.fillText('LATTICE', w / 2, 300);
+  g.font = '500 76px Ubuntu Mono'; g.fillText('LFE5U-25F', w / 2, 430); g.fillText('8BG381C', w / 2, 525);
+  if (open) {
+    g.fillStyle = '#3fd4ff'; g.fillRect(w / 2 - 250, 610, 500, 4);
+    g.font = '500 74px Ubuntu Mono'; g.fillText('camlink_4k.py', w / 2, 720);
+  }
+  g.beginPath(); g.arc(120, 120, 30, 0, 7); g.fillStyle = '#1d2026'; g.fill();
+});
+{
+  const fpga = new THREE.Group(); boardPivot.add(fpga);
+  const sub = new THREE.Mesh(new RoundedBoxGeometry(CS, 0.06, CS, 3, 0.02), new THREE.MeshStandardMaterial({ color: 0x1d3a26, roughness: 0.5 }));
+  sub.castShadow = true; fpga.add(sub);
+  const die = new THREE.Mesh(new RoundedBoxGeometry(CS * 0.97, 0.16, CS * 0.97, 3, 0.03), new THREE.MeshStandardMaterial({ color: 0x111317, roughness: 0.4 }));
+  die.position.y = 0.1; die.castShadow = true; fpga.add(die);
+  const lab = new THREE.Mesh(new THREE.PlaneGeometry(CS * 0.92, CS * 0.92), new THREE.MeshStandardMaterial({ map: fpgaLabel, roughness: 0.45 }));
+  lab.rotation.set(-Math.PI / 2, 0, -Math.PI / 2); lab.position.y = 0.181; fpga.add(lab);
+  fpga.position.copy(u4).add(new THREE.Vector3(0, 0.03, 0));
+}
+
+// ================================================================= case: flat rounded stick, soft edges, matte graphite
+// Shape follows the real enclosure (large radius at the far end, flatter USB end, cyan light bar near the far end).
+const CW = PCB_W + 0.95, CTH = 1.95, Z0 = -5.05, Z1 = 5.45, CL = Z1 - Z0, CZ = (Z0 + Z1) / 2;
+function caseGeo() {
+  const bt = 0.72, bs = 0.5, w = CW / 2 - bs, l = CL / 2 - bs, rU = 0.75, rF = 1.55;
+  const s = new THREE.Shape();          // shape +Y -> rig -Z (USB end)
+  s.moveTo(-w + rF, -l); s.lineTo(w - rF, -l); s.absarc(w - rF, -l + rF, rF, -Math.PI / 2, 0);
+  s.lineTo(w, l - rU); s.absarc(w - rU, l - rU, rU, 0, Math.PI / 2);
+  s.lineTo(-w + rU, l); s.absarc(-w + rU, l - rU, rU, Math.PI / 2, Math.PI);
+  s.lineTo(-w, -l + rF); s.absarc(-w + rF, -l + rF, rF, Math.PI, Math.PI * 1.5);
+  const g = new THREE.ExtrudeGeometry(s, { depth: CTH - 2 * bt, bevelEnabled: true, bevelThickness: bt, bevelSize: bs, bevelSegments: 12, curveSegments: 40 });
+  g.translate(0, 0, -(CTH - 2 * bt) / 2);
+  g.rotateX(-Math.PI / 2);
+  g.deleteAttribute('normal'); g.deleteAttribute('uv');
+  const m = mergeVertices(g, 1e-4); m.computeVertexNormals();   // smooth soft edges
+  return m;
+}
+const shellGeo = caseGeo();
+const caseMat = new THREE.MeshPhysicalMaterial({ color: 0x2b2d31, roughness: 0.58, clearcoat: 0.12, clearcoatRoughness: 0.5, envMapIntensity: 0.6, side: THREE.DoubleSide });
+const innerMat = new THREE.MeshStandardMaterial({ color: 0x131417, roughness: 0.9, side: THREE.BackSide });
+const halves = [1, -1].map(side => {
+  const grp = new THREE.Group(); grp.position.z = CZ; rig.add(grp);
+  const plane = new THREE.Plane(new THREE.Vector3(0, side, 0), 0);
+  const mats = [caseMat.clone(), innerMat.clone()];
+  for (const m of mats) m.clippingPlanes = [plane];
+  const shell = new THREE.Mesh(shellGeo, mats[0]); shell.castShadow = shell.receiveShadow = true; grp.add(shell);
+  const inner = new THREE.Mesh(shellGeo, mats[1]); inner.scale.set(0.965, 0.86, 0.985); grp.add(inner);
+  grp.userData = { plane, mats, side };
+  return grp;
+});
+// light bar (top, near the far end)
+const barMat = new THREE.MeshBasicMaterial({ color: CYAN, toneMapped: false });
+const bar = new THREE.Mesh(new THREE.CapsuleGeometry(0.035, 0.62, 4, 12), barMat);
+bar.rotation.z = Math.PI / 2; bar.position.set(-0.15, CTH / 2 + 0.002, CL / 2 - 1.35); halves[0].add(bar);
+// discreet wordmark, along the stick
+const markTex = canvasTex(1024, 192, (g, w, h) => {
+  g.textBaseline = 'middle'; g.font = '700 118px Ubuntu'; g.fillStyle = '#6e737c';
+  const t = 'CAMLINK', lw = g.measureText(t).width, x0 = (w - lw - 170) / 2;
+  g.fillText(t, x0, h / 2 + 6);
+  g.font = '300 92px Ubuntu'; g.fillText('4K', x0 + lw + 40, h / 2 + 10);
+});
+{
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(3.6, 0.68), new THREE.MeshStandardMaterial({ map: markTex, transparent: true, roughness: 0.5, metalness: 0.3, depthWrite: false }));
+  m.rotation.set(-Math.PI / 2, 0, -Math.PI / 2); m.position.set(0.05, CTH / 2 + 0.003, -0.6); halves[0].add(m);
+}
+// USB end: dark recessed collar around the plug; HDMI end: port bezel
+const darkMat = new THREE.MeshStandardMaterial({ color: 0x0c0d0f, roughness: 0.7 });
+{
+  const collar = new THREE.Mesh(new RoundedBoxGeometry(2.25, 0.95, 0.3, 3, 0.12), darkMat);
+  collar.position.set(0, -0.06, Z0 - CZ + 0.1); halves[0].add(collar);
+  const c2 = collar.clone(); halves[1].add(c2);
+  const bezel = new THREE.Mesh(new RoundedBoxGeometry(2.75, 0.92, 0.4, 3, 0.14), darkMat);
+  bezel.position.set(0, 0, Z1 - CZ - 0.17); halves[0].add(bezel); halves[1].add(bezel.clone());
+  // HDMI opening: trapezoid, wide edge up (the receptacle's narrow edge faces side A, down in the case).
+  const mw = 2.1, mh = 0.4, ch = 0.13, ms = new THREE.Shape();
+  ms.moveTo(-mw / 2, mh / 2); ms.lineTo(mw / 2, mh / 2); ms.lineTo(mw / 2, -mh / 2 + ch);
+  ms.lineTo(mw / 2 - ch, -mh / 2); ms.lineTo(-mw / 2 + ch, -mh / 2); ms.lineTo(-mw / 2, -mh / 2 + ch); ms.closePath();
+  const mouth = new THREE.Mesh(new THREE.ExtrudeGeometry(ms, { depth: 0.1, bevelEnabled: false }), new THREE.MeshBasicMaterial({ color: 0x020203 }));
+  mouth.position.set(0, 0, Z1 - CZ - 0.06); halves[0].add(mouth); halves[1].add(mouth.clone());
+  for (const h of halves) for (const c of h.children) if (c.material === darkMat || c.material.color?.getHex() === 0x020203) {
+    c.material = c.material.clone(); c.material.clippingPlanes = [h.userData.plane]; c.material.clipShadows = true;
+  }
+}
+
+// ================================================================= scan (vendor -> open), light sheet across the board
+const sheetMat = new THREE.MeshBasicMaterial({ color: CYAN, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false,
+  map: canvasTex(256, 256, (g, w, h) => {
+    const v = g.createLinearGradient(0, 0, 0, h); v.addColorStop(0, 'rgba(255,255,255,0)'); v.addColorStop(0.75, 'rgba(255,255,255,0.35)'); v.addColorStop(1, 'rgba(255,255,255,1)');
+    g.fillStyle = v; g.fillRect(0, 0, w, h);
+  }) });
+const sheet = new THREE.Mesh(new THREE.PlaneGeometry(PCB_W + 0.6, 1.6), sheetMat);
+sheet.position.y = 0.8 - 0.05; rig.add(sheet);
+const lineMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(CYAN).multiplyScalar(2), transparent: true, opacity: 0, toneMapped: false, depthWrite: false });
+const scanLine = new THREE.Mesh(new THREE.BoxGeometry(PCB_W + 0.6, 0.012, 0.03), lineMat); rig.add(scanLine);
+const SCAN0 = 9.2, SCAN1 = 11.8;
+const scanZ = t => lerp(-5.6, 5.6, E.inOut(seg(t, SCAN0, SCAN1)));
+
+// ================================================================= data path (HDMI -> IT6802 -> ECP5 -> DDR3 -> ECP5 -> FX3 -> USB)
+const y = 0.34;
+const PATH = new THREE.CatmullRomCurve3([
+  B.hdmiPos.clone().add(new THREE.Vector3(0, y - 0.2, 1.8)), B.hdmiPos.clone().setY(y - 0.2),
+  B.itePos.clone().setY(y - 0.05), u4.clone().setY(y + 0.1).add(new THREE.Vector3(0.5, 0, 0.8)),
+  B.ddrPos.clone().setY(y), u4.clone().setY(y + 0.1).add(new THREE.Vector3(-0.5, 0, -0.4)),
+  B.fx3Pos.clone().setY(y), B.usbPos.clone().setY(y - 0.25), B.usbPos.clone().add(new THREE.Vector3(0, y - 0.25, -2.0)),
+], false, 'catmullrom', 0.3);
+const trailMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(CYAN).multiplyScalar(1.3), transparent: true, opacity: 0, toneMapped: false });
+const trail = new THREE.Mesh(new THREE.TubeGeometry(PATH, 400, 0.016, 6), trailMat); rig.add(trail);
+const pulseMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0xffffff).multiplyScalar(1.6), transparent: true, opacity: 0, toneMapped: false });
+const pulses = Array.from({ length: 16 }, () => { const m = new THREE.Mesh(new THREE.CapsuleGeometry(0.035, 0.14, 4, 8), pulseMat); rig.add(m); return m; });
+
+// ================================================================= post
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+composer.addPass(new UnrealBloomPass(new THREE.Vector2(W, H), 0.4, 0.3, 0.97));
+composer.addPass(new OutputPass());
+const finish = new ShaderPass({
+  uniforms: { tDiffuse: { value: null }, uTime: { value: 0 } },
+  vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
+  fragmentShader: `uniform sampler2D tDiffuse; uniform float uTime; varying vec2 vUv;
+    float h(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233)) + uTime*37.0) * 43758.5453); }
+    void main(){ vec4 c = texture2D(tDiffuse, vUv); vec2 d = vUv - 0.5; d.x *= 1.25;
+      c.rgb *= mix(0.55, 1.0, smoothstep(0.85, 0.15, length(d))); c.rgb += (h(vUv * 1000.0) - 0.5) * 0.014; gl_FragColor = c; }`,
+});
+composer.addPass(finish);
+
+// ================================================================= HUD (SVG lines + HTML labels, projected from 3D)
+const $ = id => document.getElementById(id);
+const SVGNS = 'http://www.w3.org/2000/svg';
+const hud = $('hud'), tagsEl = $('tags');
+const svgEl = (tag, cls) => { const e = document.createElementNS(SVGNS, tag); if (cls) e.setAttribute('class', cls); hud.appendChild(e); return e; };
+const div = (cls, html) => { const e = document.createElement('div'); e.className = cls; e.innerHTML = html; tagsEl.appendChild(e); return e; };
+const V = (x, y, z) => new THREE.Vector3(x, y, z);
+function proj(local) {
+  const p = rig.localToWorld(local.clone()).project(camera);
+  return [(p.x + 1) / 2 * W, (1 - p.y) / 2 * H];
+}
+// Callout: anchor dot -> vertical leg (dy, fraction of H) -> horizontal leg (dx, fraction of W) -> label.
+function callout(anchor, title, sub, { dx = 0.06, dy = -0.12, open = null, dash = false } = {}) {
+  const path = svgEl('polyline', dash ? 'ln dash' : 'ln'), dot = svgEl('circle');
+  const el = div('tag', `<div class="t">${title}</div><div class="s">${sub}</div>`);
+  return { anchor, dx, dy, open, sub, path, dot, el, s: el.querySelector('.s'), state: '' };
+}
+function placeCallout(c, k) {
+  const vis = k > 0.001;
+  for (const e of [c.path, c.dot]) e.style.display = vis ? '' : 'none';
+  c.el.style.display = vis ? '' : 'none';
+  if (!vis) return;
+  const [ax, ay] = proj(c.anchor), ex = ax, ey = ay + c.dy * H, px = ex + c.dx * W;
+  const l1 = Math.abs(c.dy * H), l2 = Math.abs(c.dx * W), L = l1 + l2, d = L * E.out(clamp(k * 1.4));
+  const pts = [[ax, ay]];
+  if (d <= l1) pts.push([ax, ay + Math.sign(c.dy) * d]); else pts.push([ex, ey], [ex + Math.sign(c.dx) * (d - l1), ey]);
+  c.path.setAttribute('points', pts.map(p => p.join(',')).join(' '));
+  c.dot.setAttribute('cx', ax); c.dot.setAttribute('cy', ay); c.dot.setAttribute('r', 0.0032 * W * clamp(k * 4));
+  const kt = E.out(clamp(k * 2.2 - 1.2));
+  c.el.style.opacity = kt;
+  const right = c.dx >= 0, gap = 0.006 * W;
+  c.el.style.left = right ? `${px + gap}px` : ''; c.el.style.right = right ? '' : `${W - px + gap}px`;
+  c.el.style.textAlign = right ? 'left' : 'right';
+  c.el.style.top = `${ey}px`; c.el.style.transform = `translateY(-50%) translateX(${(right ? -1 : 1) * (1 - kt) * 8}px)`;
+}
+function setOpen(c, st) {
+  if (!c.open || c.state === st) return;
+  c.state = st;
+  c.s.className = 's' + (st === 'x' ? ' x' : st === 'open' ? ' open' : '');
+  c.s.textContent = st === 'open' ? c.open : c.sub;
+}
+const parts = [
+  callout(u4.clone().setY(0.2), 'LATTICE ECP5 · LFE5U-25F', 'vendor bitstream', { open: 'LiteX gateware · camlink_4k.py', dx: 0.05, dy: -0.22 }),
+  callout(B.fx3Pos.clone().setY(0.2), 'CYPRESS FX3 · CYUSB3014', 'vendor firmware', { open: 'bare-metal C · no SDK', dx: -0.05, dy: -0.2 }),
+  callout(B.flashPos.clone().setY(0.15), 'SPI FLASH · W25Q32', 'vendor images', { open: 'FX3 firmware + bitstream', dx: -0.06, dy: 0.13 }),
+  callout(B.ddrPos.clone().setY(0.2), 'DDR3L · 128 MB', 'unused by stock', { open: 'LiteDRAM · NV12 frame buffer', dx: 0.05, dy: 0.16 }),
+  callout(B.itePos.clone(), 'ITE IT6802 · HDMI RX', 'underside · I2C configured', { dx: 0.09, dy: -0.26, dash: true }),
+];
+// board dimensions (photo scale ~30 px/mm): 72.3 x 28 mm
+const dims = (() => {
+  const mk = (a, b, label, off) => ({ a, b, off, line: svgEl('path', 'dim'), el: div('dimlabel', label) });
+  const x = -PCB_W / 2 - 0.35, y = 0;
+  return [mk(V(x, y, -5.0), V(x, y, 5.0), '72.3 mm', 1), mk(V(-PCB_W / 2, y, 5.55), V(PCB_W / 2, y, 5.55), '28.0 mm', 1)];
+})();
+function placeDim(d, k) {
+  const vis = k > 0.001; d.line.style.display = d.el.style.display = vis ? '' : 'none'; if (!vis) return;
+  const [ax, ay] = proj(d.a), [bx, by] = proj(d.b), mx = (ax + bx) / 2, my = (ay + by) / 2;
+  const len = Math.hypot(bx - ax, by - ay), nx = -(by - ay) / len * 0.006 * W, ny = (bx - ax) / len * 0.006 * W;
+  const kk = E.out(k), sx = lerp(mx, ax, kk), sy = lerp(my, ay, kk), tx = lerp(mx, bx, kk), ty = lerp(my, by, kk);
+  d.line.setAttribute('d', `M${sx},${sy} L${tx},${ty} M${sx - nx},${sy - ny} L${sx + nx},${sy + ny} M${tx - nx},${ty - ny} L${tx + nx},${ty + ny}`);
+  d.line.style.opacity = k;
+  d.el.style.left = `${mx}px`; d.el.style.top = `${my}px`; d.el.style.opacity = clamp(k * 2 - 1);
+  const ang = Math.atan2(by - ay, bx - ax) * 180 / Math.PI, a = ang > 90 || ang < -90 ? ang + 180 : ang;
+  d.el.style.transform = `translate(-50%, -50%) rotate(${a}deg) translateY(-0.9vw)`;
+}
+// gateware blocks, floating above the silicon they run on
+const AY = 2.2;
+const blocks = [
+  ['HDMI IN', 'IT6802 · YUY2/M420 out', B.itePos.clone().setY(0).add(V(0.4, 0, 0.6))],
+  ['VIDEO', 'crop · canvas · color', u4.clone().add(V(0.9, 0, 1.3))],
+  ['LITEDRAM', 'DDR3-594 · 1:4', B.ddrPos.clone().add(V(0.9, 0, 0))],
+  ['NV12 FB', 'Y | UV planes · 3 slots', u4.clone().add(V(-1.0, 0, 0.9))],
+  ['UVC · UAC', 'packetizer · audio', u4.clone().add(V(-1.1, 0, -0.9))],
+  ['GPIF-II', '32-bit · 100.8 MHz', B.fx3Pos.clone().add(V(0.9, 0, 0.3))],
+  ['LITEX SOC', 'CSR · Wishbone · streams', u4.clone().add(V(0.0, 0, -1.3))],
+].map(([t, s, p], i) => ({
+  p: p.clone().setY(AY), base: p.clone().setY(0.25), el: div('blk', `<div class="t">${t}</div><div class="s">${s}</div>`),
+  drop: svgEl('line', 'ln dash'), i,
+}));
+const bus = svgEl('line', 'ln');
+function placeBlocks(t, kOut) {
+  const RY = 0.13 * H, X0 = 0.07 * W, X1 = 0.93 * W;
+  const kb = E.out(seg(t, 12.8, 13.6)) * kOut;
+  bus.style.display = kb > 0.001 ? '' : 'none';
+  bus.setAttribute('x1', lerp(W / 2, X0, kb)); bus.setAttribute('x2', lerp(W / 2, X1, kb));
+  bus.setAttribute('y1', RY); bus.setAttribute('y2', RY); bus.style.opacity = 0.6 * kb;
+  const order = blocks.map(b => ({ b, base: proj(b.base) })).sort((p, q) => p.base[0] - q.base[0]);
+  order.forEach(({ b, base: [bx, by] }, j) => {
+    const k = E.out(seg(t, 13.0 + b.i * 0.3, 13.5 + b.i * 0.3)) * kOut;
+    const vis = k > 0.001;
+    b.el.style.display = b.drop.style.display = vis ? '' : 'none';
+    if (!vis) return;
+    const x = lerp(X0, X1, (j + 0.5) / blocks.length), y = RY;
+    b.el.style.left = `${x}px`; b.el.style.top = `${y}px`; b.el.style.opacity = k;
+    const y0 = y + 0.035 * H;
+    b.drop.setAttribute('x1', x); b.drop.setAttribute('y1', y0);
+    b.drop.setAttribute('x2', lerp(x, bx, E.out(k))); b.drop.setAttribute('y2', lerp(y0, by, E.out(k)));
+    b.drop.style.opacity = 0.75 * k;
+  });
+}
+// data path readouts
+const reads = [
+  [0.03, 'HDMI 1.4 · 3840x2160p30', 'TMDS 297 MHz', 0.04, -0.16],
+  [0.24, 'IT6802 → ECP5', 'YCbCr 4:2:2 · DDR · 148.5 MHz', -0.01, 0.27],
+  [0.5, 'DDR3-594 · LiteDRAM 1:4', 'NV12 frame buffer · Y | UV', -0.04, 0.2],
+  [0.73, 'ECP5 → FX3 · GPIF-II', '32-bit · 100.8 MHz', -0.06, 0.25],
+  [0.86, 'USB 3.0 · UVC 1.1', 'NV12 3840x2160 · 30 fps', 0.03, 0.17],
+].map(([u, t, s, dx, dy]) => ({ u, c: callout(PATH.getPoint(u), t, s, { dx, dy }) }));
+
+// terminal
+const CODE = [
+  ['c', '# camlink_4k.py (abridged)'],
+  ['', '<span class="k">class</span> BaseSoC(SoCCore):'],
+  ['', '    SoCCore.__init__(self, platform, sys_clk_freq)'],
+  ['', '    self.crg    = <span class="k">CRG</span>(platform, sys_clk_freq)'],
+  ['', '    self.hdmi_in = <span class="k">HDMIIn</span>(platform.request("hdmi_in"))'],
+  ['', '    self.ddrphy = <span class="k">ecp5ddrphy_with_ratio</span>(2)(...)'],
+  ['', '    self.add_sdram("sdram", phy=self.ddrphy, ...)'],
+  ['', '    self.framebuffer = <span class="k">NV12FrameBuffer</span>(wport, rport)'],
+  ['', '    self.uvc     = <span class="k">UVCPacketizer</span>()'],
+  ['', '    self.gpif    = <span class="k">GPIFStreamer</span>(fx3, with_audio=True)'],
+];
+const HOST = [
+  ['', '<span class="p">$</span> ./camlink_4k.py --build'],
+  ['c', '  yosys → nextpnr-ecp5 --25k → ecppack'],
+  ['c', '  camlink_4k.bit · csr.csv · sdram_phy.h'],
+  ['', '<span class="p">$</span> software/camlink.py flash-bitstream'],
+  ['', '<span class="p">$</span> software/validate.py'],
+  ['ok', '  12/12 PASS'],
+  ['', '<span class="p">$</span> ffplay -f v4l2 -input_format nv12 \\'],
+  ['', '      -video_size 3840x2160 /dev/video0'],
+];
+const plain = s => s.replace(/<[^>]+>/g, '').replace(/&[a-z]+;/g, '.');
+function typed(lines, n) {   // first n visible characters, keeping the markup
+  let out = '', left = n, done = true;
+  for (const [cls, html] of lines) {
+    if (left <= 0) { done = false; break; }
+    let vis = 0, s = '';
+    for (let i = 0; i < html.length && vis < left; i++) {
+      if (html[i] === '<') { const j = html.indexOf('>', i); s += html.slice(i, j + 1); i = j; continue; }
+      s += html[i]; vis++;
+    }
+    if (s.lastIndexOf('<span') > s.lastIndexOf('</span>')) s += '</span>';
+    left -= plain(html).length;
+    out += (cls ? `<span class="${cls}">${s}</span>` : s) + (left > 0 ? '\n' : '');
+  }
+  return out + (left <= 0 || !done ? '<span class="cur"></span>' : '');
+}
+const nChars = lines => lines.reduce((n, [, h]) => n + plain(h).length, 0);
+
+// ================================================================= architecture diagram (SVG, 1920x1080 frame)
+// Kinds: 'chip' silicon, 'new' CamLink 4K core, 'litex' LiteX core, 'ext' outside the dongle.
+const ARCH = (() => {
+  const svg = $('archsvg'), NS = SVGNS;
+  const el = (tag, at, parent = svg) => { const e = document.createElementNS(NS, tag); for (const k in at) e.setAttribute(k, at[k]); parent.appendChild(e); return e; };
+  const C1 = 575, C2 = 770, C3 = 965, C4 = 1160, BW = 170, R1 = 335, R2 = 470, R3 = 605, BH = 96;
+  const STYLE = {
+    chip:  { stroke: '#8b93a1', fill: 'rgba(22,25,31,0.92)', t: '#e9edf3' },
+    new:   { stroke: '#3fd4ff', fill: 'rgba(10,20,26,0.92)', t: '#e9edf3' },
+    litex: { stroke: '#7c8ba3', fill: 'rgba(16,19,26,0.92)', t: '#cfd6e2' },
+    ext:   { stroke: '#505866', fill: 'rgba(12,13,16,0.9)',  t: '#b9c2d0', dash: '6 6' },
+    box:   { stroke: '#6d7888', fill: 'rgba(12,14,18,0.55)', t: '#8b93a1' },
+  };
+  const items = [];
+  const box = (x, y, w, h, kind, title, lines, t0, o = {}) => {
+    const S = STYLE[kind], g = el('g', { opacity: 0 });
+    el('rect', { x, y, width: w, height: h, fill: S.fill, stroke: S.stroke, 'stroke-width': kind === 'box' ? 1.5 : 2, 'stroke-dasharray': S.dash || 'none' }, g);
+    if (kind === 'new' || kind === 'litex') for (const [cx, cy, dx, dy] of [[x, y, 1, 1], [x + w, y + h, -1, -1]])
+      el('path', { d: `M${cx - dx * 6},${cy + dy * 10} L${cx - dx * 6},${cy - dy * 6} L${cx + dx * 10},${cy - dy * 6}`, fill: 'none', stroke: S.stroke, 'stroke-width': 2 }, g);
+    const tx = o.left ? x + 16 : x + w / 2, anchor = o.left ? 'start' : 'middle';
+    const ty = o.ty ?? (y + (lines.length ? 36 : h / 2 + 7));
+    el('text', { x: tx, y: ty, fill: S.t, 'font-size': o.fs || 20, 'letter-spacing': 2, 'text-anchor': anchor, 'font-weight': 500 }, g).textContent = title;
+    lines.forEach((l, i) => el('text', { x: tx, y: ty + 24 + i * 21, fill: '#8b93a1', 'font-size': 16.5, 'text-anchor': anchor }, g).textContent = l);
+    if (kind === 'litex') el('text', { x: x + w, y: y - 5, fill: '#9aa6ba', 'font-size': 13, 'text-anchor': 'end', 'letter-spacing': 1 }, g).textContent = 'LiteX';
+    items.push({ kind: 'box', g, t0 });
+    return { x, y, w, h };
+  };
+  const links = [];
+  const link = (pts, t0, o = {}) => {
+    const d = 'M' + pts.map(p => p.join(',')).join(' L');
+    const halo = el('path', { d, fill: 'none', stroke: '#08090b', 'stroke-width': 9, opacity: 0 });
+    const ln = el('path', { d, fill: 'none', stroke: o.color || '#3fd4ff', 'stroke-width': o.w || 2.2, 'stroke-dasharray': o.dash || 'none', opacity: 0, 'stroke-linejoin': 'round' });
+    const L = ln.getTotalLength();
+    const [ax, ay] = pts[pts.length - 1], [bx, by] = pts[pts.length - 2], an = Math.atan2(ay - by, ax - bx) * 180 / Math.PI;
+    const head = el('path', { d: 'M0,0 L-11,-5.5 L-11,5.5 Z', fill: o.color || '#3fd4ff', transform: `translate(${ax},${ay}) rotate(${an})`, opacity: 0 });
+    let head2 = null;
+    if (o.both) { const [cx, cy] = pts[0], [dx, dy] = pts[1]; head2 = el('path', { d: 'M0,0 L-11,-5.5 L-11,5.5 Z', fill: o.color || '#3fd4ff', transform: `translate(${cx},${cy}) rotate(${Math.atan2(cy - dy, cx - dx) * 180 / Math.PI})`, opacity: 0 }); }
+    const flow = o.flow ? el('path', { d, fill: 'none', stroke: '#e9f9ff', 'stroke-width': 3, 'stroke-dasharray': '4 22', opacity: 0, 'stroke-linecap': 'round' }) : null;
+    let lab = null;
+    if (o.label) {
+      const [lx, ly] = o.at;
+      lab = el('text', { x: lx, y: ly, fill: '#8b93a1', 'font-size': 15, 'text-anchor': o.anchor || 'middle', opacity: 0, 'letter-spacing': 0.5 });
+      lab.textContent = o.label;
+    }
+    links.push({ halo, ln, head, head2, flow, lab, L, t0 });
+  };
+  // outside the ECP5
+  box(70, 420, 170, 110, 'ext', 'HDMI SOURCE', ['camera · PC', 'console'], 0.0);
+  box(300, 380, 190, 200, 'chip', 'ITE IT6802', ['HDMI 1.4 receiver', '4K30 · EDID', 'I2S audio'], 0.2);
+  const ecp = box(545, 205, 815, 520, 'box', 'LATTICE ECP5 LFE5U-25F · LiteX SoC · camlink_4k.py', [], 0.4, { left: 1, ty: 236, fs: 15 });
+  box(C1, 256, (C4 + BW - C1) / 2 - 8, 48, 'litex', 'SOC · CSR BUS · STREAMS · PLL · FREQMETER', [], 0.6, { fs: 13.5, ty: 286 });
+  box(C1 + (C4 + BW - C1) / 2 + 8, 256, (C4 + BW - C1) / 2 - 8, 48, 'new', 'CRG · I2C BRIDGE · FX3 WATCHDOG', [], 0.6, { fs: 13.5, ty: 286 });
+  box(C1, R1, BW, BH, 'new', 'HDMI IN', ['4:2:2/RGB in', 'YUY2/M420 · 2x down'], 0.8);
+  box(C2, R1, BW, BH, 'new', 'CANVAS', ['window · center', 'letterbox'], 1.0);
+  box(C3, R1, BW, BH, 'new', 'COLOR', ['CSC · brightness', 'contrast · sat.'], 1.2);
+  box(C4, R1, BW, BH, 'new', 'NV12 FB', ['Y | UV planes', '3 frame slots'], 1.4);
+  box(C1, R2, BW, BH, 'new', 'PATTERN', ['bars · M420', 'NV12 test'], 1.6);
+  box(C3, R2, BW, BH, 'litex', 'LITEDRAM', ['crossbar · BIST', '1:4 PHY → #408'], 1.8);
+  box(C4, R2, BW, BH, 'new', 'UVC', ['packetizer', 'YUY2 · M420 · NV12'], 2.0);
+  box(C3, R3, BW, BH, 'new', 'AUDIO', ['I2S → UAC', '48 kHz stereo'], 2.2);
+  box(C4, R3, BW, BH, 'new', 'GPIF', ['streamer · 32-bit', '100.8 MHz'], 2.4);
+  box(C2, 775, BW, 96, 'chip', 'DDR3L 128 MB', ['MT41K64M16', 'DDR3-594'], 2.0);
+  box(1420, 300, 220, 330, 'chip', 'CYPRESS FX3', ['CYUSB3014 · ARM9', 'bare-metal C', 'GPIF-II DMA', 'UVC 1.1 · UAC 1', 'FPGA config · CSRs', 'DRAM init · watchdog'], 2.6);
+  box(1420, 700, 220, 96, 'chip', 'SPI FLASH 4 MB', ['FX3 image', 'CamLink 4K bitstream'], 2.8);
+  box(1705, 380, 170, 180, 'ext', 'USB HOST', ['uvcvideo · UAC', 'OBS · ffplay', 'camlink.py'], 3.0);
+  // legend
+  [['new', 'CamLink 4K core'], ['litex', 'LiteX core'], ['chip', 'silicon']].forEach(([k, l], i) => {
+    const x = 1400 + i * 170, g = el('g', { opacity: 0 });
+    el('rect', { x, y: 128, width: 22, height: 14, fill: STYLE[k].fill, stroke: STYLE[k].stroke, 'stroke-width': 2 }, g);
+    el('text', { x: x + 32, y: 141, fill: '#8b93a1', 'font-size': 15 }, g).textContent = l;
+    items.push({ kind: 'box', g, t0: 0.3 });
+  });
+  const mid = (c) => c + BW / 2, cy = (r) => r + BH / 2;
+  link([[240, 475], [300, 475]], 0.5, { flow: 1, label: 'HDMI', at: [270, 465] });
+  link([[490, 400], [C1, 400]], 1.0, { flow: 1, label: 'video', at: [532, 392] });
+  link([[C1 + BW, cy(R1)], [C2, cy(R1)]], 1.2, { flow: 1 });
+  link([[C2 + BW, cy(R1)], [C3, cy(R1)]], 1.4, { flow: 1 });
+  link([[C3 + BW, cy(R1)], [C4, cy(R1)]], 1.6, { flow: 1 });
+  link([[C4 + 25, R1 + BH], [C4 + 25, cy(R2)], [C3 + BW, cy(R2)]], 2.0, { both: 1 });
+  link([[C3, cy(R2)], [mid(C2), cy(R2)], [mid(C2), 775]], 2.2, { both: 1, label: 'DDR3 · 16-bit', at: [mid(C2) - 10, 752], anchor: 'end' });
+  link([[mid(C4) + 20, R1 + BH], [mid(C4) + 20, R2]], 2.2, { flow: 1 });
+  link([[C1 + BW, cy(R2)], [C1 + BW + 22, cy(R2)], [C1 + BW + 22, R1 + BH]], 1.9, { dash: '5 5' });
+  link([[mid(C4), R2 + BH], [mid(C4), R3]], 2.5, { flow: 1 });
+  link([[490, 555], [520, 555], [520, cy(R3)], [C3, cy(R3)]], 2.4, { label: 'I2S', at: [530, cy(R3) - 8], anchor: 'start' });
+  link([[C3 + BW, cy(R3)], [C4, cy(R3)]], 2.6, {});
+  link([[C4 + BW, cy(R3)], [1390, cy(R3)], [1390, 560], [1420, 560]], 2.8, { flow: 1, label: 'GPIF-II', at: [1386, 545], anchor: 'end' });
+  link([[1420, 330], [1360, 330]], 3.0, { dash: '5 5', label: 'config', at: [1390, 320] });
+  link([[C1, 280], [395, 280], [395, 380]], 3.0, { dash: '5 5', label: 'I2C', at: [405, 300], anchor: 'start' });
+  link([[1530, 630], [1530, 700]], 3.1, { both: 1 });
+  link([[1640, 470], [1705, 470]], 3.2, { flow: 1, label: 'USB 3.0', at: [1672, 460] });
+  return { items, links };
+})();
+function placeArch(T, k) {
+  const sc = $('arch');
+  sc.style.visibility = k > 0.001 ? 'visible' : 'hidden';
+  if (k <= 0.001) return;
+  sc.style.opacity = k;
+  // Reveal on the beat: items at 0.5 s steps from 20.5 s (music.py blips), the flow once complete.
+  const t = T - 20.5, q = t0 => Math.round(t0 / 0.4) * 0.5;
+  for (const it of ARCH.items) {
+    const a = E.out(seg(t, q(it.t0), q(it.t0) + 0.35));
+    it.g.setAttribute('opacity', a); it.g.setAttribute('transform', `translate(0,${(1 - a) * 12})`);
+  }
+  for (const l of ARCH.links) {
+    const a = E.out(seg(t, q(l.t0), q(l.t0) + 0.45));
+    for (const e of [l.halo, l.ln]) { e.setAttribute('opacity', a > 0 ? 1 : 0); }
+    if (l.ln.getAttribute('stroke-dasharray') === 'none' || l.ln.dataset.solid) {
+      l.ln.dataset.solid = 1;
+      l.ln.setAttribute('stroke-dasharray', `${l.L} ${l.L}`); l.ln.setAttribute('stroke-dashoffset', l.L * (1 - a));
+    } else l.ln.setAttribute('opacity', a);
+    l.halo.setAttribute('stroke-dasharray', `${l.L} ${l.L}`); l.halo.setAttribute('stroke-dashoffset', l.L * (1 - a));
+    l.head.setAttribute('opacity', seg(a, 0.9, 1)); if (l.head2) l.head2.setAttribute('opacity', seg(a, 0.9, 1));
+    if (l.lab) l.lab.setAttribute('opacity', seg(t, q(l.t0) + 0.3, q(l.t0) + 0.6));
+    if (l.flow) { l.flow.setAttribute('opacity', 0.9 * seg(t, 4.2, 4.7)); l.flow.setAttribute('stroke-dashoffset', -T * 70); }
+  }
+}
+function placeScene(id, T, a, k, step = 0.12) {
+  if (id === 'oss') {
+    [...$(id).querySelectorAll('.layer .ok')].forEach((e, i) => { e.style.opacity = E.outExpo(seg(T, 49.6 + i * 0.35, 49.9 + i * 0.35)); });
+    const kf = E.outExpo(seg(T, 52.0, 52.5));
+    $(id).querySelector('.final').style.opacity = kf;
+    $(id).querySelector('.final').style.transform = `translateY(${(1 - kf) * 10}px)`;
+  }
+  const sc = $(id);
+  sc.style.visibility = k > 0.001 ? 'visible' : 'hidden';
+  if (k <= 0.001) return;
+  sc.style.opacity = k;
+  [...sc.querySelectorAll('h2, .lede, .row, .it, .layer, .foot')].forEach((e, i) => {
+    if (e.classList.contains('lede') && id === 'oss') { e.style.opacity = E.outExpo(seg(T, a, a + 0.6)) * (1 - seg(T, 51.9, 52.2)); return; }
+    const kk = E.outExpo(seg(T, a + i * step, a + i * step + 0.6));
+    e.style.opacity = kk; e.style.transform = `translateY(${(1 - kk) * 14}px)`;
+  });
+}
+// Frame ticks (16.7 ms) behind the latency bars (120 ms = 46vw, bars start after the 24vw labels).
+for (const g of document.querySelectorAll('#lat .group')) {
+  for (let k = 1; k * 16.67 <= 120; k++) {
+    const tk = document.createElement('div'); tk.className = 'tick';
+    tk.style.left = `${24 + (k * 16.67 / 120) * 46}vw`;
+    if (g === document.querySelector('#lat .group')) tk.innerHTML = `<span>${k} frame${k > 1 ? 's' : ''}</span>`;
+    g.appendChild(tk);
+  }
+}
+// Race scene (34-40): one frame slowed down: the source scans, CamLink 4K streams its lines ~1 ms
+// behind, stock sends nothing until ~35 ms then the frame as a burst (doc/LATENCY.md stages).
+const RACE = [   // [scan start (ms), scan duration (ms), events]
+  [2.5, 16.7, [[2.5, 'scan starts <b>2.5 ms</b>'], [19.2, 'frame sent <b>19.2 ms</b>']]],
+  [3.5, 16.7, [[3.5, 'first data <b>3.5 ms</b>'], [19.4, 'frame to the app <b>19 ms</b>']]],
+  [35.0, 11.0, [[18, 'waiting: frame buffered'], [35.0, 'first data <b>35 ms</b>'], [46.0, 'frame to the app <b>46 ms</b>']]],
+];
+{
+  const ru = document.querySelector('#race .ruler');
+  for (let k = 0; k <= 3; k++) {
+    const x = (k * 16.67 / 50) * 100;
+    const tk = document.createElement('div'); tk.className = 'tk'; tk.style.left = `${x}%`; ru.appendChild(tk);
+    const lb = document.createElement('span'); lb.style.left = `${x}%`; if (k === 3) lb.style.transform = 'translateX(-100%)'; lb.textContent = k ? `${(k * 16.67).toFixed(1)} ms · ${k} frame${k > 1 ? 's' : ''}` : '0 ms'; ru.appendChild(lb);
+  }
+}
+function placeRace(T, k) {
+  const sc = $('race');
+  sc.style.visibility = k > 0.001 ? 'visible' : 'hidden';
+  if (k <= 0.001) return;
+  sc.style.opacity = k;
+  const tau = 50 * seg(T, 34.6, 38.6);
+  sc.querySelector('.clock').innerHTML = `<i>T +</i>${tau.toFixed(1).padStart(4, '0')} ms`;
+  sc.querySelector('.ruler .cur').style.left = `${(tau / 50) * 100}%`;
+  [...sc.querySelectorAll('.pn')].forEach((pn, i) => {
+    const [t0, d, ev] = RACE[i], p = clamp((tau - t0) / d);
+    pn.querySelector('img').style.clipPath = `inset(0 0 ${(100 - p * 100).toFixed(2)}% 0)`;
+    const sl = pn.querySelector('.sl');
+    sl.style.top = `${p * 100}%`; sl.style.opacity = p > 0 && p < 1 ? 1 : 0;
+    pn.querySelector('.ev').innerHTML = ev.filter(([te]) => tau >= te).map(([, txt]) => txt).join('<br>');
+  });
+  const kv = E.outExpo(seg(T, 38.7, 39.2));
+  sc.querySelector('.verdict').style.opacity = kv;
+  sc.querySelector('.verdict').style.transform = `translateY(${(1 - kv) * 12}px)`;
+}
+
+// Latency scene: rows appear, bars grow to their measured value (120 ms full scale).
+function placeLatency(T, k) {
+  const sc = $('lat');
+  sc.style.visibility = k > 0.001 ? 'visible' : 'hidden';
+  if (k <= 0.001) return;
+  sc.style.opacity = k;
+  for (const e of sc.querySelectorAll('h2, .lede, .gl, .tick')) e.style.opacity = E.outExpo(seg(T, 40.1, 40.7));
+  [...sc.querySelectorAll('.row')].forEach((r, i) => {
+    const t0 = 40.5 + i * 0.5, kr = E.outExpo(seg(T, t0, t0 + 0.4)), kb = E.out(seg(T, t0 + 0.05, t0 + 0.9));
+    r.style.opacity = kr;
+    r.querySelector('.bar').style.width = `${(+r.dataset.ms / 120) * 46 * kb}vw`;
+    const ext = r.querySelector('.ext');
+    if (ext) ext.style.width = `${((+r.dataset.ms2 - +r.dataset.ms) / 120) * 46 * kb}vw`;
+    r.querySelector('.val').style.opacity = seg(T, t0 + 0.7, t0 + 1.0);
+  });
+  const kh = E.outExpo(seg(T, 41.5, 42.0));
+  sc.querySelector('.head').style.opacity = kh;
+  sc.querySelector('.head').style.transform = `translateY(${(1 - kh) * 12}px)`;
+}
+
+// the story time where the scan reaches the FPGA: the bitstream is replaced, the light bar turns blue
+const T_SWAP = (() => { let a = SCAN0, b = SCAN1; for (let i = 0; i < 40; i++) { const m = (a + b) / 2; if (scanZ(m) < u4.z) a = m; else b = m; } return a; })();
+const cCyan = new THREE.Color(CYAN), cBlue = new THREE.Color(BLUE);
+
+// ================================================================= overlay text
+function show(el, k, dy = 10) { el.style.opacity = k; el.style.transform = `translateY(${(1 - k) * dy}px)`; el.style.visibility = k > 0.001 ? 'visible' : 'hidden'; }
+const CAPS = [   // [t0, t1, number, text, detail] (none under the full screen scenes)
+  [0.7, 3.7, '01', 'Elgato Cam Link 4K', ' · same hardware, every line of code replaced'],
+  [4.3, 9.6, '02', 'Inside', ' · ECP5 FPGA · FX3 · IT6802 · DDR3'],
+  [10.3, 13.6, '03', 'Vendor code out', ' · open gateware · open firmware'],
+  [14.3, 19.3, '04', 'One Python script', ' · LiteX cores on the silicon'],
+  [26.3, 33.3, '05', 'HDMI → DDR3 → USB', ' · 4K30 NV12 · open frame buffer'],
+]
+
+// ================================================================= timeline
+const CAM = [   // [time, position, target, fov]
+  [0.0, [8.0, 5.0, 17.5], [0.6, -0.4, 0.3], 26],
+  [3.9, [5.6, 7.0, 18.0], [0.3, -0.2, 0.3], 28],
+  [8.8, [0.2, 10.5, 18.5], [0.2, 0.2, 0.4], 30],
+  [12.4, [1.6, 11.6, 19.6], [2.2, 0.4, 0.6], 30],
+  [16.8, [2.4, 12.0, 19.4], [2.6, 0.0, 0.6], 30],
+  [21.3, [2.0, 10.6, 20.0], [2.3, 0.0, 0.6], 30],
+  [24.2, [-2.6, 9.4, 23.0], [-5.0, 0.2, 0.4], 30],
+  [26.0, [-2.4, 9.2, 23.1], [-5.1, 0.2, 0.4], 30],
+];
+let lastFpga = -1, lastCode = '';
+window.renderAt = (T) => {
+  if (STILL) T = HERO_T;
+  const t = story(T);
+  // ---- camera (slow drift inside each move)
+  let a = 0; while (a < CAM.length - 2 && t > CAM[a + 1][0]) a++;
+  const [ta, pa, la, fa] = CAM[a], [tb, pb, lb, fb] = CAM[a + 1], kc = E.inOut(seg(t, ta, tb));
+  camera.position.set(lerp(pa[0], pb[0], kc), lerp(pa[1], pb[1], kc), lerp(pa[2], pb[2], kc));
+  camera.lookAt(lerp(la[0], lb[0], kc), lerp(la[1], lb[1], kc), lerp(la[2], lb[2], kc));
+  camera.fov = lerp(fa, fb, kc); camera.updateProjectionMatrix();
+
+  // ---- case: closed, exploded (top up, bottom down), top out of the way for the gateware beat, back for the end card
+  const kx = E.inOut(seg(t, 4.0, 5.8)), kUp = E.inOut(seg(t, 12.2, 13.2)) * (1 - E.inOut(seg(T, 55.0, 57.5)));
+  // Board flip (side B -> side A) once the case is open: the shells open further and the board
+  // lifts slightly while it turns, so it clears them.
+  const kf = E.inOut(seg(t, 5.3, 6.5)), bump = Math.sin(Math.PI * kf);
+  boardPivot.rotation.z = Math.PI * (1 - kf); boardPivot.position.y = 0.5 * bump;
+  halves[0].position.y = 2.6 * kx + 3.2 * kUp + 0.8 * bump; halves[1].position.y = -1.15 * kx - 1.0 * bump;
+  const topOp = 1 - kUp; halves[0].visible = topOp > 0.01;
+  for (const h of halves) {
+    h.updateMatrixWorld(true);
+    const { plane, mats, side } = h.userData;
+    plane.setFromNormalAndCoplanarPoint(V(0, side, 0), h.getWorldPosition(new THREE.Vector3()));
+    const op = side > 0 ? topOp : 1;
+    for (const m of mats) { m.transparent = op < 0.999; m.opacity = op; m.depthWrite = op > 0.5; }
+  }
+  const breathe = 0.65 + 0.35 * Math.sin(T * 2.4);
+  const kb = seg(t, T_SWAP, T_SWAP + 0.25), flash = t > T_SWAP ? Math.exp(-(t - T_SWAP) * 2.5) : 0;
+  barMat.color.copy(cCyan).lerp(cBlue, kb).multiplyScalar((1.2 + 1.4 * breathe) * seg(t, 0.3, 1.0) + 0.25 + 5 * flash);
+
+  // ---- scan sweep
+  const ks = win(t, SCAN0, SCAN1 + 0.1, 0.25), sz = scanZ(t);
+  sheet.position.z = scanLine.position.z = sz; scanLine.position.y = 0.03;
+  sheetMat.opacity = 0.55 * ks; lineMat.opacity = ks;
+  sheet.visible = scanLine.visible = ks > 0.001;
+  const fo = t > SCAN0 && sz > u4.z ? 1 : 0;
+  if (fo !== lastFpga) { fpgaLabel.redraw(fo); lastFpga = fo; }
+
+  // ---- data path
+  const kd = win(t, 17.1, 22.4, 0.5);
+  trailMat.opacity = 0.55 * kd; trail.visible = kd > 0.001;
+  const idx = trail.geometry.index.count;
+  trail.geometry.setDrawRange(0, Math.floor(idx * E.out(seg(t, 17.1, 18.4)) / 6) * 6);
+  pulseMat.opacity = kd * seg(t, 17.6, 18.0);
+  pulses.forEach((p, i) => {
+    const u = ((T * 0.2 + i / pulses.length) % 1 + 1) % 1;
+    p.position.copy(PATH.getPoint(u));
+    p.quaternion.setFromUnitVectors(V(0, 1, 0), PATH.getTangent(u));
+    p.visible = pulseMat.opacity > 0.001;
+  });
+
+  // ---- HUD
+  scene.updateMatrixWorld(true); camera.updateMatrixWorld(true);
+  parts.forEach((c, i) => {
+    placeCallout(c, win(t, 6.6 + i * 0.3, 12.5, 0.6));
+    setOpen(c, t > SCAN0 && sz > c.anchor.z + 0.2 ? 'open' : t > SCAN0 - 0.4 ? 'x' : '');
+  });
+  dims.forEach((d, i) => placeDim(d, win(t, 7.0 + i * 0.3, 8.9, 0.6)));
+  placeBlocks(t, 1 - seg(T, 19.4, 19.9));
+  reads.forEach(({ c }, i) => placeCallout(c, win(t, 17.8 + i * 0.4, 21.6, 0.5)));
+
+  // terminal: camlink_4k.py, then the build / host tools
+  const kt = win(t, 12.7, 21.7, 0.4);
+  show($('term'), E.outExpo(kt), 12);
+  const host = T >= 20;
+  const n = host ? Math.floor(nChars(HOST) * seg(t, 17.2, 20.6)) : Math.floor(nChars(CODE) * seg(t, 13.0, 15.8));
+  const html = typed(host ? HOST : CODE, n);
+  if (html !== lastCode) { $('code').innerHTML = html; lastCode = html; }
+  $('termtitle').textContent = host ? 'build · host' : 'camlink_4k.py';
+
+  // captured frame: out of the USB plug, pinned top right
+  {
+    const kf = E.inOut(seg(t, 19.0, 20.4)), fr = $('frame');
+    const [ux, uy] = proj(B.usbPos.clone().add(V(0, 0, -1.2)));
+    const px = 0.034 * W, py = 0.07 * H, s = lerp(0.08, 1, kf);
+    fr.style.transform = `translate(${lerp(ux, px, kf)}px, ${lerp(uy, py, kf)}px) scale(${s})`;
+    const kv = Math.min(seg(t, 18.9, 19.2), 1 - seg(t, 21.4, 21.9));
+    fr.style.opacity = kv; fr.style.visibility = kv > 0.001 ? 'visible' : 'hidden';
+  }
+
+  // captions / timecode
+  const cap = CAPS.find(([a, b]) => T >= a - 0.1 && T <= b + 0.3);
+  const ce = $('caption'), cr = $('caprule');
+  if (cap && !STILL && !CLEAN) {
+    ce.innerHTML = `<span class="n">${cap[2]}</span>${cap[3]}<span class="d">${cap[4]}</span>`;
+    const k = Math.min(E.outExpo(seg(T, cap[0], cap[0] + 0.5)), 1 - seg(T, cap[1], cap[1] + 0.3));
+    show(ce, k, 6); cr.style.opacity = k; cr.style.transform = `scaleX(${E.out(seg(T, cap[0], cap[0] + 0.8))})`;
+  } else { show(ce, 0); cr.style.opacity = 0; }
+  const tc = $('timecode');
+  tc.textContent = `CAMLINK 4K · T+${T.toFixed(2).padStart(5, '0')}`;
+  show(tc, STILL || CLEAN ? 0 : win(T, 0.4, 33.7, 0.4), 0);
+  // Vendor code out: stamp on the bar 6 hit (bitstream swap).
+  { const k = Math.min(E.outExpo(seg(T, 12.0, 12.25)), 1 - seg(T, 13.6, 14.0)), st = $('stamp');
+    st.style.opacity = k; st.style.visibility = k > 0.001 ? 'visible' : 'hidden';
+    st.style.transform = `translateX(-50%) scale(${1 + 0.15 * (1 - E.outExpo(seg(T, 12.0, 12.3)))})`; }
+
+  // full screen scenes over the dimmed 3D; the 3D HUD hides under them and after the data path
+  const kA = win(T, 20.0, 26.0, 0.5), kR = win(T, 34.0, 40.0, 0.4), kL = win(T, 40.0, 46.0, 0.4), kO = win(T, 46.0, 54.0, 0.4), kC = win(T, 54.0, 58.0, 0.4);
+  const kDim = Math.max(kA, win(T, 34.0, 58.0, 0.5));
+  $('dim').style.opacity = kDim; $('dim').style.visibility = kDim > 0.001 ? 'visible' : 'hidden';
+  placeArch(T, kA); placeRace(T, kR); placeLatency(T, kL); placeScene('oss', T, 46.1, kO, 0.5); placeScene('thanks', T, 54.1, kC, 0.08);
+  const hudK = clamp(1 - kA - seg(T, 33.5, 34.0));
+  $('hud').style.opacity = $('tags').style.opacity = hudK;
+  for (const id of ['term', 'frame']) $(id).style.opacity = parseFloat($(id).style.opacity || 0) * hudK;
+
+  // end card
+  // End card on the final hit (58.0 s): the title slams in, the rest follows on the beat.
+  show($('title'), STILL ? 1 : E.outExpo(seg(T, 58.0, 58.2)), 4);
+  for (const [id, a0] of [['sub', 58.5], ['specs', 59.0], ['cta', 59.5], ['cta2', 59.75], ['logos', 60.0], ['credits', 60.25]])
+    show($(id), STILL ? 1 : E.outExpo(seg(T, a0, a0 + 0.6)), 12);
+  $('fade').style.opacity = STILL || CLEAN ? 0 : 1 - seg(t, 0, 0.7);
+  finish.uniforms.uTime.value = T;
+  composer.render();
+};
+await document.fonts.ready;
+window.renderAt(+(Q.get('t') || HERO_T));
+window.sceneReady = true;
+if (Q.has('play')) {   // live preview with the music (the renders call renderAt(t) frame by frame)
+  const au = $('music'), hint = $('playhint');
+  let t0 = performance.now(), playing = false;
+  hint.style.display = 'block';
+  hint.onclick = () => { hint.style.display = 'none'; au.currentTime = 0; au.play(); playing = true; };
+  au.onended = () => { au.currentTime = 0; au.play(); };
+  const loop = () => { window.renderAt(playing ? au.currentTime : ((performance.now() - t0) / 1000) % DURATION); requestAnimationFrame(loop); };
+  loop();
+}
+</script>
+</body>
+</html>
