@@ -6,7 +6,7 @@
 # Copyright (c) 2026 Florent Kermarrec <florent@enjoy-digital.fr>
 # SPDX-License-Identifier: BSD-2-Clause
 
-"""Hardware validation steps (doc/VALIDATION.md), each PASS/FAIL/SKIP with details.
+"""Hardware validation steps, each PASS/FAIL/SKIP with details.
 
     validate.py                 # All steps in order (stops the video/audio users first).
     validate.py enum capture    # Selected steps.

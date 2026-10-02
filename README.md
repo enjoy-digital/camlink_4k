@@ -90,7 +90,6 @@ at 1:4 to LiteDRAM (#408 merged, #409/#410 open) and LiteX-Boards (#866 merged),
 - [doc/IDEAS_PCIE.md](doc/IDEAS_PCIE.md): design note, LitePCIe video input/output cards (line based capture, phase locked output, low latency streaming, IP-KVM).
 - [doc/ROADMAP.md](doc/ROADMAP.md): improvements and new features.
 - [doc/BENCHMARK.md](doc/BENCHMARK.md), [doc/THROUGHPUT.md](doc/THROUGHPUT.md): stock comparison, USB/GPIF throughput.
-- [doc/VALIDATION.md](doc/VALIDATION.md): development log of the hardware validation (historical).
 - [doc/upstream](doc/upstream): LiteDRAM/LiteX-Boards contributions.
 
 ## Getting started

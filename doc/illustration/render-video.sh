@@ -25,7 +25,6 @@ ffmpeg -y -loglevel error -f concat -safe 0 -i _parts.txt -i music.wav -map 0:v 
     -c:a aac -b:a 192k -shortest -movflags +faststart camlink_4k.mp4
 rm -f _part*.mp4 _part*.log _parts.txt
 node sheet.js "$URL?still"           hero 3200 1800 0 && mv hero_00000.png camlink_4k-hero.png
-node sheet.js "$URL?still&overlay=0" hero 3200 1800 0 && mv hero_00000.png camlink_4k-hero-notext.png
 # README snapshots (no captions).
 for snap in inside:9.2 architecture:25.0 datapath:32.5 race:39.0 latency:45.0 opensource:53.0 credits:57.0; do
     node sheet.js "$URL?clean" "_snap" 2400 1350 "${snap#*:}" && mv _snap_*.png "camlink_4k-${snap%%:*}.png"

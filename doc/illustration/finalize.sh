@@ -7,7 +7,6 @@ OUT=../images
 mkdir -p $OUT
 convert camlink_4k-hero.png        -resize 1600x -quality 92 $OUT/camlink_4k.jpg
 convert camlink_4k-hero.png                      -quality 93 $OUT/camlink_4k-hires.jpg
-convert camlink_4k-hero-notext.png               -quality 93 $OUT/camlink_4k-notext.jpg
 for s in inside architecture datapath race latency opensource credits; do
     convert camlink_4k-$s.png -resize 1600x -quality 90 $OUT/camlink_4k-$s.jpg
 done
