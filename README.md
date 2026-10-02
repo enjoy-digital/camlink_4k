@@ -1,6 +1,6 @@
 # CamLink 4K
 
-https://github.com/user-attachments/assets/6385cdc9-6985-4505-b17b-bf5836295ad3
+https://github.com/user-attachments/assets/42f6522b-b2de-4bd9-ae09-714621194530
 
 <sub>▶ Promo video (66 s, with sound: rendered with three.js and a synthesized soundtrack from
 [`doc/illustration`](doc/illustration)). Also as [mp4](doc/images/camlink_4k.mp4) and
