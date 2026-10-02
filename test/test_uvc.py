@@ -18,8 +18,8 @@ VRES   = 4
 
 class DUT(LiteXModule):
     def __init__(self):
-        self.pattern = VideoPatternGenerator(sys_clk_freq=1e3)
-        self.uvc     = UVCPacketizer(payload_words=10)
+        self.pattern = VideoPatternGenerator(sys_clk_freq=1e3, with_csr=False)
+        self.uvc     = UVCPacketizer(payload_words=10, with_csr=False)
         self.comb += self.pattern.source.connect(self.uvc.sink)
 
 # Tests --------------------------------------------------------------------------------------------
@@ -29,13 +29,13 @@ def test_pattern_uvc_payloads():
     payloads = []
 
     def generator():
-        yield dut.pattern._hwords.storage.eq(HWORDS)
-        yield dut.pattern._vres.storage.eq(VRES)
-        yield dut.pattern._bar_words.storage.eq(HWORDS//8)
-        yield dut.pattern._frame_period.storage.eq(200)
-        yield dut.uvc._frame_words.storage.eq(HWORDS*VRES)
+        yield dut.pattern.hwords.eq(HWORDS)
+        yield dut.pattern.vres.eq(VRES)
+        yield dut.pattern.bar_words.eq(HWORDS//8)
+        yield dut.pattern.frame_period.eq(200)
+        yield dut.uvc.frame_words.eq(HWORDS*VRES)
         yield dut.uvc.source.ready.eq(1)
-        yield dut.pattern._enable.storage.eq(1)
+        yield dut.pattern.enable.eq(1)
         current = []
         for _ in range(600):
             yield
@@ -63,3 +63,17 @@ def test_pattern_uvc_payloads():
     assert len(frame) == HWORDS*VRES
     assert frame[0] == yuy2_word(235, 128, 235, 128) # Frame 1: bit 0 set (white).
     assert frame[1] == yuy2_word(16, 128, 16, 128)   # Frame 1: bit 1 clear (black).
+
+def test_uvc_csr():
+    # CSR map and CSR -> control Signals.
+    dut = UVCPacketizer(payload_words=10)
+    assert [c.name for c in dut.get_csrs()] == ["payload_words", "frame_words"]
+    def generator():
+        assert (yield dut.payload_words) == 10
+        assert (yield dut.frame_words)   == 1920*1080//2
+        yield dut._payload_words.storage.eq(20)
+        yield dut._frame_words.storage.eq(HWORDS*VRES)
+        yield
+        assert (yield dut.payload_words) == 20
+        assert (yield dut.frame_words)   == HWORDS*VRES
+    run_simulation(dut, generator())

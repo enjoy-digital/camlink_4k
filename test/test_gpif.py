@@ -11,7 +11,7 @@ from migen.sim import passive
 
 from litex.gen import *
 
-from gateware.gpif import GPIFStreamer
+from gateware.gpif import GPIFStreamer, CounterGenerator
 
 # FX3 GPIF Model -----------------------------------------------------------------------------------
 
@@ -143,9 +143,10 @@ class FX3Model:
 # DUT / Test Runner --------------------------------------------------------------------------------
 
 class DUT(LiteXModule):
-    def __init__(self):
+    def __init__(self, with_csr=False):
         self.pads    = pads = FX3Pads()
-        self.gpif    = GPIFStreamer(pads, with_audio=True, audio_packet_words=48, sim=True)
+        self.gpif    = GPIFStreamer(pads, with_audio=True, audio_packet_words=48, sim=True,
+            with_csr=with_csr)
         self.ctl     = self.gpif.ctl
         self.pads_dq = pads.dq
 
@@ -164,20 +165,19 @@ def run_video_audio(video_gap, drain=(80, 150), switch_delay=(2, 2), switch_guar
     video = [w for p in payloads for w in p]
     audio = [0xa0000000 + i for i in range(48*audio_packets)]
 
-    def csr_setup():
-        ctrl = dut.gpif._control
-        yield ctrl.fields.enable.eq(1)
-        yield ctrl.fields.flag_invert.eq(1)
-        yield ctrl.fields.head_lead.eq(4)
-        yield ctrl.fields.audio_enable.eq(1)
-        yield ctrl.fields.audio_lead.eq(8)
-        yield ctrl.fields.audio_batch.eq(audio_batch)
-        yield dut.gpif._burst.storage.eq(64)
-        yield dut.gpif._guard.storage.eq(8)
-        yield dut.gpif._switch_guard.storage.eq(switch_guard)
+    def setup():
+        yield dut.gpif.enable.eq(1)
+        yield dut.gpif.flag_invert.eq(1)
+        yield dut.gpif.head_lead.eq(4)
+        yield dut.gpif.audio_enable.eq(1)
+        yield dut.gpif.audio_lead.eq(8)
+        yield dut.gpif.audio_batch.eq(audio_batch)
+        yield dut.gpif.burst.eq(64)
+        yield dut.gpif.guard.eq(8)
+        yield dut.gpif.switch_guard.eq(switch_guard)
 
     def video_gen():
-        yield from csr_setup()
+        yield from setup()
         # First word of the stream (UVCPacketizer.next_header0), payload last words tagged with
         # the first word of the following payload (UVCPacketizer `next`).
         yield dut.gpif.eop_data.eq(payloads[0][0])
@@ -246,10 +246,9 @@ def test_gpif_video_drain():
     dut = DUT()
     fx3 = FX3Model(dut)
     def gen():
-        ctrl = dut.gpif._control
-        yield ctrl.fields.flag_invert.eq(1)
-        yield ctrl.fields.head_lead.eq(4)
-        yield dut.gpif._burst.storage.eq(64)
+        yield dut.gpif.flag_invert.eq(1)
+        yield dut.gpif.head_lead.eq(4)
+        yield dut.gpif.burst.eq(64)
         for i in range(32):
             yield dut.gpif.sink.valid.eq(1)
             yield dut.gpif.sink.data.eq(0xdead0000 + i)
@@ -257,7 +256,7 @@ def test_gpif_video_drain():
         yield dut.gpif.sink.valid.eq(0)
         for _ in range(200):
             yield
-        yield ctrl.fields.enable.eq(1)
+        yield dut.gpif.enable.eq(1)
         for i in range(64):
             yield dut.gpif.sink.valid.eq(1)
             yield dut.gpif.sink.data.eq(0x1000 + i)
@@ -280,14 +279,13 @@ def test_gpif_first_word():
     fx3     = FX3Model(dut, dma_start=40)
     payload = [0x0000880c] + [0x1000 + i for i in range(1, 64)]
     def gen():
-        ctrl = dut.gpif._control
-        yield ctrl.fields.flag_invert.eq(1)
-        yield ctrl.fields.head_lead.eq(4)
-        yield dut.gpif._burst.storage.eq(64)
+        yield dut.gpif.flag_invert.eq(1)
+        yield dut.gpif.head_lead.eq(4)
+        yield dut.gpif.burst.eq(64)
         yield dut.gpif.eop_data.eq(payload[0])
         for _ in range(100):
             yield
-        yield ctrl.fields.enable.eq(1)
+        yield dut.gpif.enable.eq(1)
         for w in payload:
             yield dut.gpif.sink.valid.eq(1)
             yield dut.gpif.sink.data.eq(w)
@@ -310,3 +308,58 @@ def test_gpif_video_audio_batch():
         audio_packets = 6,
     )
     assert fx3.audio_phases == 2
+
+def test_gpif_csr():
+    # CSR map (names/order, used by the FX3 firmware and host tools) and CSR -> control Signals.
+    dut = DUT(with_csr=True)
+    assert [c.name for c in dut.gpif.get_csrs()] == [
+        "control", "burst", "guard", "switch_guard", "status", "bursts", "last", "wait_cycles",
+        "starve_cycles", "active_cycles", "eops", "eop_cycle", "burst_cycle", "force",
+        "force_value", "audio_packets", "audio_status"]
+    def gen():
+        assert (yield dut.gpif.head_lead)   == 2
+        assert (yield dut.gpif.audio_lead)  == 8
+        assert (yield dut.gpif.audio_batch) == 1
+        assert (yield dut.gpif.burst)       == 16384//4
+        yield dut.gpif._control.fields.enable.eq(1)
+        yield dut.gpif._control.fields.audio_batch.eq(3)
+        yield dut.gpif._burst.storage.eq(64)
+        yield
+        assert (yield dut.gpif.enable)      == 1
+        assert (yield dut.gpif.audio_batch) == 3
+        assert (yield dut.gpif.burst)       == 64
+    run_simulation(dut, {"sys": gen()}, clocks={"sys": 10, "gpif": 10, "gpif_cdc": 10})
+
+# Counter Generator --------------------------------------------------------------------------------
+
+def run_counter(dut, setup, cycles=40):
+    words = []
+    def gen():
+        yield from setup()
+        yield dut.source.ready.eq(1)
+        for _ in range(cycles):
+            yield
+            if (yield dut.source.valid) and (yield dut.source.ready):
+                words.append(((yield dut.source.data), (yield dut.source.last)))
+    run_simulation(dut, gen())
+    return words
+
+def test_counter_generator():
+    # 4-word packets with `last`, 3 idle cycles between packets.
+    dut = CounterGenerator(with_csr=False)
+    def setup():
+        yield dut.enable.eq(1)
+        yield dut.on.eq(4)
+        yield dut.off.eq(3)
+        yield dut.last.eq(1)
+    words = run_counter(dut, setup)
+    assert [w for w, _ in words[:8]] == list(range(8))
+    assert [l for _, l in words[:8]] == [0, 0, 0, 1]*2
+
+def test_counter_generator_csr():
+    dut = CounterGenerator()
+    assert [c.name for c in dut.get_csrs()] == ["enable", "on", "off", "last"]
+    def setup():
+        yield dut._enable.storage.eq(1)
+    words = run_counter(dut, setup, cycles=10)
+    assert [w for w, l in words] == list(range(len(words))) and len(words) >= 8

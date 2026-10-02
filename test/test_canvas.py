@@ -13,17 +13,17 @@ from gateware.canvas import Canvas, BLACK
 # Helpers ------------------------------------------------------------------------------------------
 
 def run(out_w, out_h, in_w, in_h, x0, y0, frames, in_ready_gap=0, enable=1):
-    dut = Canvas()
+    dut = Canvas(with_csr=False)
     out = []
 
     def config():
-        yield dut.enable.storage.eq(enable)
-        yield dut.out_hwords.storage.eq(out_w)
-        yield dut.out_vres.storage.eq(out_h)
-        yield dut.in_hwords.storage.eq(in_w)
-        yield dut.in_vres.storage.eq(in_h)
-        yield dut.x0.storage.eq(x0)
-        yield dut.y0.storage.eq(y0)
+        yield dut.enable.eq(enable)
+        yield dut.out_hwords.eq(out_w)
+        yield dut.out_vres.eq(out_h)
+        yield dut.in_hwords.eq(in_w)
+        yield dut.in_vres.eq(in_h)
+        yield dut.x0.eq(x0)
+        yield dut.y0.eq(y0)
         yield
 
     def source():
@@ -86,3 +86,18 @@ def test_canvas_bypass():
     frames = [[0x300 + i for i in range(10)]]
     out = run(8, 6, 4, 3, 2, 1, frames, enable=0)
     assert out == frames
+
+def test_canvas_csr():
+    # CSR writes reach the control signals.
+    dut = Canvas()
+    def gen():
+        assert (yield dut.out_hwords) == 1920//2
+        assert (yield dut.y0)         == 180
+        yield dut._enable.storage.eq(1)
+        yield dut._out_hwords.storage.eq(8)
+        yield dut._x0.storage.eq(2)
+        yield
+        assert (yield dut.enable)     == 1
+        assert (yield dut.out_hwords) == 8
+        assert (yield dut.x0)         == 2
+    run_simulation(dut, gen())

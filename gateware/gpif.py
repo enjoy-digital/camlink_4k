@@ -44,47 +44,45 @@ from litex.soc.interconnect     import stream
 # GPIF Streamer ------------------------------------------------------------------------------------
 
 class GPIFStreamer(LiteXModule):
-    def __init__(self, pads, clk_freq=100e6, fifo_depth=512, max_delay=4,
-        with_audio=False, audio_packet_words=48, audio_fifo_depth=512, io_regs=("ctl",), sim=False):
-        # `next` (on payload last words): first word of the following payload (UVCPacketizer).
-        self.sink       = sink = stream.Endpoint([("data", 32), ("next", 32)])
-        self.audio_sink = audio_sink = stream.Endpoint([("data", 32)]) # Audio samples (sys domain).
-        self.eop_data   = Signal(32) # Word presented on DQ during EOP (first word of the next buffer).
+    def __init__(self, pads, fifo_depth=512, max_delay=4, with_audio=False, audio_packet_words=48,
+        audio_fifo_depth=512, io_regs=("ctl",), sim=False, with_csr=True):
+        # Streams. The `next` field (on payload last words) is the first word of the following
+        # payload (UVCPacketizer).
+        self.sink       = sink       = stream.Endpoint([("data", 32), ("next", 32)])
+        # Audio samples (sys domain).
+        self.audio_sink = audio_sink = stream.Endpoint([("data", 32)])
+        # Word presented on DQ during EOP (first word of the next buffer).
+        self.eop_data   = Signal(32)
 
-        self._control    = CSRStorage(fields=[
-            CSRField("enable",     size=1, offset=0,  description="Enable streaming."),
-            CSRField("flag_invert",size=1, offset=1,  description="Invert FLAG (CTL1) polarity."),
-            CSRField("data_delay", size=2, offset=4,  description="DQ delay (cycles) relative to VALID."),
-            CSRField("head_lead",  size=3, offset=8,  reset=2, description="Cycles a word is presented on DQ before VALID after a gap."),
-            CSRField("dq_cycles",  size=1, offset=12, description="Debug: drive a cycle counter on DQ outside bursts."),
-            CSRField("xflag_off",  size=1, offset=13, description="Do not require the other thread's FLAG before using a thread (experiment)."),
-            CSRField("audio_enable", size=1, offset=16, description="Enable audio (GPIF thread 1)."),
-            CSRField("audio_lead",   size=4, offset=20, reset=8, description="Cycles between ASEL and the first audio word."),
-            CSRField("audio_batch",  size=4, offset=24, reset=1, description="Audio packets sent per thread switch (min available)."),
-        ])
-        self._burst      = CSRStorage(32, reset=16384//4, description="Burst length (32-bit words).")
-        self._guard      = CSRStorage(8,  reset=32,       description="Guard cycles after a burst.")
-        self._switch_guard = CSRStorage(16, reset=256,   description="Minimum idle cycles before a thread switch (video <-> audio).")
-        self._status     = CSRStatus(fields=[
-            CSRField("flag",   size=1, offset=0, description="FLAG (CTL1) level."),
-        ])
-        self._bursts     = CSRStatus(32, description="Number of sent bursts.")
-        self._last       = CSRStatus(32, description="Last word sent (debug).")
-        self._wait_cycles    = CSRStatus(32, description="Cycles waiting for FLAG (FX3 not ready).")
-        self._starve_cycles  = CSRStatus(32, description="Cycles in a burst without data (source starved).")
-        self._active_cycles  = CSRStatus(32, description="Cycles sending data.")
-        self._eops           = CSRStatus(32, description="Number of EOP strobes.")
-        self._eop_cycle      = CSRStatus(32, description="Debug: cycle counter at the last EOP strobe.")
-        self._burst_cycle    = CSRStatus(32, description="Debug: cycle counter at the last burst first word.")
-        self._force      = CSRStorage(fields=[
-            CSRField("enable", size=1, offset=0, description="Force DQ to `force_value` (debug)."),
-        ])
-        self._force_value = CSRStorage(32, description="Forced DQ value (debug).")
-        self._audio_packets = CSRStatus(32, description="Number of sent audio packets.")
-        self._audio_status  = CSRStatus(fields=[
-            CSRField("flag",  size=1, offset=0, description="Audio FLAG (CTL4) level."),
-            CSRField("level", size=16, offset=16, description="Audio FIFO level (words)."),
-        ])
+        # Control (sys domain).
+        self.enable       = Signal()
+        self.flag_invert  = Signal()
+        self.data_delay   = Signal(2)
+        self.head_lead    = Signal(3,  reset=2)
+        self.dq_cycles    = Signal()
+        self.xflag_off    = Signal()
+        self.audio_enable = Signal()
+        self.audio_lead   = Signal(4,  reset=8)
+        self.audio_batch  = Signal(4,  reset=1)
+        self.burst        = Signal(32, reset=16384//4)
+        self.guard        = Signal(8,  reset=32)
+        self.switch_guard = Signal(16, reset=256)
+        self.force        = Signal()
+        self.force_value  = Signal(32)
+
+        # Status (sys domain).
+        self.flag          = Signal()
+        self.bursts        = Signal(32)
+        self.last          = Signal(32)
+        self.wait_cycles   = Signal(32)
+        self.starve_cycles = Signal(32)
+        self.active_cycles = Signal(32)
+        self.eops          = Signal(32)
+        self.eop_cycle     = Signal(32)
+        self.burst_cycle   = Signal(32)
+        self.audio_packets = Signal(32)
+        self.audio_flag    = Signal()
+        self.audio_level   = Signal(16)
 
         # # #
 
@@ -98,33 +96,36 @@ class GPIFStreamer(LiteXModule):
             self.comb += self.cd_gpif.clk.eq(pads.pclk)
             self.comb += self.cd_gpif_cdc.clk.eq(pads.pclk)
         gpif_rst = Signal()
-        self.specials += MultiReg(~(self._control.fields.enable | self._control.fields.audio_enable),
-            gpif_rst, "gpif_cdc")
+        self.specials += MultiReg(~(self.enable | self.audio_enable), gpif_rst, "gpif_cdc")
         self.comb += self.cd_gpif.rst.eq(gpif_rst)
 
         # CDC.
-        self.fifo = fifo = stream.ClockDomainCrossing([("data", 32), ("next", 32)], cd_from="sys", cd_to="gpif_cdc",
-            depth=fifo_depth)
+        self.fifo = fifo = stream.ClockDomainCrossing([("data", 32), ("next", 32)],
+            cd_from = "sys",
+            cd_to   = "gpif_cdc",
+            depth   = fifo_depth,
+        )
         self.comb += sink.connect(fifo.sink)
         # Video disabled: the CDC FIFO is drained in WAIT (no stale words at the next start).
         video_drain = Signal()
-        self.specials += MultiReg(~self._control.fields.enable, video_drain, "gpif_cdc")
+        self.specials += MultiReg(~self.enable, video_drain, "gpif_cdc")
 
-        enable      = Signal()
-        flag_invert = Signal()
-        xflag_off   = Signal()
-        data_delay  = Signal(2)
-        burst       = Signal(32)
-        guard       = Signal(8)
+        # Control synchronization (gpif domain).
+        enable       = Signal()
+        flag_invert  = Signal()
+        xflag_off    = Signal()
+        data_delay   = Signal(2)
+        burst        = Signal(32)
+        guard        = Signal(8)
         switch_guard = Signal(16)
         self.specials += [
-            MultiReg(self._control.fields.enable,      enable,      "gpif"),
-            MultiReg(self._control.fields.flag_invert, flag_invert, "gpif"),
-            MultiReg(self._control.fields.xflag_off,   xflag_off,   "gpif"),
-            MultiReg(self._control.fields.data_delay,  data_delay,  "gpif"),
-            MultiReg(self._burst.storage,              burst,       "gpif"),
-            MultiReg(self._guard.storage,              guard,       "gpif"),
-            MultiReg(self._switch_guard.storage,       switch_guard, "gpif"),
+            MultiReg(self.enable,       enable,       "gpif"),
+            MultiReg(self.flag_invert,  flag_invert,  "gpif"),
+            MultiReg(self.xflag_off,    xflag_off,    "gpif"),
+            MultiReg(self.data_delay,   data_delay,   "gpif"),
+            MultiReg(self.burst,        burst,        "gpif"),
+            MultiReg(self.guard,        guard,        "gpif"),
+            MultiReg(self.switch_guard, switch_guard, "gpif"),
         ]
 
         # CTL: per-bit tristate (CTL0 = VALID, CTL2 = EOP, CTL3 = ASEL outputs, CTL1 = FLAG,
@@ -158,7 +159,7 @@ class GPIFStreamer(LiteXModule):
         flag   = Signal()
         self.comb += flag_i.eq(ctl_i[1])
         self.comb += flag.eq(flag_i ^ flag_invert)
-        self.specials += MultiReg(flag, self._status.fields.flag)
+        self.specials += MultiReg(flag, self.flag)
 
         # Audio: samples -> CDC -> packet FIFO (gpif domain), packets count, audio FLAG input.
         audio_enable  = Signal()
@@ -169,13 +170,13 @@ class GPIFStreamer(LiteXModule):
         audio_packets = Signal(8)
         audio_next    = Signal() # First word of the next packet available.
         self.specials += [
-            MultiReg(self._control.fields.audio_enable, audio_enable, "gpif"),
-            MultiReg(self._control.fields.audio_lead,   audio_lead,   "gpif"),
-            MultiReg(self._control.fields.audio_batch,  audio_batch,  "gpif"),
+            MultiReg(self.audio_enable, audio_enable, "gpif"),
+            MultiReg(self.audio_lead,   audio_lead,   "gpif"),
+            MultiReg(self.audio_batch,  audio_batch,  "gpif"),
         ]
         self.comb += audio_flag_i.eq(ctl_i[4])
         self.comb += audio_flag.eq(audio_flag_i ^ flag_invert)
-        self.specials += MultiReg(audio_flag, self._audio_status.fields.flag)
+        self.specials += MultiReg(audio_flag, self.audio_flag)
         if with_audio:
             self.audio_cdc  = audio_cdc  = stream.ClockDomainCrossing([("data", 32)],
                 cd_from="sys", cd_to="gpif_cdc", depth=8)
@@ -192,7 +193,9 @@ class GPIFStreamer(LiteXModule):
             ]
             self.sync.gpif += [
                 If(audio_fifo.sink.valid & audio_fifo.sink.ready,
-                    audio_index.eq(Mux(audio_index == (audio_packet_words - 1), 0, audio_index + 1)),
+                    audio_index.eq(Mux(audio_index == (audio_packet_words - 1),
+                        0,
+                        audio_index + 1)),
                     If(audio_fifo.sink.last, audio_written.eq(audio_written + 1)),
                 ),
                 If(audio_fifo.source.valid & audio_fifo.source.ready & audio_fifo.source.last,
@@ -200,7 +203,7 @@ class GPIFStreamer(LiteXModule):
                 ),
             ]
             self.comb += audio_next.eq(audio_fifo.level > audio_packet_words)
-            self.specials += MultiReg(audio_fifo.level, self._audio_status.fields.level)
+            self.specials += MultiReg(audio_fifo.level, self.audio_level)
             audio_source = audio_fifo.source
         else:
             self.comb += audio_sink.ready.eq(1)
@@ -233,7 +236,8 @@ class GPIFStreamer(LiteXModule):
                 NextState("APRE"),
             # An audio packet is ready after video: no new video burst, the switch guard elapses and
             # audio goes next (back to back video bursts starved audio: FIFO overflow per frame).
-            ).Elif(enable & flag & fifo.source.valid & (audio_flag | ~audio_enable | xflag_off) & (~last_audio | switch_ok) &
+            ).Elif(enable & flag & fifo.source.valid & (audio_flag | ~audio_enable | xflag_off) &
+                (~last_audio | switch_ok) &
                 ~(audio_ready & ~last_audio),
                 NextValue(last_audio, 0),
                 NextState("BURST"),
@@ -244,7 +248,7 @@ class GPIFStreamer(LiteXModule):
         head_lead  = Signal(3)
         head_count = Signal(3)
         head_valid = Signal()
-        self.specials += MultiReg(self._control.fields.head_lead, head_lead, "gpif")
+        self.specials += MultiReg(self.head_lead, head_lead, "gpif")
         # DQ source. The FX3 captures DQ as the first word of a thread's next DMA buffer when that
         # buffer becomes current (right after a buffer is filled/committed, or later when the USB
         # side frees one): outside bursts, DQ presents the next word of the last used thread (audio
@@ -266,7 +270,8 @@ class GPIFStreamer(LiteXModule):
         audio_sel   = Signal()
         audio_sel_d = Signal()
         self.comb += [
-            audio_sel.eq(asel | fsm.ongoing("APRE") | (last_audio & ~fsm.ongoing("BURST") & ~fsm.ongoing("EOP"))),
+            audio_sel.eq(asel | fsm.ongoing("APRE") |
+                (last_audio & ~fsm.ongoing("BURST") & ~fsm.ongoing("EOP"))),
             If(audio_sel,
                 data.eq(audio_source.data),
                 src_valid.eq(audio_source.valid),
@@ -277,7 +282,9 @@ class GPIFStreamer(LiteXModule):
             # Next video word: FIFO head, else the `next` tag of the last payload word sent (exact
             # first word of the following payload, even mid-frame or while it is in flight), else
             # (stream start) the first UVC header word.
-            video_next.eq(Mux(fifo.source.valid, fifo.source.data, Mux(have_next, last_next, eop_data))),
+            video_next.eq(Mux(fifo.source.valid,
+                fifo.source.data,
+                Mux(have_next, last_next, eop_data))),
             # Source switch: the head count restarts one cycle later, gate on a stable source.
             head_valid.eq(src_valid & (head_count >= head_lead) & (audio_sel == audio_sel_d)),
         ]
@@ -311,8 +318,8 @@ class GPIFStreamer(LiteXModule):
                 )
             )
         )
-        # EOP: DQ presents the next video word around the EOP strobe (the FX3 latches DQ at commit time,
-        # which happens 1-2 cycles after the strobe with the audio-capable waveform).
+        # EOP: DQ presents the next video word around the EOP strobe (the FX3 latches DQ at commit
+        # time, which happens 1-2 cycles after the strobe with the audio-capable waveform).
         fsm.act("EOP",
             eop.eq(gcount == 4),
             NextValue(gcount, gcount + 1),
@@ -325,8 +332,8 @@ class GPIFStreamer(LiteXModule):
         audio_sent_batch = Signal(4)
         idle_count       = Signal(16)
         audio_sent       = Signal(32)
-        # APRE: DQ presents the first audio word before ASEL (the FX3 captures DQ as the first word of
-        # its thread 1 buffer at the thread switch: with DQ changing on the ASEL edge, a slow DQ
+        # APRE: DQ presents the first audio word before ASEL (the FX3 captures DQ as the first word
+        # of its thread 1 buffer at the thread switch: with DQ changing on the ASEL edge, a slow DQ
         # line lost the first sample of the audio packets on a build, DQ[29] at 2.3ns).
         fsm.act("APRE",
             NextValue(gcount, gcount + 1),
@@ -390,13 +397,13 @@ class GPIFStreamer(LiteXModule):
                 NextState("WAIT"),
             )
         )
-        self.specials += MultiReg(bursts, self._bursts.status)
-        self.specials += MultiReg(audio_sent, self._audio_packets.status)
+        self.specials += MultiReg(bursts, self.bursts)
+        self.specials += MultiReg(audio_sent, self.audio_packets)
         wait_cycles   = Signal(32)
         starve_cycles = Signal(32)
         active_cycles = Signal(32)
         eops          = Signal(32)
-        self.specials += MultiReg(eops, self._eops.status)
+        self.specials += MultiReg(eops, self.eops)
         self.sync.gpif += [
             If(fsm.ongoing("WAIT") & enable & ~flag, wait_cycles.eq(wait_cycles + 1)),
             If(fsm.ongoing("BURST") & ~valid,        starve_cycles.eq(starve_cycles + 1)),
@@ -404,13 +411,13 @@ class GPIFStreamer(LiteXModule):
             If(eop,                                  eops.eq(eops + 1)),
         ]
         self.specials += [
-            MultiReg(wait_cycles,   self._wait_cycles.status),
-            MultiReg(starve_cycles, self._starve_cycles.status),
-            MultiReg(active_cycles, self._active_cycles.status),
+            MultiReg(wait_cycles,   self.wait_cycles),
+            MultiReg(starve_cycles, self.starve_cycles),
+            MultiReg(active_cycles, self.active_cycles),
         ]
         last = Signal(32)
         self.sync.gpif += If(valid, last.eq(data))
-        self.specials += MultiReg(last, self._last.status)
+        self.specials += MultiReg(last, self.last)
 
         # Outputs: VALID and DQ (DQ delayed by data_delay cycles), registered.
         data_pipe = [data]
@@ -419,7 +426,6 @@ class GPIFStreamer(LiteXModule):
             self.sync.gpif += d.eq(data_pipe[-1])
             data_pipe.append(d)
         data_o  = Signal(32)
-        valid_o = Signal()
         self.comb += Case(data_delay, {i: data_o.eq(data_pipe[i]) for i in range(max_delay)})
         cycles      = Signal(32)
         dq_cycles   = Signal()
@@ -432,14 +438,14 @@ class GPIFStreamer(LiteXModule):
             If(fsm.ongoing("WAIT"), first_word.eq(1)),
             If(valid & first_word, first_word.eq(0), burst_cycle.eq(cycles)),
         ]
-        self.specials += MultiReg(burst_cycle, self._burst_cycle.status)
-        self.specials += MultiReg(self._control.fields.dq_cycles, dq_cycles, "gpif")
-        self.specials += MultiReg(eop_cycle, self._eop_cycle.status)
+        self.specials += MultiReg(burst_cycle, self.burst_cycle)
+        self.specials += MultiReg(self.dq_cycles, dq_cycles, "gpif")
+        self.specials += MultiReg(eop_cycle, self.eop_cycle)
         force       = Signal()
         force_value = Signal(32)
         self.specials += [
-            MultiReg(self._force.fields.enable, force,       "gpif"),
-            MultiReg(self._force_value.storage, force_value, "gpif"),
+            MultiReg(self.force,       force,       "gpif"),
+            MultiReg(self.force_value, force_value, "gpif"),
         ]
         # DQ output register without reset: while the streaming logic is held in reset (GPIF
         # restart), DQ already presents the next video word (next UVC header word), which the FX3
@@ -467,35 +473,146 @@ class GPIFStreamer(LiteXModule):
             ctl_o[3].eq(asel),
         ]
 
+        # CSRs.
+        if with_csr:
+            self.add_csr()
+
+    def add_csr(self):
+        self._control = CSRStorage(fields=[
+            CSRField("enable",       size=1, offset=0,
+                description="Enable streaming."),
+            CSRField("flag_invert",  size=1, offset=1,
+                description="Invert FLAG (CTL1) polarity."),
+            CSRField("data_delay",   size=2, offset=4,
+                description="DQ delay (cycles) relative to VALID."),
+            CSRField("head_lead",    size=3, offset=8,  reset=2,
+                description="Cycles a word is presented on DQ before VALID after a gap."),
+            CSRField("dq_cycles",    size=1, offset=12,
+                description="Debug: drive a cycle counter on DQ outside bursts."),
+            CSRField("xflag_off",    size=1, offset=13,
+                description="Do not require the other thread's FLAG before using a thread "
+                            "(experiment)."),
+            CSRField("audio_enable", size=1, offset=16,
+                description="Enable audio (GPIF thread 1)."),
+            CSRField("audio_lead",   size=4, offset=20, reset=8,
+                description="Cycles between ASEL and the first audio word."),
+            CSRField("audio_batch",  size=4, offset=24, reset=1,
+                description="Audio packets sent per thread switch (min available)."),
+        ])
+        self._burst         = CSRStorage(32, reset=16384//4,
+            description="Burst length (32-bit words).")
+        self._guard         = CSRStorage(8,  reset=32,
+            description="Guard cycles after a burst.")
+        self._switch_guard  = CSRStorage(16, reset=256,
+            description="Minimum idle cycles before a thread switch (video <-> audio).")
+        self._status        = CSRStatus(fields=[
+            CSRField("flag", size=1, offset=0, description="FLAG (CTL1) level."),
+        ])
+        self._bursts        = CSRStatus(32, description="Number of sent bursts.")
+        self._last          = CSRStatus(32, description="Last word sent (debug).")
+        self._wait_cycles   = CSRStatus(32, description="Cycles waiting for FLAG (FX3 not ready).")
+        self._starve_cycles = CSRStatus(32,
+            description="Cycles in a burst without data (source starved).")
+        self._active_cycles = CSRStatus(32, description="Cycles sending data.")
+        self._eops          = CSRStatus(32, description="Number of EOP strobes.")
+        self._eop_cycle     = CSRStatus(32,
+            description="Debug: cycle counter at the last EOP strobe.")
+        self._burst_cycle   = CSRStatus(32,
+            description="Debug: cycle counter at the last burst first word.")
+        self._force         = CSRStorage(fields=[
+            CSRField("enable", size=1, offset=0, description="Force DQ to `force_value` (debug)."),
+        ])
+        self._force_value   = CSRStorage(32, description="Forced DQ value (debug).")
+        self._audio_packets = CSRStatus(32, description="Number of sent audio packets.")
+        self._audio_status  = CSRStatus(fields=[
+            CSRField("flag",  size=1,  offset=0,  description="Audio FLAG (CTL4) level."),
+            CSRField("level", size=16, offset=16, description="Audio FIFO level (words)."),
+        ])
+
+        # # #
+
+        self.comb += [
+            # Control.
+            self.enable.eq(self._control.fields.enable),
+            self.flag_invert.eq(self._control.fields.flag_invert),
+            self.data_delay.eq(self._control.fields.data_delay),
+            self.head_lead.eq(self._control.fields.head_lead),
+            self.dq_cycles.eq(self._control.fields.dq_cycles),
+            self.xflag_off.eq(self._control.fields.xflag_off),
+            self.audio_enable.eq(self._control.fields.audio_enable),
+            self.audio_lead.eq(self._control.fields.audio_lead),
+            self.audio_batch.eq(self._control.fields.audio_batch),
+            self.burst.eq(self._burst.storage),
+            self.guard.eq(self._guard.storage),
+            self.switch_guard.eq(self._switch_guard.storage),
+            self.force.eq(self._force.fields.enable),
+            self.force_value.eq(self._force_value.storage),
+
+            # Status.
+            self._status.fields.flag.eq(self.flag),
+            self._bursts.status.eq(self.bursts),
+            self._last.status.eq(self.last),
+            self._wait_cycles.status.eq(self.wait_cycles),
+            self._starve_cycles.status.eq(self.starve_cycles),
+            self._active_cycles.status.eq(self.active_cycles),
+            self._eops.status.eq(self.eops),
+            self._eop_cycle.status.eq(self.eop_cycle),
+            self._burst_cycle.status.eq(self.burst_cycle),
+            self._audio_packets.status.eq(self.audio_packets),
+            self._audio_status.fields.flag.eq(self.audio_flag),
+            self._audio_status.fields.level.eq(self.audio_level),
+        ]
+
 # Pattern Generator --------------------------------------------------------------------------------
 
 class CounterGenerator(LiteXModule):
     """32-bit incrementing counter stream, with optional on/off gaps and packet `last` (tests)."""
-    def __init__(self):
+    def __init__(self, with_csr=True):
         self.source = source = stream.Endpoint([("data", 32)])
-        self.enable = CSRStorage(description="Enable counter generator.")
-        self.on     = CSRStorage(32, description="Words per packet (0 = continuous).")
-        self.off    = CSRStorage(32, description="Idle cycles after each packet.")
-        self.last   = CSRStorage(description="Set `last` on the last word of each packet.")
+
+        # Control.
+        self.enable = Signal()   # Enable counter generator.
+        self.on     = Signal(32) # Words per packet (0 = continuous).
+        self.off    = Signal(32) # Idle cycles after each packet.
+        self.last   = Signal()   # Set `last` on the last word of each packet.
 
         # # #
 
         count = Signal(32)
         idle  = Signal(32)
         self.comb += [
-            source.valid.eq(self.enable.storage & (idle == 0)),
-            source.last.eq(self.last.storage & (self.on.storage != 0) & (count == (self.on.storage - 1))),
+            source.valid.eq(self.enable & (idle == 0)),
+            source.last.eq(self.last & (self.on != 0) & (count == (self.on - 1))),
         ]
         self.sync += [
             If(idle != 0,
                 idle.eq(idle - 1),
             ).Elif(source.valid & source.ready,
                 source.data.eq(source.data + 1),
-                If((self.on.storage != 0) & (count == (self.on.storage - 1)),
+                If((self.on != 0) & (count == (self.on - 1)),
                     count.eq(0),
-                    idle.eq(self.off.storage),
+                    idle.eq(self.off),
                 ).Else(
                     count.eq(count + 1),
                 )
             )
+        ]
+
+        # CSRs.
+        if with_csr:
+            self.add_csr()
+
+    def add_csr(self):
+        self._enable = CSRStorage(description="Enable counter generator.")
+        self._on     = CSRStorage(32, description="Words per packet (0 = continuous).")
+        self._off    = CSRStorage(32, description="Idle cycles after each packet.")
+        self._last   = CSRStorage(description="Set `last` on the last word of each packet.")
+
+        # # #
+
+        self.comb += [
+            self.enable.eq(self._enable.storage),
+            self.on.eq(self._on.storage),
+            self.off.eq(self._off.storage),
+            self.last.eq(self._last.storage),
         ]

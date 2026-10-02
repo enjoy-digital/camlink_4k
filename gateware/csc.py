@@ -25,7 +25,10 @@ from litex.gen import *
 # Coefficients -------------------------------------------------------------------------------------
 
 def bt709_coefficients(full_range_input=True):
-    """BT.709 RGB -> YCbCr (limited range output): (ky, kcb, kcr as (r, g, b)), y_off, c_off, in_off."""
+    """BT.709 RGB -> YCbCr (limited range output).
+
+    Returns (ky, kcb, kcr as (r, g, b)), y_off, c_off, in_off.
+    """
     kr, kg, kb = 0.2126, 0.7152, 0.0722
     if full_range_input:
         ys, cs, in_off = 219/255, 224/255, 0
@@ -63,7 +66,8 @@ class RegisteredMultiplier(LiteXModule):
                 p_REG_INPUTC_CLK = "NONE",
                 p_REG_PIPELINE_CLK = "NONE",
                 p_REG_OUTPUT_CLK = "CLK0", p_REG_OUTPUT_CE = "CE0", p_REG_OUTPUT_RST = "RST0",
-                p_CLK0_DIV = "ENABLED", p_CLK1_DIV = "ENABLED", p_CLK2_DIV = "ENABLED", p_CLK3_DIV = "ENABLED",
+                p_CLK0_DIV = "ENABLED", p_CLK1_DIV = "ENABLED",
+                p_CLK2_DIV = "ENABLED", p_CLK3_DIV = "ENABLED",
                 p_GSR = "DISABLED", p_RESETMODE = "SYNC", p_MULT_BYPASS = "DISABLED",
                 p_CAS_MATCH_REG = "FALSE", p_SOURCEB_MODE = "B_SHIFT",
                 i_CLK0 = ClockSignal(), i_CE0 = 1, i_RST0 = 0,

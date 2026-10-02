@@ -42,14 +42,14 @@ class System(LiteXModule):
         # # #
 
         self.hdmi_in  = hdmi_in  = HDMIIn(self.hdmi_pads, fifo_depth=fifo_depth, idle_timeout=256,
-            sim=True)
+            sim=True, with_csr=False)
         self.hdmi_buf = hdmi_buf = ResetInserter()(stream.Buffer([("data", 32)],
             pipe_valid=True, pipe_ready=True))
-        self.canvas   = canvas   = ResetInserter()(Canvas())
-        self.color    = color    = ResetInserter()(ColorAdjust())
-        self.uvc      = uvc      = ResetInserter()(UVCPacketizer(payload_words=PAYLOAD_WORDS))
+        self.canvas   = canvas   = ResetInserter()(Canvas(with_csr=False))
+        self.color    = color    = ResetInserter()(ColorAdjust(with_csr=False))
+        self.uvc      = uvc      = ResetInserter()(UVCPacketizer(payload_words=PAYLOAD_WORDS, with_csr=False))
         self.gpif_buf = gpif_buf = stream.Buffer([("data", 32), ("next", 32)])
-        self.gpif     = gpif     = GPIFStreamer(self.fx3_pads, sim=True)
+        self.gpif     = gpif     = GPIFStreamer(self.fx3_pads, sim=True, with_csr=False)
         self.ctl      = gpif.ctl
         self.pads_dq  = self.fx3_pads.dq
 
@@ -57,10 +57,10 @@ class System(LiteXModule):
         self.sync += timestamp.eq(timestamp + 1)
         self.comb += [
             uvc.timestamp.eq(timestamp),
-            uvc.reset.eq(~hdmi_in.control.fields.enable),
-            hdmi_buf.reset.eq(~hdmi_in.control.fields.enable),
-            canvas.reset.eq(~hdmi_in.control.fields.enable),
-            color.reset.eq(~hdmi_in.control.fields.enable),
+            uvc.reset.eq(~hdmi_in.enable),
+            hdmi_buf.reset.eq(~hdmi_in.enable),
+            canvas.reset.eq(~hdmi_in.enable),
+            color.reset.eq(~hdmi_in.enable),
             gpif.eop_data.eq(uvc.next_header0),
             hdmi_in.admit.eq(canvas.admit | ~gate),
             hdmi_in.source.connect(hdmi_buf.sink),
@@ -114,29 +114,29 @@ def run(frame_words, frames=8, downscale=False, m420=False, canvas=None, drain=(
     fx3 = FX3Model(dut, buf_words=(BURST_WORDS, 48), drain=drain, dma_start=20)
 
     def config():
-        h = dut.hdmi_in.control.fields
+        h = dut.hdmi_in
         yield h.y_lane.eq(1)
         yield h.c_lane.eq(0)
         yield h.ddr.eq(1)
         yield h.downscale.eq(downscale)
         yield h.m420.eq(m420)
-        yield dut.hdmi_in.admit_level.storage.eq(admit_level)
+        yield dut.hdmi_in.admit_level.eq(admit_level)
         if canvas is not None:
             out_w, out_h, in_w, in_h, x0, y0 = canvas
-            yield dut.canvas.enable.storage.eq(1)
-            yield dut.canvas.out_hwords.storage.eq(out_w)
-            yield dut.canvas.out_vres.storage.eq(out_h)
-            yield dut.canvas.in_hwords.storage.eq(in_w)
-            yield dut.canvas.in_vres.storage.eq(in_h)
-            yield dut.canvas.x0.storage.eq(x0)
-            yield dut.canvas.y0.storage.eq(y0)
-        yield dut.uvc._payload_words.storage.eq(PAYLOAD_WORDS)
-        yield dut.uvc._frame_words.storage.eq(frame_words)
-        g = dut.gpif._control.fields
+            yield dut.canvas.enable.eq(1)
+            yield dut.canvas.out_hwords.eq(out_w)
+            yield dut.canvas.out_vres.eq(out_h)
+            yield dut.canvas.in_hwords.eq(in_w)
+            yield dut.canvas.in_vres.eq(in_h)
+            yield dut.canvas.x0.eq(x0)
+            yield dut.canvas.y0.eq(y0)
+        yield dut.uvc.payload_words.eq(PAYLOAD_WORDS)
+        yield dut.uvc.frame_words.eq(frame_words)
+        g = dut.gpif
         yield g.flag_invert.eq(1)
         yield g.head_lead.eq(4)
-        yield dut.gpif._burst.storage.eq(BURST_WORDS)
-        yield dut.gpif._guard.storage.eq(8)
+        yield dut.gpif.burst.eq(BURST_WORDS)
+        yield dut.gpif.guard.eq(8)
         for _ in range(40):
             yield
         yield g.enable.eq(1)

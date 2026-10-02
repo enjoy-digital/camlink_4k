@@ -58,16 +58,16 @@ class I2CBridge(LiteXModule):
         ]
 
         # Datapath.
-        bitcount = Signal(4)
-        shift    = Signal(8)
-        byte     = Signal(8)
-        bytecnt  = Signal(3)
+        bitcount   = Signal(4)
+        shift      = Signal(8)
+        byte       = Signal(8)
+        bytecnt    = Signal(3)
         addr       = Signal(32)
         addr_shift = Signal(32)
         addr_load  = Signal()
-        wdata    = Signal(32)
-        rdata    = Signal(32)
-        rw       = Signal()
+        wdata      = Signal(32)
+        rdata      = Signal(32)
+        rw         = Signal()
         master_ack = Signal()
 
         # Wishbone accesses.

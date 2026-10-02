@@ -27,14 +27,14 @@ def model(word, brightness, contrast, saturation):
 
 def run(brightness, contrast, saturation, ready=lambda i: 1):
     random.seed(1)
-    dut   = ColorAdjust()
+    dut   = ColorAdjust(with_csr=False)
     words = [random.getrandbits(32) for _ in range(64)]
     out   = []
 
     def gen():
-        yield dut.brightness.storage.eq(brightness & 0xff)
-        yield dut.contrast.storage.eq(contrast)
-        yield dut.saturation.storage.eq(saturation)
+        yield dut.brightness.eq(brightness & 0xff)
+        yield dut.contrast.eq(contrast)
+        yield dut.saturation.eq(saturation)
         for i, w in enumerate(words):
             yield dut.sink.valid.eq(1)
             yield dut.sink.data.eq(w)
@@ -64,3 +64,18 @@ def test_color_adjust():
 
 def test_color_adjust_backpressure():
     run(30, 90, 255, ready=lambda i: (i % 3) != 0)
+
+def test_color_csr():
+    # CSR writes reach the control signals.
+    dut = ColorAdjust()
+    def gen():
+        assert (yield dut.contrast)   == 128
+        assert (yield dut.saturation) == 128
+        yield dut._brightness.storage.eq(0xec)
+        yield dut._contrast.storage.eq(200)
+        yield dut._saturation.storage.eq(60)
+        yield
+        assert (yield dut.brightness) == 0xec
+        assert (yield dut.contrast)   == 200
+        assert (yield dut.saturation) == 60
+    run_simulation(dut, gen())

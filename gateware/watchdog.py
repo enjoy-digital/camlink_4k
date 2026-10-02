@@ -25,29 +25,29 @@ from litex.soc.interconnect.csr import *
 # FX3 Watchdog -------------------------------------------------------------------------------------
 
 class FX3Watchdog(LiteXModule):
-    def __init__(self, heartbeat, sys_clk_freq, period=4.0, pulse=10e-3, arm_edges=8):
-        self.reset = Signal() # FX3 reset (active high, drive RESET# low).
+    def __init__(self, heartbeat, sys_clk_freq, period=4.0, pulse=10e-3, arm_edges=8,
+        with_csr=True):
+        # FX3 reset (active high, drive RESET# low).
+        self.reset = Signal()
 
-        self.control = CSRStorage(fields=[
-            CSRField("enable", size=1, offset=0, reset=1, description="Enable (arms after `arm_edges` heartbeat edges)."),
-        ])
-        self.period = CSRStorage(32, reset=int(period*sys_clk_freq), description="Timeout (sys clocks).")
-        self.status = CSRStatus(fields=[
-            CSRField("armed", size=1, offset=0, description="Armed (heartbeat seen)."),
-        ])
-        self.resets = CSRStatus(32, description="FX3 resets issued (kept across FX3 resets).")
+        # Control.
+        # Enable (arms after `arm_edges` heartbeat edges).
+        self.enable = Signal(reset=1)
+        # Timeout (sys clocks).
+        self.period = Signal(32, reset=int(period*sys_clk_freq))
+
+        # Status.
+        self.armed  = Signal()   # Armed (heartbeat seen).
+        self.resets = Signal(32) # FX3 resets issued (kept across FX3 resets).
 
         # # #
 
-        enable  = self.control.fields.enable
         beat    = Signal()
         beat_d  = Signal()
         edge    = Signal()
-        armed   = Signal()
         edges   = Signal(max=arm_edges + 1)
         count   = Signal(32)
         pulse_n = Signal(max=int(pulse*sys_clk_freq) + 1)
-        resets  = Signal(32)
 
         # Heartbeat synchronization/edge detection (both edges).
         self.specials += MultiReg(heartbeat, beat)
@@ -58,29 +58,50 @@ class FX3Watchdog(LiteXModule):
             If(pulse_n != 0,
                 # FX3 held in reset.
                 pulse_n.eq(pulse_n - 1),
-            ).Elif(~enable,
-                armed.eq(0),
+            ).Elif(~self.enable,
+                self.armed.eq(0),
                 edges.eq(0),
             ).Elif(edge,
                 If(edges == arm_edges,
-                    armed.eq(1),
+                    self.armed.eq(1),
                 ).Else(
                     edges.eq(edges + 1),
                 ),
-                count.eq(self.period.storage),
-            ).Elif(armed,
+                count.eq(self.period),
+            ).Elif(self.armed,
                 If(count == 0,
-                    armed.eq(0),
+                    self.armed.eq(0),
                     edges.eq(0),
                     pulse_n.eq(int(pulse*sys_clk_freq)),
-                    resets.eq(resets + 1),
+                    self.resets.eq(self.resets + 1),
                 ).Else(
                     count.eq(count - 1),
                 )
             )
         ]
+        self.comb += self.reset.eq(pulse_n != 0)
+
+        # CSRs.
+        if with_csr:
+            self.add_csr()
+
+    def add_csr(self):
+        self._control = CSRStorage(fields=[
+            CSRField("enable", size=1, offset=0, reset=1,
+                description="Enable (arms after `arm_edges` heartbeat edges)."),
+        ])
+        self._period  = CSRStorage(32, reset=self.period.reset.value,
+            description="Timeout (sys clocks).")
+        self._status  = CSRStatus(fields=[
+            CSRField("armed", size=1, offset=0, description="Armed (heartbeat seen)."),
+        ])
+        self._resets  = CSRStatus(32, description="FX3 resets issued (kept across FX3 resets).")
+
+        # # #
+
         self.comb += [
-            self.reset.eq(pulse_n != 0),
-            self.status.fields.armed.eq(armed),
-            self.resets.status.eq(resets),
+            self.enable.eq(self._control.fields.enable),
+            self.period.eq(self._period.storage),
+            self._status.fields.armed.eq(self.armed),
+            self._resets.status.eq(self.resets),
         ]

@@ -11,6 +11,8 @@ from migen.sim import passive
 
 from litex.gen import *
 
+from litex.soc.interconnect.csr_bus import CSRBank, Interface
+
 from litedram.common import LiteDRAMNativePort
 
 from gateware.framebuffer import NV12FrameBuffer
@@ -85,19 +87,19 @@ def run(frames, gap=0, out_ready=0.8, cycles=6000, seed=0, stops=()):
     random.seed(seed)
     wport = LiteDRAMNativePort("both", 24, 128)
     rport = LiteDRAMNativePort("both", 24, 128)
-    dut   = NV12FrameBuffer(wport, rport)
+    dut   = NV12FrameBuffer(wport, rport, with_csr=False)
     mem   = Memory()
     out   = []
 
     def config():
-        yield dut.base.storage.eq(0x100)
-        yield dut.slot_words.storage.eq(SLOT_WORDS)
-        yield dut.line_words.storage.eq(LINE_WORDS)
-        yield dut.height.storage.eq(HEIGHT)
-        yield dut.uv_offset.storage.eq(HEIGHT*LINE_WORDS)
-        yield dut.frame_words.storage.eq(FRAME_WORDS)
+        yield dut.base.eq(0x100)
+        yield dut.slot_words.eq(SLOT_WORDS)
+        yield dut.line_words.eq(LINE_WORDS)
+        yield dut.height.eq(HEIGHT)
+        yield dut.uv_offset.eq(HEIGHT*LINE_WORDS)
+        yield dut.frame_words.eq(FRAME_WORDS)
         yield
-        yield dut.enable.storage.eq(1)
+        yield dut.enable.eq(1)
         for _ in range(4):
             yield
 
@@ -184,3 +186,28 @@ def test_framebuffer_stop_restart():
         # Frames after the last stop are complete and correct.
         tags = [f[0] >> 24 for f in out]
         assert out[-1] == nv12_frame(tags[-1]), seed
+
+def test_framebuffer_csr():
+    # CSR writes reach the control signals (CSR map: enable, base, slot_words, line_words, height,
+    # uv_offset, frame_words, written, dropped, read, in_stalls, wr_stalls, debug).
+    wport = LiteDRAMNativePort("both", 24, 128)
+    rport = LiteDRAMNativePort("both", 24, 128)
+    dut   = NV12FrameBuffer(wport, rport)
+    names = [c.name for c in dut.get_csrs()]
+    assert names == ["enable", "base", "slot_words", "line_words", "height", "uv_offset",
+        "frame_words", "written", "dropped", "read", "in_stalls", "wr_stalls", "debug"]
+    bank   = CSRBank(dut.get_csrs(), bus=Interface(data_width=32))
+    dut.submodules.bank = bank
+    values = {}
+
+    def generator():
+        yield from bank.bus.write(names.index("enable"),      1)
+        yield from bank.bus.write(names.index("base"),        0x123)
+        yield from bank.bus.write(names.index("frame_words"), FRAME_WORDS)
+        yield
+        values["enable"]      = (yield dut.enable)
+        values["base"]        = (yield dut.base)
+        values["frame_words"] = (yield dut.frame_words)
+
+    run_simulation(dut, generator())
+    assert values == {"enable": 1, "base": 0x123, "frame_words": FRAME_WORDS}

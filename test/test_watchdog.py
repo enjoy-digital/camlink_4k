@@ -13,7 +13,8 @@ from gateware.watchdog import FX3Watchdog
 def run(beats, gap, cycles, arm_edges=4):
     """Run `beats` heartbeat toggles every `gap` cycles, then silence, return the reset activity."""
     hb  = Signal()
-    dut = FX3Watchdog(hb, sys_clk_freq=1000, period=0.1, pulse=0.01, arm_edges=arm_edges)
+    dut = FX3Watchdog(hb, sys_clk_freq=1000, period=0.1, pulse=0.01, arm_edges=arm_edges,
+        with_csr=False)
     log = {"reset_cycles": 0, "first_reset": None}
     def gen():
         for i in range(cycles):
@@ -24,8 +25,8 @@ def run(beats, gap, cycles, arm_edges=4):
                 if log["first_reset"] is None:
                     log["first_reset"] = i
             yield
-        log["resets"] = (yield dut.resets.status)
-        log["armed"]  = (yield dut.status.fields.armed)
+        log["resets"] = (yield dut.resets)
+        log["armed"]  = (yield dut.armed)
     run_simulation(dut, gen())
     return log
 
@@ -49,3 +50,17 @@ def test_watchdog_fires_once():
     r = run(beats=10, gap=50, cycles=2000)
     assert r["resets"] == 1 and r["reset_cycles"] == 10 and not r["armed"]
     assert 550 <= r["first_reset"] <= 560
+
+def test_watchdog_csr():
+    # CSR map and CSR -> control Signals.
+    dut = FX3Watchdog(Signal(), sys_clk_freq=1000, period=0.1)
+    assert [c.name for c in dut.get_csrs()] == ["control", "period", "status", "resets"]
+    def gen():
+        assert (yield dut.enable) == 1
+        assert (yield dut.period) == 100
+        yield dut._control.fields.enable.eq(0)
+        yield dut._period.storage.eq(50)
+        yield
+        assert (yield dut.enable) == 0
+        assert (yield dut.period) == 50
+    run_simulation(dut, gen())

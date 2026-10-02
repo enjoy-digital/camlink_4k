@@ -29,22 +29,23 @@ BLACK = 0x80108010 # YUY2 black (Y=16, U=V=128).
 # Canvas -------------------------------------------------------------------------------------------
 
 class Canvas(LiteXModule):
-    def __init__(self):
+    def __init__(self, with_csr=True):
         self.sink   = sink   = stream.Endpoint([("data", 32)])
         self.source = source = stream.Endpoint([("data", 32)])
         self.admit  = Signal() # Ready for a new input frame (gates the input frame admission).
 
-        self.enable    = CSRStorage(1,  description="Enable canvas (else pass-through).")
-        self.out_hwords = CSRStorage(16, reset=1920//2, description="Output words per line.")
-        self.out_vres   = CSRStorage(16, reset=1080,    description="Output lines.")
-        self.in_hwords  = CSRStorage(16, reset=1280//2, description="Window (input) words per line.")
-        self.in_vres    = CSRStorage(16, reset=720,     description="Window (input) lines.")
-        self.x0         = CSRStorage(16, reset=320//2,  description="Window X (words).")
-        self.y0         = CSRStorage(16, reset=180,     description="Window Y (lines).")
+        # Control.
+        self.enable     = Signal()                    # Enable canvas (else pass-through).
+        self.out_hwords = Signal(16, reset=1920//2) # Output words per line.
+        self.out_vres   = Signal(16, reset=1080)    # Output lines.
+        self.in_hwords  = Signal(16, reset=1280//2) # Window (input) words per line.
+        self.in_vres    = Signal(16, reset=720)     # Window (input) lines.
+        self.x0         = Signal(16, reset=320//2)  # Window X (words).
+        self.y0         = Signal(16, reset=180)     # Window Y (lines).
 
         # # #
 
-        enable = self.enable.storage
+        enable = self.enable
 
         x       = Signal(16)
         y       = Signal(16)
@@ -53,7 +54,7 @@ class Canvas(LiteXModule):
         last_y  = Signal()
         in_x    = Signal()
         in_y    = Signal()
-        # Window bounds registered from the (static) CSRs; reset_less: valid right after a path
+        # Window bounds registered from the (static) controls; reset_less: valid right after a path
         # reset. The window flags are registers updated with the counters from equality checks
         # (timing: magnitude comparators on the counters limited the sys clock).
         x1   = Signal(16, reset_less=True)
@@ -65,21 +66,21 @@ class Canvas(LiteXModule):
         x0z  = Signal(reset_less=True)
         y0z  = Signal(reset_less=True)
         self.sync += [
-            x1.eq(self.x0.storage + self.in_hwords.storage),
-            y1.eq(self.y0.storage + self.in_vres.storage),
-            x0m1.eq(self.x0.storage - 1),
-            y0m1.eq(self.y0.storage - 1),
+            x1.eq(self.x0 + self.in_hwords),
+            y1.eq(self.y0 + self.in_vres),
+            x0m1.eq(self.x0 - 1),
+            y0m1.eq(self.y0 - 1),
             x1m1.eq(x1 - 1),
             y1m1.eq(y1 - 1),
-            x0z.eq(self.x0.storage == 0),
-            y0z.eq(self.y0.storage == 0),
+            x0z.eq(self.x0 == 0),
+            y0z.eq(self.y0 == 0),
         ]
         self.comb += [
-            last_x.eq(x == (self.out_hwords.storage - 1)),
-            last_y.eq(y == (self.out_vres.storage - 1)),
+            last_x.eq(x == (self.out_hwords - 1)),
+            last_y.eq(y == (self.out_vres - 1)),
         ]
         started = Signal()  # Window flags computed for (0, 0).
-        settle  = Signal(2) # Cycles for the registered bounds to follow the CSRs.
+        settle  = Signal(2) # Cycles for the registered bounds to follow the controls.
 
         window = Signal()
         self.comb += window.eq(in_x & in_y & ~in_done)
@@ -157,3 +158,28 @@ class Canvas(LiteXModule):
         # Input frames are only admitted while waiting for one: a frame starting during the borders
         # would overflow the input FIFO and be consumed truncated.
         self.comb += self.admit.eq(~enable | fsm.ongoing("SYNC"))
+
+        # CSRs.
+        if with_csr:
+            self.add_csr()
+
+    def add_csr(self):
+        self._enable     = CSRStorage(1,  reset=self.enable.reset.value,
+            description="Enable canvas (else pass-through).")
+        self._out_hwords = CSRStorage(16, reset=self.out_hwords.reset.value,
+            description="Output words per line.")
+        self._out_vres   = CSRStorage(16, reset=self.out_vres.reset.value,
+            description="Output lines.")
+        self._in_hwords  = CSRStorage(16, reset=self.in_hwords.reset.value,
+            description="Window (input) words per line.")
+        self._in_vres    = CSRStorage(16, reset=self.in_vres.reset.value,
+            description="Window (input) lines.")
+        self._x0         = CSRStorage(16, reset=self.x0.reset.value,
+            description="Window X (words).")
+        self._y0         = CSRStorage(16, reset=self.y0.reset.value,
+            description="Window Y (lines).")
+
+        # # #
+
+        for name in ["enable", "out_hwords", "out_vres", "in_hwords", "in_vres", "x0", "y0"]:
+            self.comb += getattr(self, name).eq(getattr(self, f"_{name}").storage)

@@ -17,7 +17,7 @@ has exactly `frame_words` words (truncated frames, e.g. input FIFO overflow, are
 reader starts a frame when a new frame was published since its last start (frames are skipped
 when the output is slower than the input, output frames wait for the input otherwise).
 
-Stop (`enable` CSR low or `stop` input high): the input is dropped, the buffered writes complete and
+Stop (`enable` low or `stop` input high): the input is dropped, the buffered writes complete and
 the reader drains its outstanding reads (never reset the DMAs with DRAM accesses in flight: the
 crossbar does not handshake write/read data, a reset would desynchronize the port data FIFOs).
 
@@ -26,9 +26,9 @@ or at the frame end, reads: when `burst` reservations are free): with single acc
 by the USB output), the crossbar re-granted the banks between the writer and the reader at almost
 every access (row switches, read/write turnarounds): 3.5 frames/s at 4K on hardware.
 
-Geometry (CSRs, port words = `data_width` bits): `line_words` port words per line (W/16 for
-128-bit ports), `height` lines (even), `uv_offset` = UV plane offset in the slot (= height x
-line_words), `frame_words` 32-bit words per frame (W x H x 3/8).
+Geometry (control signals/CSRs, port words = `data_width` bits): `line_words` port words per line
+(W/16 for 128-bit ports), `height` lines (even), `uv_offset` = UV plane offset in the slot (=
+height x line_words), `frame_words` 32-bit words per frame (W x H x 3/8).
 """
 
 from migen import *
@@ -45,7 +45,7 @@ from litedram.frontend.dma import LiteDRAMDMAWriter, LiteDRAMDMAReader
 # NV12 Frame Buffer --------------------------------------------------------------------------------
 
 class NV12FrameBuffer(LiteXModule):
-    def __init__(self, write_port, read_port, nslots=3, burst=64, rd_depth=256):
+    def __init__(self, write_port, read_port, nslots=3, burst=64, rd_depth=256, with_csr=True):
         assert write_port.data_width == read_port.data_width
         dw    = write_port.data_width
         ratio = dw//32
@@ -54,49 +54,46 @@ class NV12FrameBuffer(LiteXModule):
         self.source = source = stream.Endpoint([("data", 32)])
         self.stop   = stop   = Signal()
 
-        self.enable      = CSRStorage(description="Enable (frame buffer state reset when disabled).")
-        self.base        = CSRStorage(aw, description="Slot 0 address (port words).")
-        self.slot_words  = CSRStorage(aw, description="Slot size (port words).")
-        self.line_words  = CSRStorage(16, description="Port words per line.")
-        self.height      = CSRStorage(16, description="Lines per frame (even).")
-        self.uv_offset   = CSRStorage(aw, description="UV plane offset in a slot (port words).")
-        self.frame_words = CSRStorage(32, description="32-bit words per frame (W x H x 3/8).")
-        self.written     = CSRStatus(32, description="Frames written (published).")
-        self.dropped     = CSRStatus(32, description="Input frames dropped (truncated).")
-        self.read        = CSRStatus(32, description="Frames read.")
-        self.in_stalls   = CSRStatus(32, description="Debug: cycles with input data not accepted.")
-        self.wr_stalls   = CSRStatus(32, description="Debug: cycles with a write waiting for the DRAM port.")
-        self.debug       = CSRStatus(32, description="Debug: reader state.")
+        # Control.
+        self.enable      = Signal()
+        self.base        = Signal(aw)
+        self.slot_words  = Signal(aw)
+        self.line_words  = Signal(16)
+        self.height      = Signal(16) # Informative (firmware/host geometry), unused here.
+        self.uv_offset   = Signal(aw)
+        self.frame_words = Signal(32)
+
+        # Status.
+        self.written   = Signal(32)
+        self.dropped   = Signal(32)
+        self.read      = Signal(32)
+        self.in_stalls = Signal(32)
+        self.wr_stalls = Signal(32)
+        self.debug     = Signal(32)
 
         # # #
 
-        enable     = Signal()
-        enable_csr = Signal()
-        self.specials += MultiReg(self.enable.storage, enable_csr)
-        self.comb += enable.eq(enable_csr & ~stop)
+        # Enable (resynchronized: the CSRs are in the sys domain, the frame buffer may not be).
+        enable      = Signal()
+        enable_sync = Signal()
+        self.specials += MultiReg(self.enable, enable_sync)
+        self.comb += enable.eq(enable_sync & ~stop)
 
-        # Slot bases (registered sums of static CSRs).
+        # Slot bases (registered sums of static controls).
         slot_base = Array(Signal(aw, name=f"slot_base{i}", reset_less=True) for i in range(nslots))
         for i in range(nslots):
-            self.sync += slot_base[i].eq(self.base.storage + i*self.slot_words.storage)
+            self.sync += slot_base[i].eq(self.base + i*self.slot_words)
 
         # Slot state.
         last_slot = Signal(max=nslots)     # Latest complete slot.
         have_last = Signal()               # A complete slot exists.
         rd_slot   = Signal(max=nslots)     # Slot being read.
         reading   = Signal()
-        published = Signal(32)             # Frames published (also the reader's new frame marker).
-        dropped   = Signal(32)
-        read      = Signal(32)
-        in_stalls = Signal(32)
-        wr_stalls = Signal(32)
-        self.comb += [
-            self.in_stalls.status.eq(in_stalls),
-            self.wr_stalls.status.eq(wr_stalls),
-            self.written.status.eq(published),
-            self.dropped.status.eq(dropped),
-            self.read.status.eq(read),
-        ]
+        published = self.written           # Frames published (also the reader's new frame marker).
+        dropped   = self.dropped
+        read      = self.read
+        in_stalls = self.in_stalls
+        wr_stalls = self.wr_stalls
 
         # Writer -----------------------------------------------------------------------------------
         self.writer = writer = LiteDRAMDMAWriter(write_port, fifo_depth=32)
@@ -104,7 +101,9 @@ class NV12FrameBuffer(LiteXModule):
         # row switch, stalled the input at once: ~5% of the cycles on hardware, too much for 4K30
         # M420 at ~97M words/s from a ~99MHz video clock). Absorbs short stalls (the DRAM write
         # bandwidth is ~2.5x the need).
-        self.wr_fifo = wr_fifo = stream.SyncFIFO([("address", aw), ("data", dw)], 256, buffered=True)
+        self.wr_fifo = wr_fifo = stream.SyncFIFO([("address", aw), ("data", dw)], 256,
+            buffered = True,
+        )
         wr_burst = Signal(max=burst + 1) # Words left in the current write burst.
         self.comb += [
             wr_fifo.source.connect(writer.sink, omit={"valid", "ready"}),
@@ -115,9 +114,8 @@ class NV12FrameBuffer(LiteXModule):
         # 32 -> port width packing (first 32-bit word in the LSBs = lowest address).
         pack      = Signal(dw)
         pack_n    = Signal(max=ratio)
-        pack_full = Signal()
         wr_slot   = Signal(max=nslots)
-        in_frame  = Signal() # Writing a frame (started on an input frame start).
+        in_frame  = Signal()   # Writing a frame (started on an input frame start).
         wleft     = Signal(32) # 32-bit words left in the current frame (after this one).
         x         = Signal(16) # Port word in line.
         sub       = Signal(2)  # 0: even Y line, 1: odd Y line, 2: UV line.
@@ -126,14 +124,15 @@ class NV12FrameBuffer(LiteXModule):
         wr_data   = Signal(dw)
         wr_valid  = Signal()
         wr_addr   = Signal(aw)
-        frame_end = Signal() # Input frame end (last 32-bit word accepted).
+        frame_end = Signal()   # Input frame end (last 32-bit word accepted).
         frame_ok  = Signal()
 
         # Next write slot: not the one being read, not the latest complete one.
         next_slot = Signal(max=nslots)
         self.comb += next_slot.eq(0)
         for i in reversed(range(nslots)):
-            self.comb += If(~((reading & (rd_slot == i)) | (have_last & (last_slot == i))), next_slot.eq(i))
+            busy = (reading & (rd_slot == i)) | (have_last & (last_slot == i))
+            self.comb += If(~busy, next_slot.eq(i))
 
         # Input: accepted when the write buffer is free; a frame start waits for the previous frame
         # to be published (its slot is then excluded from the next slot choice).
@@ -150,10 +149,10 @@ class NV12FrameBuffer(LiteXModule):
                     in_frame.eq(1),
                     wr_slot.eq(next_slot),
                     y_addr.eq(slot_base[next_slot]),
-                    uv_addr.eq(slot_base[next_slot] + self.uv_offset.storage),
+                    uv_addr.eq(slot_base[next_slot] + self.uv_offset),
                     x.eq(0),
                     sub.eq(0),
-                    wleft.eq(self.frame_words.storage - 1),
+                    wleft.eq(self.frame_words - 1),
                     pack.eq(Cat(Signal(dw - 32), sink.data)),
                     pack_n.eq(1 % ratio),
                 ).Elif(in_frame,
@@ -166,14 +165,14 @@ class NV12FrameBuffer(LiteXModule):
                     wr_valid.eq(1),
                     wr_data.eq(Cat(pack[32:], sink.data)),
                     wr_addr.eq(Mux(sub == 2, uv_addr, y_addr) + x),
-                    If(x == (self.line_words.storage - 1),
+                    If(x == (self.line_words - 1),
                         x.eq(0),
                         If(sub == 2,
                             sub.eq(0),
-                            uv_addr.eq(uv_addr + self.line_words.storage),
+                            uv_addr.eq(uv_addr + self.line_words),
                         ).Else(
                             sub.eq(sub + 1),
-                            y_addr.eq(y_addr + self.line_words.storage),
+                            y_addr.eq(y_addr + self.line_words),
                         )
                     ).Else(
                         x.eq(x + 1),
@@ -182,10 +181,11 @@ class NV12FrameBuffer(LiteXModule):
                 If(sink.last & (sink.first | in_frame),
                     in_frame.eq(0),
                     frame_end.eq(1),
-                    frame_ok.eq(Mux(sink.first, self.frame_words.storage == 1, wleft == 1)),
+                    frame_ok.eq(Mux(sink.first, self.frame_words == 1, wleft == 1)),
                 )
             ),
-            # Publish the frame once all its words are handed to the DMA writer (write buffer empty).
+            # Publish the frame once all its words are handed to the DMA writer (write buffer
+            # empty).
             If(frame_end & ~wr_valid & ~wr_fifo.source.valid & (wr_fifo.level == 0),
                 frame_end.eq(0),
                 If(frame_ok,
@@ -226,14 +226,15 @@ class NV12FrameBuffer(LiteXModule):
         ]
 
         # Reader -----------------------------------------------------------------------------------
-        self.reader = reader = LiteDRAMDMAReader(read_port, fifo_depth=rd_depth) # Outstanding reads: absorbs DRAM stalls.
+        # Outstanding reads (`rd_depth`): absorbs the DRAM stalls.
+        self.reader = reader = LiteDRAMDMAReader(read_port, fifo_depth=rd_depth)
 
-        seen     = Signal(32) # Published count at the last read start.
-        rd_addr  = Signal(aw)
-        rd_left  = Signal(aw) # Port words left to request.
-        out_left = Signal(32) # 32-bit words left to output.
-        out_word = Signal(dw)
-        out_n    = Signal(max=ratio)
+        seen      = Signal(32) # Published count at the last read start.
+        rd_addr   = Signal(aw)
+        rd_left   = Signal(aw) # Port words left to request.
+        out_left  = Signal(32) # 32-bit words left to output.
+        out_word  = Signal(dw)
+        out_n     = Signal(max=ratio)
         out_have  = Signal()
         out_first = Signal()
         out_next  = Signal() # Last 32-bit word of the current port word output.
@@ -267,8 +268,8 @@ class NV12FrameBuffer(LiteXModule):
                 NextValue(rd_slot, last_slot),
                 NextValue(reading, 1),
                 NextValue(rd_addr, slot_base[last_slot]),
-                NextValue(rd_left, self.frame_words.storage[log2_int(ratio):]),
-                NextValue(out_left, self.frame_words.storage),
+                NextValue(rd_left, self.frame_words[log2_int(ratio):]),
+                NextValue(out_left, self.frame_words),
                 NextValue(out_first, 1),
                 NextState("READ"),
             )
@@ -311,11 +312,6 @@ class NV12FrameBuffer(LiteXModule):
                 NextState("FLUSH"),
             ),
         )
-        self.comb += self.debug.status.eq(Cat(
-            fsm.ongoing("IDLE"), fsm.ongoing("READ"), fsm.ongoing("FLUSH"), have_last, reading,
-            rd_left != 0, reader.sink.valid, reader.sink.ready, reader.source.valid, reader.source.ready,
-            source.valid, source.ready, out_have, enable, pending != 0, stop, last_slot, Signal(2),
-            rd_left[:8]))
         fsm.act("FLUSH",
             # Frame done or stopped: drain the outstanding reads, then release the slot.
             reader.source.ready.eq(1),
@@ -324,3 +320,49 @@ class NV12FrameBuffer(LiteXModule):
                 NextState("IDLE"),
             )
         )
+
+        # Debug ------------------------------------------------------------------------------------
+        self.comb += self.debug.eq(Cat(
+            fsm.ongoing("IDLE"), fsm.ongoing("READ"), fsm.ongoing("FLUSH"), have_last, reading,
+            rd_left != 0, reader.sink.valid, reader.sink.ready,
+            reader.source.valid, reader.source.ready,
+            source.valid, source.ready, out_have, enable, pending != 0, stop, last_slot, Signal(2),
+            rd_left[:8],
+        ))
+
+        if with_csr:
+            self.add_csr()
+
+    def add_csr(self):
+        aw = len(self.base)
+        self._enable      = CSRStorage(
+            description="Enable (frame buffer state reset when disabled).")
+        self._base        = CSRStorage(aw, description="Slot 0 address (port words).")
+        self._slot_words  = CSRStorage(aw, description="Slot size (port words).")
+        self._line_words  = CSRStorage(16, description="Port words per line.")
+        self._height      = CSRStorage(16, description="Lines per frame (even).")
+        self._uv_offset   = CSRStorage(aw, description="UV plane offset in a slot (port words).")
+        self._frame_words = CSRStorage(32, description="32-bit words per frame (W x H x 3/8).")
+        self._written     = CSRStatus(32, description="Frames written (published).")
+        self._dropped     = CSRStatus(32, description="Input frames dropped (truncated).")
+        self._read        = CSRStatus(32, description="Frames read.")
+        self._in_stalls   = CSRStatus(32, description="Debug: cycles with input data not accepted.")
+        self._wr_stalls   = CSRStatus(32,
+            description="Debug: cycles with a write waiting for the DRAM port.")
+        self._debug       = CSRStatus(32, description="Debug: reader state.")
+
+        self.comb += [
+            self.enable.eq(self._enable.storage),
+            self.base.eq(self._base.storage),
+            self.slot_words.eq(self._slot_words.storage),
+            self.line_words.eq(self._line_words.storage),
+            self.height.eq(self._height.storage),
+            self.uv_offset.eq(self._uv_offset.storage),
+            self.frame_words.eq(self._frame_words.storage),
+            self._written.status.eq(self.written),
+            self._dropped.status.eq(self.dropped),
+            self._read.status.eq(self.read),
+            self._in_stalls.status.eq(self.in_stalls),
+            self._wr_stalls.status.eq(self.wr_stalls),
+            self._debug.status.eq(self.debug),
+        ]

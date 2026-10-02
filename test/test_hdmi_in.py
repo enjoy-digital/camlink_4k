@@ -58,23 +58,22 @@ def ddr_source(pads, frames):
 def run(ready_pattern, frames=6, ddr=False, downscale=False, crop=None, source=None, m420=False,
     rgb=False):
     pads = Pads()
-    dut  = HDMIIn(pads, fifo_depth=64, idle_timeout=64, sim=True)
+    dut  = HDMIIn(pads, fifo_depth=64, idle_timeout=64, sim=True, with_csr=False)
     out  = []
 
     def config():
-        # CSR field logic is elaborated by the SoC CSR bank: drive the fields directly.
-        yield dut.control.fields.enable.eq(1)
-        yield dut.control.fields.y_lane.eq(1)
-        yield dut.control.fields.c_lane.eq(0)
-        yield dut.control.fields.ddr.eq(ddr)
-        yield dut.control.fields.downscale.eq(downscale)
-        yield dut.admit_level.storage.eq(40)
-        yield dut.control.fields.m420.eq(m420)
-        yield dut.control.fields.rgb.eq(rgb)
+        yield dut.enable.eq(1)
+        yield dut.y_lane.eq(1)
+        yield dut.c_lane.eq(0)
+        yield dut.ddr.eq(ddr)
+        yield dut.downscale.eq(downscale)
+        yield dut.admit_level.eq(40)
+        yield dut.m420.eq(m420)
+        yield dut.rgb.eq(rgb)
         if crop is not None:
-            yield dut.control.fields.crop.eq(1)
-            for csr, v in zip((dut.crop_x, dut.crop_y, dut.crop_w, dut.crop_h), crop):
-                yield csr.storage.eq(v)
+            yield dut.crop.eq(1)
+            for sig, v in zip((dut.crop_x, dut.crop_y, dut.crop_w, dut.crop_h), crop):
+                yield sig.eq(v)
         yield
 
     @passive
@@ -262,3 +261,38 @@ def test_hdmi_in_ddr_rgb():
         else:
             assert False, "RGB frame does not match any source frame."
     assert matched == len(frames)
+
+def test_hdmi_in_csr():
+    # CSR writes reach the control signals, status signals reach the CSRs.
+    dut = HDMIIn(Pads(), sim=True)
+    def gen():
+        assert (yield dut.y_lane)      == 1
+        assert (yield dut.csc_y_off)   == 16
+        assert (yield dut.csc_c_off)   == 128
+        assert (yield dut.admit_level) == 2048//2
+        # CSR field logic (storage -> fields) is elaborated by the SoC CSR bank: drive the fields.
+        yield dut._control.fields.enable.eq(1)
+        yield dut._control.fields.y_lane.eq(2)
+        yield dut._control.fields.ddr_swap.eq(1)
+        yield dut._control.fields.m420.eq(1)
+        yield dut._csc_offsets.fields.y_off.eq(3)
+        yield dut._csc_offsets.fields.c_off.eq(2)
+        yield dut._csc_offsets.fields.in_off.eq(1)
+        yield dut._csc_cb_g.storage.eq(0x123)
+        yield dut._crop_w.storage.eq(100)
+        yield
+        assert (yield dut.enable)     == 1
+        assert (yield dut.y_lane)     == 2
+        assert (yield dut.ddr)        == 0
+        assert (yield dut.ddr_swap)   == 1
+        assert (yield dut.m420)       == 1
+        assert (yield dut.csc_y_off)  == 3
+        assert (yield dut.csc_c_off)  == 2
+        assert (yield dut.csc_in_off) == 1
+        assert (yield dut.csc_cb_g)   == 0x123
+        assert (yield dut.crop_w)     == 100
+        for _ in range(4):
+            yield
+        assert (yield dut._frame_period.status) == (yield dut.frame_period)
+        assert (yield dut._frames.status)       == (yield dut.frames)
+    run_simulation(dut, {"sys": [gen()]}, clocks={"sys": 10, "hdmi": 10})

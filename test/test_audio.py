@@ -9,6 +9,8 @@ from migen.sim import passive
 
 from litex.gen import *
 
+from litex.soc.interconnect.csr_bus import CSRBank, Interface
+
 from gateware.audio import I2SReceiver, AudioSource
 
 # I2S Model ----------------------------------------------------------------------------------------
@@ -62,13 +64,12 @@ def test_i2s_receiver():
 
 def test_audio_source_test_counter():
     pads = I2SPads()
-    dut  = AudioSource(pads, sys_clk_freq=48000*8)
+    dut  = AudioSource(pads, sys_clk_freq=48000*8, with_csr=False)
     out  = []
 
     def generator():
-        # CSR field logic is elaborated by the SoC CSR bank: drive the fields directly.
-        yield dut.control.fields.enable.eq(1)
-        yield dut.control.fields.test.eq(1)
+        yield dut.enable.eq(1)
+        yield dut.test.eq(1)
         yield dut.source.ready.eq(1)
         for _ in range(8*10):
             yield
@@ -84,11 +85,11 @@ def test_audio_source_test_counter():
 def test_audio_source_silence_without_i2s():
     # No I2S: zero samples at the 48kHz rate after 2 sample periods; I2S samples when active.
     pads = I2SPads()
-    dut  = AudioSource(pads, sys_clk_freq=48000*8)
+    dut  = AudioSource(pads, sys_clk_freq=48000*8, with_csr=False)
     out  = []
 
     def generator():
-        yield dut.control.fields.enable.eq(1)
+        yield dut.enable.eq(1)
         yield dut.source.ready.eq(1)
         for i in range(8*20):
             yield
@@ -101,12 +102,12 @@ def test_audio_source_silence_without_i2s():
 
 def test_audio_source_i2s_after_silence():
     pads    = I2SPads()
-    dut     = AudioSource(pads, sys_clk_freq=48000*400) # 400 cycles/sample (I2S model: 384).
+    dut     = AudioSource(pads, sys_clk_freq=48000*400, with_csr=False) # 400 cycles/sample (I2S model: 384).
     samples = [(0x1111*(i + 1) & 0xffff, 0x2222) for i in range(6)]
     out     = []
 
     def generator():
-        yield dut.control.fields.enable.eq(1)
+        yield dut.enable.eq(1)
         yield dut.source.ready.eq(1)
         for _ in range(400*6):
             yield
@@ -122,3 +123,31 @@ def test_audio_source_i2s_after_silence():
     run_simulation(dut, [generator(), monitor()])
     assert 0 in out[:3]
     assert out[-3:] == [l | (r << 16) for l, r in samples][-3:]
+
+def test_audio_source_csr():
+    # CSR control fields reach the control signals, the counters reach the status CSRs.
+    pads  = I2SPads()
+    dut   = AudioSource(pads, sys_clk_freq=48000*8)
+    names = [c.name for c in dut.get_csrs()]
+    assert names == ["control", "samples", "overflow", "silences"]
+    bank   = CSRBank(dut.get_csrs(), bus=Interface(data_width=32))
+    dut.submodules.bank = bank
+    values = {}
+
+    def generator():
+        yield from bank.bus.write(names.index("control"), 0b11) # enable + test.
+        yield
+        values["enable"] = (yield dut.enable)
+        values["test"]   = (yield dut.test)
+        yield dut.source.ready.eq(1)
+        for _ in range(8*10):
+            yield
+        # Bank read data registered: one more cycle than Interface.read waits for.
+        yield bank.bus.adr.eq(names.index("samples"))
+        yield
+        yield
+        values["samples"] = (yield bank.bus.dat_r)
+
+    run_simulation(dut, generator())
+    assert values["enable"] == 1 and values["test"] == 1
+    assert values["samples"] >= 8

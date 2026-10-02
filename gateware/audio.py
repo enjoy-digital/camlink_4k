@@ -23,10 +23,12 @@ from litex.soc.interconnect     import stream
 # I2S Receiver -------------------------------------------------------------------------------------
 
 class I2SReceiver(LiteXModule):
-    def __init__(self, pads, width=16):
+    def __init__(self, pads):
         self.source = source = stream.Endpoint([("data", 32)])
 
         # # #
+
+        width = 16 # Bits kept per channel (MSBs).
 
         sck   = Signal()
         ws    = Signal()
@@ -78,20 +80,19 @@ class AudioSource(LiteXModule):
     overflow. Packetization is done in the GPIF domain (see GPIFStreamer). Without I2S samples for
     more than 2 sample periods (source without audio, IT6802 audio muted), silence is generated at
     48kHz from the sys clock (the host always receives audio packets: no capture I/O errors)."""
-    def __init__(self, pads, sys_clk_freq):
+    def __init__(self, pads, sys_clk_freq, with_csr=True):
         self.source = source = stream.Endpoint([("data", 32)])
 
-        self.control = CSRStorage(fields=[
-            CSRField("enable", size=1, offset=0, description="Enable audio."),
-            CSRField("test",   size=1, offset=1, description="Test source (48kHz counter) instead of I2S."),
-        ])
-        self.samples  = CSRStatus(32, description="Received samples.")
-        self.overflow = CSRStatus(32, description="Samples lost (not accepted downstream).")
+        # Control.
+        self.enable = Signal()
+        self.test   = Signal()
+
+        # Status.
+        self.samples  = Signal(32)
+        self.overflow = Signal(32)
+        self.silences = Signal(32)
 
         # # #
-
-        enable = self.control.fields.enable
-        test   = self.control.fields.test
 
         # I2S.
         self.i2s = i2s = I2SReceiver(pads)
@@ -122,34 +123,46 @@ class AudioSource(LiteXModule):
             i2s_idle.eq(i2s_idle + 1),
         )
         self.comb += silence.eq(i2s_idle == 3*period)
-        self.silences = CSRStatus(32, description="Silence samples generated (no I2S).")
-        silences = Signal(32)
-        self.comb += self.silences.status.eq(silences)
 
         # Output.
-        samples  = Signal(32)
-        overflow = Signal(32)
         self.sync += [
             source.valid.eq(0),
-            If(enable,
-                If(test,
+            If(self.enable,
+                If(self.test,
                     source.valid.eq(tick),
                     source.data.eq(Cat(counter, ~counter)),
                 ).Elif(silence,
                     source.valid.eq(tick),
                     source.data.eq(0),
-                    If(tick, silences.eq(silences + 1)),
+                    If(tick, self.silences.eq(self.silences + 1)),
                 ).Else(
                     source.valid.eq(i2s.source.valid),
                     source.data.eq(i2s.source.data),
                 )
             ),
             If(source.valid,
-                samples.eq(samples + 1),
-                If(~source.ready, overflow.eq(overflow + 1)),
+                self.samples.eq(self.samples + 1),
+                If(~source.ready, self.overflow.eq(self.overflow + 1)),
             ),
         ]
+
+        if with_csr:
+            self.add_csr()
+
+    def add_csr(self):
+        self._control = CSRStorage(fields=[
+            CSRField("enable", size=1, offset=0, description="Enable audio."),
+            CSRField("test",   size=1, offset=1,
+                description="Test source (48kHz counter) instead of I2S."),
+        ])
+        self._samples  = CSRStatus(32, description="Received samples.")
+        self._overflow = CSRStatus(32, description="Samples lost (not accepted downstream).")
+        self._silences = CSRStatus(32, description="Silence samples generated (no I2S).")
+
         self.comb += [
-            self.samples.status.eq(samples),
-            self.overflow.status.eq(overflow),
+            self.enable.eq(self._control.fields.enable),
+            self.test.eq(self._control.fields.test),
+            self._samples.status.eq(self.samples),
+            self._overflow.status.eq(self.overflow),
+            self._silences.status.eq(self.silences),
         ]

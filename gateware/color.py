@@ -12,7 +12,8 @@ For each YUY2 word (Y0 U Y1 V):
     C' = clamp(((C - 128)*saturation >> 7) + 128, 0, 255)
 
 contrast/saturation are unsigned 1.7 fixed point (128 = 1.0), brightness is signed. Pipelined
-(center, multiply, then offset/clamp); the stream is stalled as a whole (valid/ready follow the pipeline).
+(center, multiply, then offset/clamp); the stream is stalled as a whole (valid/ready follow the
+pipeline).
 """
 
 from migen import *
@@ -25,18 +26,19 @@ from litex.soc.interconnect     import stream
 # Color Adjust -------------------------------------------------------------------------------------
 
 class ColorAdjust(LiteXModule):
-    def __init__(self):
+    def __init__(self, with_csr=True):
         self.sink   = sink   = stream.Endpoint([("data", 32)])
         self.source = source = stream.Endpoint([("data", 32)])
 
-        self.brightness = CSRStorage(8, reset=0,   description="Brightness (signed luma offset).")
-        self.contrast   = CSRStorage(8, reset=128, description="Contrast (luma gain, 128 = 1.0).")
-        self.saturation = CSRStorage(8, reset=128, description="Saturation (chroma gain, 128 = 1.0).")
+        # Control.
+        self.brightness = Signal(8)            # Brightness (signed luma offset).
+        self.contrast   = Signal(8, reset=128) # Contrast (luma gain, 128 = 1.0).
+        self.saturation = Signal(8, reset=128) # Saturation (chroma gain, 128 = 1.0).
 
         # # #
 
         brightness = Signal((8, True))
-        self.comb += brightness.eq(self.brightness.storage) # Reinterpreted as signed.
+        self.comb += brightness.eq(self.brightness) # Reinterpreted as signed.
 
         # Pipeline control: 3 stages, advance when the output is free.
         stages  = 3
@@ -65,7 +67,7 @@ class ColorAdjust(LiteXModule):
             d = Signal((9, True))
             g = Signal(8)
             p = Signal((18, True))
-            gain = self.contrast.storage if is_luma else self.saturation.storage
+            gain = self.contrast if is_luma else self.saturation
             self.sync += If(advance,
                 d.eq(c - (16 if is_luma else 128)),
                 g.eq(gain),
@@ -95,4 +97,24 @@ class ColorAdjust(LiteXModule):
             source.first.eq(first[-1]),
             source.last.eq(last[-1]),
             source.data.eq(data),
+        ]
+
+        # CSRs.
+        if with_csr:
+            self.add_csr()
+
+    def add_csr(self):
+        self._brightness = CSRStorage(8, reset=self.brightness.reset.value,
+            description="Brightness (signed luma offset).")
+        self._contrast   = CSRStorage(8, reset=self.contrast.reset.value,
+            description="Contrast (luma gain, 128 = 1.0).")
+        self._saturation = CSRStorage(8, reset=self.saturation.reset.value,
+            description="Saturation (chroma gain, 128 = 1.0).")
+
+        # # #
+
+        self.comb += [
+            self.brightness.eq(self._brightness.storage),
+            self.contrast.eq(self._contrast.storage),
+            self.saturation.eq(self._saturation.storage),
         ]

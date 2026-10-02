@@ -146,8 +146,10 @@ class M420Packer(LiteXModule):
         wbank    = Signal()
         uv_len   = Array(Signal(max=max_words + 1) for _ in range(2))
         uv_last  = Array(Signal() for _ in range(2))
-        uv_ready = Array(Signal() for _ in range(2)) # UV line complete (bank), cleared when emitted.
-        uv_done  = Signal()                           # Sequencer: UV line emitted (clears ready).
+        # UV line complete (bank), cleared when emitted.
+        uv_ready = Array(Signal() for _ in range(2))
+        # Sequencer: UV line emitted (clears ready).
+        uv_done  = Signal()
         rbank    = Signal()
         for i, uvbuf_w in enumerate(uvbufs_w):
             self.comb += [
@@ -208,7 +210,8 @@ class M420Packer(LiteXModule):
         uv_q_en = Signal()
         uv_valid0 = Signal() # Word on dat_r.
         uv_idx0   = Signal(max=max_words + 1)
-        uv_qs     = [Signal(32, reset_less=True) for _ in range(2)] # No reset (timing: EBR -> FF, no LUT).
+        # No reset (timing: EBR -> FF, no LUT).
+        uv_qs     = [Signal(32, reset_less=True) for _ in range(2)]
         uv_q      = Signal(32)
         self.comb += [
             advance.eq(~uv_valid | source.ready),
@@ -242,49 +245,49 @@ class M420Packer(LiteXModule):
 # HDMI In ------------------------------------------------------------------------------------------
 
 class HDMIIn(LiteXModule):
-    def __init__(self, pads, fifo_depth=2048, max_line_words=1024, idle_timeout=2**20, sim=False):
+    def __init__(self, pads, fifo_depth=2048, max_line_words=1024, idle_timeout=2**20, sim=False,
+        with_csr=True):
         self.source = source = stream.Endpoint([("data", 32)])
         self.admit  = Signal(reset=1) # Consumer ready for a new frame (else frames are dropped).
 
-        self.control = CSRStorage(fields=[
-            CSRField("enable",  size=1, offset=0, description="Enable capture."),
-            CSRField("y_lane",  size=2, offset=4, reset=1, description="Y byte lane (0: QE[11:4], 1: QE[23:16], 2: QE[35:28])."),
-            CSRField("c_lane",  size=2, offset=6, reset=0, description="C byte lane."),
-            CSRField("c_swap",  size=1, offset=8, description="Swap Cb/Cr order."),
-            CSRField("ddr",       size=1, offset=12, description="DDR input (2 pixels per clock, IT6802 0.5x PCLK modes, 4K)."),
-            CSRField("ddr_swap",  size=1, offset=13, description="DDR: falling edge carries the first pixel."),
-            CSRField("downscale", size=1, offset=14, description="2x downscale (2x2 box filter, DDR modes)."),
-            CSRField("crop",      size=1, offset=15, description="Crop window (DDR modes, no downscale)."),
-            CSRField("m420",      size=1, offset=16, description="M420 output (YUV 4:2:0, DDR modes, no downscale/crop)."),
-            CSRField("rgb",       size=1, offset=17, description="RGB 4:4:4 input (lanes B/G/R), converted by the CSC (DDR modes)."),
-        ])
-        # CSC (RGB -> YCbCr 4:2:2): Q1.10 coefficients (r, g, b per row), offsets. Reset: BT.709 full
-        # range input.
+        # Control (sys domain).
+        self.enable    = Signal()           # Enable capture.
+        self.y_lane    = Signal(2, reset=1) # Y byte lane (0: QE[11:4], 1: QE[23:16], 2: QE[35:28]).
+        self.c_lane    = Signal(2)          # C byte lane.
+        self.c_swap    = Signal()           # Swap Cb/Cr order.
+        # DDR input (2 pixels per clock, IT6802 0.5x PCLK modes).
+        self.ddr       = Signal()
+        self.ddr_swap  = Signal()           # DDR: falling edge carries the first pixel.
+        self.downscale = Signal()           # 2x downscale (2x2 box filter, DDR modes).
+        self.crop      = Signal()           # Crop window (DDR modes, no downscale).
+        self.m420      = Signal()           # M420 output (YUV 4:2:0, DDR modes, no downscale/crop).
+        self.rgb       = Signal()           # RGB 4:4:4 input (lanes B/G/R), converted by the CSC.
+
+        # CSC (RGB -> YCbCr 4:2:2): Q1.10 coefficients (r, g, b per row), offsets. Reset: BT.709
+        # full range input.
         ky, kcb, kcr, y_off, c_off, in_off = bt709_coefficients(full_range_input=True)
-        self.csc_coefs = []
         for row, k in (("y", ky), ("cb", kcb), ("cr", kcr)):
             for comp, v in zip("rgb", k):
-                csr = CSRStorage(12, reset=v & 0xfff, name=f"csc_{row}_{comp}",
-                    description=f"CSC {row.upper()} {comp.upper()} coefficient (signed Q1.10).")
-                setattr(self, f"csc_{row}_{comp}", csr)
-                self.csc_coefs.append(csr)
-        self.csc_offsets = CSRStorage(fields=[
-            CSRField("y_off",  size=8, offset=0,  reset=y_off,  description="Y offset."),
-            CSRField("c_off",  size=8, offset=8,  reset=c_off,  description="Cb/Cr offset."),
-            CSRField("in_off", size=8, offset=16, reset=in_off, description="RGB input offset (limited range: 16)."),
-        ])
-        self.crop_x = CSRStorage(16, description="Crop window X (words, 2 pixels per word).")
-        self.crop_y = CSRStorage(16, description="Crop window Y (lines).")
-        self.crop_w = CSRStorage(16, reset=960,  description="Crop window width (words).")
-        self.crop_h = CSRStorage(16, reset=1080, description="Crop window height (lines).")
-        self.admit_level = CSRStorage(16, reset=fifo_depth//2, description="Minimum free FIFO words to admit a frame.")
-        self.hres     = CSRStatus(16, description="Measured active width (pixels).")
-        self.vres     = CSRStatus(16, description="Measured active height (lines).")
-        self.frames   = CSRStatus(32, description="Captured frames.")
-        self.dropped  = CSRStatus(32, description="Dropped frames (not admitted).")
-        self.overflow = CSRStatus(32, description="Words lost on FIFO overflow.")
-        self.aborted  = CSRStatus(32, description="Frames closed on input loss (idle timeout).")
-        self.frame_period = CSRStatus(32, description="Input frame period (sys clock cycles, VSYNC to VSYNC).")
+                setattr(self, f"csc_{row}_{comp}", Signal(12, reset=v & 0xfff))
+        self.csc_y_off  = Signal(8, reset=y_off)
+        self.csc_c_off  = Signal(8, reset=c_off)
+        self.csc_in_off = Signal(8, reset=in_off)
+
+        self.crop_x      = Signal(16)                       # Crop window X (words).
+        self.crop_y      = Signal(16)                       # Crop window Y (lines).
+        self.crop_w      = Signal(16, reset=960)            # Crop window width (words).
+        self.crop_h      = Signal(16, reset=1080)           # Crop window height (lines).
+        # Minimum free FIFO words to admit a frame.
+        self.admit_level = Signal(16, reset=fifo_depth//2)
+
+        # Status.
+        self.hres         = Signal(16) # Measured active width (pixels).
+        self.vres         = Signal(16) # Measured active height (lines).
+        self.frames       = Signal(32) # Captured frames.
+        self.dropped      = Signal(32) # Dropped frames (not admitted).
+        self.overflow     = Signal(32) # Words lost on FIFO overflow.
+        self.aborted      = Signal(32) # Frames closed on input loss (idle timeout).
+        self.frame_period = Signal(32) # Input frame period (sys clock cycles, VSYNC to VSYNC).
 
         # # #
 
@@ -301,44 +304,43 @@ class HDMIIn(LiteXModule):
         ddr_swap  = Signal()
         downscale = Signal()
         self.specials += [
-            MultiReg(self.control.fields.enable,    enable,    "hdmi"),
-            MultiReg(self.control.fields.y_lane,    y_lane,    "hdmi"),
-            MultiReg(self.control.fields.c_lane,    c_lane,    "hdmi"),
-            MultiReg(self.control.fields.c_swap,    c_swap,    "hdmi"),
-            MultiReg(self.control.fields.ddr,       ddr,       "hdmi"),
-            MultiReg(self.control.fields.ddr_swap,  ddr_swap,  "hdmi"),
-            MultiReg(self.control.fields.downscale, downscale, "hdmi"),
+            MultiReg(self.enable,    enable,    "hdmi"),
+            MultiReg(self.y_lane,    y_lane,    "hdmi"),
+            MultiReg(self.c_lane,    c_lane,    "hdmi"),
+            MultiReg(self.c_swap,    c_swap,    "hdmi"),
+            MultiReg(self.ddr,       ddr,       "hdmi"),
+            MultiReg(self.ddr_swap,  ddr_swap,  "hdmi"),
+            MultiReg(self.downscale, downscale, "hdmi"),
         ]
-        m420    = Signal()
-        self.specials += MultiReg(self.control.fields.m420, m420, "hdmi")
-        crop    = Signal()
-        crop_x0 = Signal(16)
-        crop_x1 = Signal(16)
-        crop_y0 = Signal(16)
-        crop_y1 = Signal(16)
-        crop_x0m1   = Signal(16)
-        crop_x1_sys = Signal(16)
-        crop_y1_sys = Signal(16)
+        m420 = Signal()
+        self.specials += MultiReg(self.m420, m420, "hdmi")
+        crop          = Signal()
+        crop_x0       = Signal(16)
+        crop_x1       = Signal(16)
+        crop_y0       = Signal(16)
+        crop_y1       = Signal(16)
+        crop_x0m1     = Signal(16)
+        crop_x1_sys   = Signal(16)
+        crop_y1_sys   = Signal(16)
         crop_x0m1_sys = Signal(16)
         self.comb += [
-            crop_x0m1_sys.eq(self.crop_x.storage - 1),
-            crop_x1_sys.eq(self.crop_x.storage + self.crop_w.storage - 1),
-            crop_y1_sys.eq(self.crop_y.storage + self.crop_h.storage - 1),
+            crop_x0m1_sys.eq(self.crop_x - 1),
+            crop_x1_sys.eq(self.crop_x + self.crop_w - 1),
+            crop_y1_sys.eq(self.crop_y + self.crop_h - 1),
         ]
         self.specials += [
-            MultiReg(self.control.fields.crop, crop,    "hdmi"),
-            MultiReg(self.crop_x.storage,      crop_x0, "hdmi"),
-            MultiReg(self.crop_y.storage,      crop_y0, "hdmi"),
-            MultiReg(crop_x1_sys,              crop_x1, "hdmi"),
-            MultiReg(crop_x0m1_sys,            crop_x0m1, "hdmi"),
-            MultiReg(crop_y1_sys,              crop_y1, "hdmi"),
+            MultiReg(self.crop,    crop,      "hdmi"),
+            MultiReg(self.crop_x,  crop_x0,   "hdmi"),
+            MultiReg(self.crop_y,  crop_y0,   "hdmi"),
+            MultiReg(crop_x1_sys,  crop_x1,   "hdmi"),
+            MultiReg(crop_x0m1_sys, crop_x0m1, "hdmi"),
+            MultiReg(crop_y1_sys,  crop_y1,   "hdmi"),
         ]
 
         # Inputs: DDR input registers on QE/DE (Q0: rising edge, Q1: falling edge), VS registered.
         qe_r  = Signal(24) # Rising edge sample.
         qe_f  = Signal(24) # Falling edge sample.
         de_r  = Signal()
-        vs    = Signal()
         if sim:
             self.sync.hdmi += [qe_r.eq(pads.qe), qe_f.eq(pads.qe_fall), de_r.eq(pads.de)]
         else:
@@ -362,14 +364,12 @@ class HDMIIn(LiteXModule):
         # Pipeline alignment (sample stage): pixel data/DE of the current clock.
         qe0 = Signal(24) # First pixel (SDR: the pixel, DDR: first of the pair).
         qe1 = Signal(24) # Second pixel (DDR only).
-        de_s  = Signal()
+        de_s = Signal()
         self.sync.hdmi += [
             qe0.eq(Mux(ddr_swap, qe_f, qe_r)),
             qe1.eq(Mux(ddr_swap, qe_r, qe_f)),
             de_s.eq(de_r),
         ]
-        self.debug_qe = qe0 # Debug (IOScan).
-        self.debug_de = de_s
 
         # Lanes.
         def lanes(qe):
@@ -386,14 +386,15 @@ class HDMIIn(LiteXModule):
         # CSC (RGB input: lane 0 = B, lane 1 = G, lane 2 = R) and uniform pipeline latency: the lane
         # path, DE and VS are delayed by the CSC latency in all modes.
         rgb = Signal()
-        self.specials += MultiReg(self.control.fields.rgb, rgb, "hdmi")
+        self.specials += MultiReg(self.rgb, rgb, "hdmi")
         self.csc = csc = ClockDomainsRenamer("hdmi")(RGB2YCbCr422(sim=sim))
-        for csr, sig in zip(self.csc_coefs, csc.ky + csc.kcb + csc.kcr):
-            self.specials += MultiReg(csr.storage, sig, "hdmi")
+        for row, coefs in (("y", csc.ky), ("cb", csc.kcb), ("cr", csc.kcr)):
+            for comp, coef in zip("rgb", coefs):
+                self.specials += MultiReg(getattr(self, f"csc_{row}_{comp}"), coef, "hdmi")
         self.specials += [
-            MultiReg(self.csc_offsets.fields.y_off,  csc.y_off,  "hdmi"),
-            MultiReg(self.csc_offsets.fields.c_off,  csc.c_off,  "hdmi"),
-            MultiReg(self.csc_offsets.fields.in_off, csc.in_off, "hdmi"),
+            MultiReg(self.csc_y_off,  csc.y_off,  "hdmi"),
+            MultiReg(self.csc_c_off,  csc.c_off,  "hdmi"),
+            MultiReg(self.csc_in_off, csc.in_off, "hdmi"),
         ]
         self.comb += [
             csc.b0.eq(qe0[0:8]), csc.g0.eq(qe0[8:16]), csc.r0.eq(qe0[16:24]),
@@ -413,7 +414,8 @@ class HDMIIn(LiteXModule):
         self.comb += If(rgb,
             ya.eq(csc.y0), ca.eq(csc.cb), yb.eq(csc.y1), cb.eq(csc.cr),
         ).Else(
-            ya.eq(delay(ya_s, L)), ca.eq(delay(ca_s, L)), yb.eq(delay(yb_s, L)), cb.eq(delay(cb_s, L)),
+            ya.eq(delay(ya_s, L)), ca.eq(delay(ca_s, L)),
+            yb.eq(delay(yb_s, L)), cb.eq(delay(cb_s, L)),
         )
         de      = delay(de_s, L)
         de_next = delay(de_r, L) # One clock ahead of de.
@@ -451,8 +453,8 @@ class HDMIIn(LiteXModule):
             ),
         ]
         self.specials += [
-            MultiReg(hres, self.hres.status),
-            MultiReg(vres, self.vres.status),
+            MultiReg(hres, self.hres),
+            MultiReg(vres, self.vres),
         ]
 
         # Word generation: YUY2 word = Y0 | C0 << 8 | Y1 << 16 | C1 << 24.
@@ -467,7 +469,8 @@ class HDMIIn(LiteXModule):
         crop_line       = Signal()
         crop_first_line = Signal()
         crop_last_line  = Signal()
-        # Crop window X membership (x counts up during DE): set one clock before x0, cleared after x1.
+        # Crop window X membership (x counts up during DE): set one clock before x0, cleared after
+        # x1.
         crop_in_x = Signal()
         self.sync.hdmi += [
             If(~de,
@@ -560,7 +563,8 @@ class HDMIIn(LiteXModule):
         ]
         # ... and vertical average (emitted on the next clock).
         vword = Signal(32)
-        self.comb += vword.eq(Cat(*[avg(v_word[8*i:8*(i+1)], v_mem[8*i:8*(i+1)], rnd=1) for i in range(4)]))
+        self.comb += vword.eq(Cat(*[
+            avg(v_word[8*i:8*(i+1)], v_mem[8*i:8*(i+1)], rnd=1) for i in range(4)]))
         self.sync.hdmi += [
             w_valid.eq(0),
             If(active,
@@ -602,13 +606,15 @@ class HDMIIn(LiteXModule):
             # Downscale output (stage V, odd lines).
             If(v_valid,
                 w_valid.eq(1),
-                w_data.eq(Mux(c_swap, Cat(vword[0:8], vword[24:32], vword[16:24], vword[8:16]), vword)),
+                w_data.eq(Mux(c_swap,
+                    Cat(vword[0:8], vword[24:32], vword[16:24], vword[8:16]),
+                    vword)),
                 w_first.eq(v_first),
                 w_last.eq(v_last),
             ),
         ]
         # M420 packer (4:2:0 line pairs, reset on VSYNC).
-        self.m420 = m420_packer = ClockDomainsRenamer("hdmi")(ResetInserter()(M420Packer()))
+        self.m420_packer = m420_packer = ClockDomainsRenamer("hdmi")(ResetInserter()(M420Packer()))
         self.comb += [
             m420_packer.reset.eq(vs_start | ~m420 | ~enable),
             m420_packer.valid.eq(active & ddr & m420),
@@ -636,9 +642,15 @@ class HDMIIn(LiteXModule):
 
         # CDC (hdmi -> sys): the sys side drains faster than the average input rate (M420 bursts
         # the UV lines at up to 1 word per pixel clock: deeper FIFO).
-        self.cdc = cdc_fifo = stream.ClockDomainCrossing([("data", 32)], cd_from="hdmi", cd_to="sys", depth=1024)
+        self.cdc = cdc_fifo = stream.ClockDomainCrossing([("data", 32)],
+            cd_from = "hdmi",
+            cd_to   = "sys",
+            depth   = 1024,
+        )
         # Register stage (timing: packer BRAM -> mux -> CDC BRAM).
-        self.cdc_buf = cdc_buf = ClockDomainsRenamer("hdmi")(stream.Buffer([("data", 32)], pipe_ready=True))
+        self.cdc_buf = cdc_buf = ClockDomainsRenamer("hdmi")(stream.Buffer([("data", 32)],
+            pipe_ready = True,
+        ))
         self.comb += [
             cdc.connect(cdc_buf.sink),
             cdc_buf.source.connect(cdc_fifo.sink),
@@ -647,16 +659,18 @@ class HDMIIn(LiteXModule):
         # Frame admission / drop (sys) + frame FIFO.
         # The FIFO is flushed while the capture is disabled; a frame without input for
         # `idle_timeout` cycles (signal loss) is closed with an end marker.
-        self.fifo = fifo = ResetInserter()(stream.SyncFIFO([("data", 32)], fifo_depth, buffered=True))
-        enable_sys   = self.control.fields.enable
+        self.fifo = fifo = ResetInserter()(stream.SyncFIFO([("data", 32)], fifo_depth,
+            buffered = True,
+        ))
+        enable_sys   = self.enable
         idle         = Signal(max=idle_timeout + 1)
-        aborted      = Signal(32)
+        aborted      = self.aborted
         self.comb += fifo.reset.eq(~enable_sys)
         in_frame     = Signal()
         pending_last = Signal()
-        frames       = Signal(32)
-        dropped      = Signal(32)
-        overflow     = Signal(32)
+        frames       = self.frames
+        dropped      = self.dropped
+        overflow     = self.overflow
         sink         = cdc_fifo.source
         admit_ok     = Signal()
         self.comb += [
@@ -678,7 +692,7 @@ class HDMIIn(LiteXModule):
         self.sync += [
             # Registered (timing): one cycle old level, conservative for admission.
             # (No subtraction: the buffered FIFO level can exceed fifo_depth by one.)
-            admit_ok.eq(((fifo.level + self.admit_level.storage) <= fifo_depth) & self.admit),
+            admit_ok.eq(((fifo.level + self.admit_level) <= fifo_depth) & self.admit),
             If(sink.valid & sink.first,
                 If(admit_ok,
                     in_frame.eq(1),
@@ -713,13 +727,6 @@ class HDMIIn(LiteXModule):
                 pending_last.eq(0),
             ),
         ]
-        self.comb += [
-            self.frames.status.eq(frames),
-            self.dropped.status.eq(dropped),
-            self.overflow.status.eq(overflow),
-            self.aborted.status.eq(aborted),
-        ]
-
         # Input frame period (sys clock cycles between VSYNC rising edges, 0 when no input).
         vs_sys    = Signal()
         vs_sys_d  = Signal()
@@ -728,11 +735,90 @@ class HDMIIn(LiteXModule):
         self.sync += [
             vs_sys_d.eq(vs_sys),
             If(vs_sys & ~vs_sys_d,
-                self.frame_period.status.eq(vs_count),
+                self.frame_period.eq(vs_count),
                 vs_count.eq(0),
             ).Elif(vs_count == (2**31),
-                self.frame_period.status.eq(0),
+                self.frame_period.eq(0),
             ).Else(
                 vs_count.eq(vs_count + 1),
             )
         ]
+
+        # CSRs.
+        if with_csr:
+            self.add_csr()
+
+    def add_csr(self):
+        self._control = CSRStorage(fields=[
+            CSRField("enable",    size=1, offset=0,  reset=self.enable.reset.value,
+                description="Enable capture."),
+            CSRField("y_lane",    size=2, offset=4,  reset=self.y_lane.reset.value,
+                description="Y byte lane (0: QE[11:4], 1: QE[23:16], 2: QE[35:28])."),
+            CSRField("c_lane",    size=2, offset=6,  reset=self.c_lane.reset.value,
+                description="C byte lane."),
+            CSRField("c_swap",    size=1, offset=8,  reset=self.c_swap.reset.value,
+                description="Swap Cb/Cr order."),
+            CSRField("ddr",       size=1, offset=12, reset=self.ddr.reset.value,
+                description="DDR input (2 pixels per clock, IT6802 0.5x PCLK modes, 4K)."),
+            CSRField("ddr_swap",  size=1, offset=13, reset=self.ddr_swap.reset.value,
+                description="DDR: falling edge carries the first pixel."),
+            CSRField("downscale", size=1, offset=14, reset=self.downscale.reset.value,
+                description="2x downscale (2x2 box filter, DDR modes)."),
+            CSRField("crop",      size=1, offset=15, reset=self.crop.reset.value,
+                description="Crop window (DDR modes, no downscale)."),
+            CSRField("m420",      size=1, offset=16, reset=self.m420.reset.value,
+                description="M420 output (YUV 4:2:0, DDR modes, no downscale/crop)."),
+            CSRField("rgb",       size=1, offset=17, reset=self.rgb.reset.value,
+                description="RGB 4:4:4 input (lanes B/G/R), converted by the CSC (DDR modes)."),
+        ])
+        csc_coefs = []
+        for row in ["y", "cb", "cr"]:
+            for comp in "rgb":
+                coef = getattr(self, f"csc_{row}_{comp}")
+                csr  = CSRStorage(12, reset=coef.reset.value, name=f"csc_{row}_{comp}",
+                    description=f"CSC {row.upper()} {comp.upper()} coefficient (signed Q1.10).")
+                setattr(self, f"_csc_{row}_{comp}", csr)
+                csc_coefs.append((coef, csr))
+        self._csc_offsets = CSRStorage(fields=[
+            CSRField("y_off",  size=8, offset=0,  reset=self.csc_y_off.reset.value,
+                description="Y offset."),
+            CSRField("c_off",  size=8, offset=8,  reset=self.csc_c_off.reset.value,
+                description="Cb/Cr offset."),
+            CSRField("in_off", size=8, offset=16, reset=self.csc_in_off.reset.value,
+                description="RGB input offset (limited range: 16)."),
+        ])
+        self._crop_x      = CSRStorage(16, reset=self.crop_x.reset.value,
+            description="Crop window X (words, 2 pixels per word).")
+        self._crop_y      = CSRStorage(16, reset=self.crop_y.reset.value,
+            description="Crop window Y (lines).")
+        self._crop_w      = CSRStorage(16, reset=self.crop_w.reset.value,
+            description="Crop window width (words).")
+        self._crop_h      = CSRStorage(16, reset=self.crop_h.reset.value,
+            description="Crop window height (lines).")
+        self._admit_level = CSRStorage(16, reset=self.admit_level.reset.value,
+            description="Minimum free FIFO words to admit a frame.")
+        self._hres         = CSRStatus(16, description="Measured active width (pixels).")
+        self._vres         = CSRStatus(16, description="Measured active height (lines).")
+        self._frames       = CSRStatus(32, description="Captured frames.")
+        self._dropped      = CSRStatus(32, description="Dropped frames (not admitted).")
+        self._overflow     = CSRStatus(32, description="Words lost on FIFO overflow.")
+        self._aborted      = CSRStatus(32,
+            description="Frames closed on input loss (idle timeout).")
+        self._frame_period = CSRStatus(32,
+            description="Input frame period (sys clock cycles, VSYNC to VSYNC).")
+
+        # # #
+
+        for field in self._control.fields.fields:
+            self.comb += getattr(self, field.name).eq(field)
+        for coef, csr in csc_coefs:
+            self.comb += coef.eq(csr.storage)
+        self.comb += [
+            self.csc_y_off.eq(self._csc_offsets.fields.y_off),
+            self.csc_c_off.eq(self._csc_offsets.fields.c_off),
+            self.csc_in_off.eq(self._csc_offsets.fields.in_off),
+        ]
+        for name in ["crop_x", "crop_y", "crop_w", "crop_h", "admit_level"]:
+            self.comb += getattr(self, name).eq(getattr(self, f"_{name}").storage)
+        for name in ["hres", "vres", "frames", "dropped", "overflow", "aborted", "frame_period"]:
+            self.comb += getattr(self, f"_{name}").status.eq(getattr(self, name))

@@ -6,6 +6,8 @@
 
 from migen import *
 
+from litex.soc.interconnect.csr_bus import CSRBank, Interface
+
 from gateware.video import VideoPatternGenerator, COLOR_BARS, m420_words
 
 # Small frame: 32x4 pixels, colour bars of 4 pixels.
@@ -14,16 +16,16 @@ WIDTH, HEIGHT = 32, 4
 # Helpers ------------------------------------------------------------------------------------------
 
 def run(m420, mode=0):
-    dut   = VideoPatternGenerator(sys_clk_freq=1e6)
+    dut   = VideoPatternGenerator(sys_clk_freq=1e6, with_csr=False)
     words = []
     def gen():
-        yield dut._hwords.storage.eq(WIDTH // 2)
-        yield dut._vres.storage.eq(HEIGHT * 3 // 4 if m420 else HEIGHT)
-        yield dut._bar_words.storage.eq(WIDTH // 16)
-        yield dut._frame_period.storage.eq(2000)
-        yield dut._m420.storage.eq(m420)
-        yield dut._mode.storage.eq(mode)
-        yield dut._enable.storage.eq(1)
+        yield dut.hwords.eq(WIDTH // 2)
+        yield dut.vres.eq(HEIGHT * 3 // 4 if m420 else HEIGHT)
+        yield dut.bar_words.eq(WIDTH // 16)
+        yield dut.frame_period.eq(2000)
+        yield dut.m420.eq(m420)
+        yield dut.mode.eq(mode)
+        yield dut.enable.eq(1)
         yield dut.source.ready.eq(1)
         for _ in range(3000):
             yield
@@ -58,3 +60,26 @@ def test_pattern_m420_no_signal():
     lw    = WIDTH // 4
     assert [w for w, _, _ in words[:2 * lw]] == [y] * (2 * lw)
     assert [w for w, _, _ in words[2 * lw:3 * lw]] == [uv] * lw
+
+def test_pattern_csr():
+    # CSR writes reach the control signals, CSR resets match the control signal resets.
+    dut   = VideoPatternGenerator(sys_clk_freq=1e6)
+    names = [c.name for c in dut.get_csrs()]
+    assert names == ["enable", "hwords", "vres", "bar_words", "frame_period", "mode", "m420",
+        "frames", "skipped"]
+    bank   = CSRBank(dut.get_csrs(), bus=Interface(data_width=32))
+    dut.submodules.bank = bank
+    values = {}
+
+    def generator():
+        yield
+        values["frame_period"] = (yield dut.frame_period)
+        values["hwords"]       = (yield dut.hwords)
+        yield from bank.bus.write(names.index("enable"), 1)
+        yield from bank.bus.write(names.index("vres"),   720)
+        yield
+        values["enable"] = (yield dut.enable)
+        values["vres"]   = (yield dut.vres)
+
+    run_simulation(dut, generator())
+    assert values == {"frame_period": int(1e6/30), "hwords": 1920//2, "enable": 1, "vres": 720}

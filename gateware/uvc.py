@@ -42,40 +42,42 @@ UVC_HEADER_EOH = (1 << 7)
 # UVC Packetizer -----------------------------------------------------------------------------------
 
 class UVCPacketizer(LiteXModule):
-    def __init__(self, payload_words=(16384 - 12)//4):
-        self.sink      = sink   = stream.Endpoint([("data", 32)])
-        self.source    = source = stream.Endpoint([("data", 32), ("next", 32)])
-        self.timestamp    = timestamp = Signal(32)
+    def __init__(self, payload_words=(16384 - 12)//4, with_csr=True):
+        self.sink         = sink         = stream.Endpoint([("data", 32)])
+        self.source       = source       = stream.Endpoint([("data", 32), ("next", 32)])
+        self.timestamp    = timestamp    = Signal(32)
         self.next_header0 = next_header0 = Signal(32)
 
-        self._payload_words = CSRStorage(16, reset=payload_words, description="Data words per payload.")
-        self._frame_words   = CSRStorage(32, reset=1920*1080//2,  description="Data words per frame.")
+        # Control.
+        self.payload_words = Signal(16, reset=payload_words) # Data words per payload.
+        self.frame_words   = Signal(32, reset=1920*1080//2)  # Data words per frame.
 
         # # #
 
-        fid       = Signal()
-        remaining = Signal(32) # Remaining frame words.
-        count     = Signal(16) # Payload data words.
-        eof       = Signal()
-        pts       = Signal(32)
-        stc       = Signal(32)
-        in_frame  = Signal()
-        info      = Signal(8)
-        first     = Signal() # First payload of the frame.
-
+        fid        = Signal()
+        remaining  = Signal(32) # Remaining frame words.
+        count      = Signal(16) # Payload data words.
+        eof        = Signal()
+        pts        = Signal(32)
+        stc        = Signal(32)
+        in_frame   = Signal()
+        info       = Signal(8)
+        first      = Signal() # First payload of the frame.
         first_eof  = Signal()
         first_info = Signal(8)
         self.comb += [
-            eof.eq(remaining <= self._payload_words.storage),
-            first_eof.eq(self._frame_words.storage <= self._payload_words.storage),
+            eof.eq(remaining <= self.payload_words),
+            first_eof.eq(self.frame_words <= self.payload_words),
             info.eq(UVC_HEADER_EOH | UVC_HEADER_SCR | UVC_HEADER_PTS | (eof << 1) | fid),
             first_info.eq(UVC_HEADER_EOH | UVC_HEADER_SCR | (first_eof << 1) | fid),
             next_header0.eq(Cat(Constant(12, 8), first_info, Constant(0, 16))),
         ]
 
         # Header word 0 of the payload following the current one (on the payload last word).
-        next_frame_header0   = Signal(32) # End of frame: first payload of the next frame (FID toggled).
-        next_payload_header0 = Signal(32) # Mid-frame: next payload of this frame.
+        # End of frame: first payload of the next frame (FID toggled).
+        next_frame_header0   = Signal(32)
+        # Mid-frame: next payload of this frame.
+        next_payload_header0 = Signal(32)
         next_frame_info      = Signal(8)
         next_payload_info    = Signal(8)
         eof_next             = Signal()
@@ -84,8 +86,9 @@ class UVCPacketizer(LiteXModule):
             fid_next.eq(~fid),
             next_frame_info.eq(UVC_HEADER_EOH | UVC_HEADER_SCR | (first_eof << 1) | fid_next),
             next_frame_header0.eq(Cat(Constant(12, 8), next_frame_info, Constant(0, 16))),
-            eof_next.eq((remaining - 1) <= self._payload_words.storage),
-            next_payload_info.eq(UVC_HEADER_EOH | UVC_HEADER_SCR | UVC_HEADER_PTS | (eof_next << 1) | fid),
+            eof_next.eq((remaining - 1) <= self.payload_words),
+            next_payload_info.eq(UVC_HEADER_EOH | UVC_HEADER_SCR | UVC_HEADER_PTS |
+                (eof_next << 1) | fid),
             next_payload_header0.eq(Cat(Constant(12, 8), next_payload_info, pts[:16])),
         ]
 
@@ -99,7 +102,7 @@ class UVCPacketizer(LiteXModule):
                     If(~in_frame,
                         NextValue(in_frame, 1),
                         NextValue(pts, timestamp),
-                        NextValue(remaining, self._frame_words.storage),
+                        NextValue(remaining, self.frame_words),
                     ),
                     NextValue(stc, timestamp),
                     NextState("HEADER1"),
@@ -133,10 +136,27 @@ class UVCPacketizer(LiteXModule):
                     NextValue(fid, ~fid),
                     NextValue(in_frame, 0),
                     NextState("HEADER0"),
-                ).Elif(count == (self._payload_words.storage - 1),
+                ).Elif(count == (self.payload_words - 1),
                     source.last.eq(1),
                     source.next.eq(next_payload_header0),
                     NextState("HEADER0"),
                 )
             )
         )
+
+        # CSRs.
+        if with_csr:
+            self.add_csr()
+
+    def add_csr(self):
+        self._payload_words = CSRStorage(16, reset=self.payload_words.reset.value,
+            description="Data words per payload.")
+        self._frame_words   = CSRStorage(32, reset=self.frame_words.reset.value,
+            description="Data words per frame.")
+
+        # # #
+
+        self.comb += [
+            self.payload_words.eq(self._payload_words.storage),
+            self.frame_words.eq(self._frame_words.storage),
+        ]
