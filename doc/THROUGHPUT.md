@@ -30,7 +30,7 @@ headers, burst guard/head lead, audio phases with 2 x switch_guard idle cycles, 
 
 Conclusions:
 - 4K30 M420 needs the 403.2MHz FX3 PLL (GPIF 100.8MHz, `PLL_FBDIV=21`, now the default in
-  `firmware/fx3/Makefile`, as the 32KB DMA buffers): at 96MHz the GPIF cannot keep up with the
+  `firmware/Makefile`, as the 32KB DMA buffers): at 96MHz the GPIF cannot keep up with the
   active lines and the on-chip FIFOs (~3.5k words) cannot absorb it.
 - Audio thread switches are the main overhead (2 x switch_guard per switch): the firmware uses
   >= 4 audio packets per switch for 4K streams (+3ms audio latency). switch_guard is 256 (gateware

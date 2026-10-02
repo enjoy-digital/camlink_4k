@@ -12,7 +12,7 @@ sdram_phy.h (empty header for builds without DRAM)."""
 import os
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "software"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "software"))
 from sdram_phy import PhySettings
 
 KINDS = {"delay": 0, "control": 1, "address": 2, "baddress": 3, "command": 4}

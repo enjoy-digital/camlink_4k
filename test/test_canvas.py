@@ -8,7 +8,7 @@ from migen import *
 
 from litex.gen import *
 
-from camlink_4k.gateware.canvas import Canvas, BLACK
+from gateware.canvas import Canvas, BLACK
 
 # Helpers ------------------------------------------------------------------------------------------
 

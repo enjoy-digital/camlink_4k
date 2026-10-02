@@ -6,7 +6,7 @@
 
 from migen import *
 
-from camlink_4k.gateware.video import VideoPatternGenerator, COLOR_BARS, m420_words
+from gateware.video import VideoPatternGenerator, COLOR_BARS, m420_words
 
 # Small frame: 32x4 pixels, colour bars of 4 pixels.
 WIDTH, HEIGHT = 32, 4

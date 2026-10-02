@@ -8,7 +8,7 @@ import random
 
 from migen import *
 
-from camlink_4k.gateware.csc import RGB2YCbCr422, bt709_coefficients
+from gateware.csc import RGB2YCbCr422, bt709_coefficients
 
 # Helpers ------------------------------------------------------------------------------------------
 

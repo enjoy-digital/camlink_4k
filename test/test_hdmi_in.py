@@ -9,7 +9,7 @@ from migen.sim import passive
 
 from litex.gen import *
 
-from camlink_4k.gateware.hdmi_in import HDMIIn
+from gateware.hdmi_in import HDMIIn
 
 # Video Source Model -------------------------------------------------------------------------------
 
@@ -231,7 +231,7 @@ def test_hdmi_in_ddr_m420_backpressure():
 
 def test_hdmi_in_ddr_rgb():
     from test_csc import model
-    from camlink_4k.gateware.csc import bt709_coefficients
+    from gateware.csc import bt709_coefficients
     def source(pads, frames):
         for f in range(frames):
             for y in range(VACT + VBLANK):

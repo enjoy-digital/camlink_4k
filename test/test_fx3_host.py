@@ -19,7 +19,7 @@ import subprocess
 import pytest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-FW   = os.path.join(ROOT, "firmware", "fx3")
+FW   = os.path.join(ROOT, "firmware")
 
 # Library ------------------------------------------------------------------------------------------
 

@@ -13,7 +13,7 @@ from litex.gen import *
 
 from litedram.common import LiteDRAMNativePort
 
-from camlink_4k.gateware.framebuffer import NV12FrameBuffer
+from gateware.framebuffer import NV12FrameBuffer
 
 # Geometry: 16-byte lines (1 port word of 128 bits = 4 words), 4 lines.
 LINE_WORDS  = 1

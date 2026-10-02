@@ -32,21 +32,21 @@ from litex.soc.interconnect import stream
 
 from camlink_4k_platform import Platform
 
-from camlink_4k.gateware.crg     import CRG
-from camlink_4k.gateware.pintest    import PinTest
-from camlink_4k.gateware.i2c_bridge import I2CBridge
-from camlink_4k.gateware.gpif       import GPIFStreamer, CounterGenerator
-from camlink_4k.gateware.video      import VideoPatternGenerator
-from camlink_4k.gateware.uvc        import UVCPacketizer
-from camlink_4k.gateware.hdmi_in    import HDMIIn
-from camlink_4k.gateware.ioscan     import IOScan
-from camlink_4k.gateware.audio      import AudioSource
-from camlink_4k.gateware.color      import ColorAdjust
-from camlink_4k.gateware.canvas     import Canvas
-from camlink_4k.gateware.watchdog   import FX3Watchdog
-from camlink_4k.gateware.framebuffer import NV12FrameBuffer
-from camlink_4k.gateware.ecp5ddrphy import ECP5DDRPHY, ecp5ddrphy_with_ratio
-from camlink_4k.gateware.dram       import LiteDRAMNativePortBuffer, MT41K64M16_4Banks
+from gateware.crg     import CRG
+from gateware.pintest    import PinTest
+from gateware.i2c_bridge import I2CBridge
+from gateware.gpif       import GPIFStreamer, CounterGenerator
+from gateware.video      import VideoPatternGenerator
+from gateware.uvc        import UVCPacketizer
+from gateware.hdmi_in    import HDMIIn
+from gateware.ioscan     import IOScan
+from gateware.audio      import AudioSource
+from gateware.color      import ColorAdjust
+from gateware.canvas     import Canvas
+from gateware.watchdog   import FX3Watchdog
+from gateware.framebuffer import NV12FrameBuffer
+from gateware.ecp5ddrphy import ECP5DDRPHY, ecp5ddrphy_with_ratio
+from gateware.dram       import LiteDRAMNativePortBuffer, MT41K64M16_4Banks
 
 from litex.build.generic_platform import Pins, IOStandard, Subsignal
 

@@ -4,7 +4,7 @@ __pycache__
 .pytest_cache/
 *.egg-info/
 *.csv
-/firmware/fx3/build
+/firmware/build
 !/doc/*.csv
 generated/
 .claude/

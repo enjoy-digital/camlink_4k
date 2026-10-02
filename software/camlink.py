@@ -33,7 +33,7 @@ FX3_CHUNK    = 2048
 ROOT         = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CSR_CSV      = os.path.join(ROOT, "build", "csr.csv")
 BITSTREAM    = os.path.join(ROOT, "build", "gateware", "camlink_4k.bit")
-FX3_IMAGE    = os.path.join(ROOT, "firmware", "fx3", "build", "fx3.img")
+FX3_IMAGE    = os.path.join(ROOT, "firmware", "build", "fx3.img")
 
 # Helpers ------------------------------------------------------------------------------------------
 

@@ -17,7 +17,7 @@ set -x
 cd "$(dirname "$0")/.."
 SECONDS_PER_RUN=${SECONDS_PER_RUN:-20}
 make -C software/viewer -s
-make -C firmware/fx3 -s
+make -C firmware -s
 
 rm -rf doc/bench/latency_display.json doc/bench/latency
 python3 software/latency_display.py --firmware camlink_4k --players v4l2,ffplay,viewer --pos top,bottom --seconds $SECONDS_PER_RUN
@@ -34,7 +34,7 @@ python3 software/latency_display.py --firmware stock --players v4l2,ffplay,viewe
 # the enumeration), FX3 image back to the flash, standalone reboot.
 python3 -c "import sys; sys.path.insert(0, 'software'); import bench; bench.to_bootloader()"
 python3 software/camlink.py boot || (sleep 5; python3 software/camlink.py boot)
-python3 software/camlink.py flash-fx3 firmware/fx3/build/fx3.img
+python3 software/camlink.py flash-fx3 firmware/build/fx3.img
 python3 software/camlink.py reboot
 sleep 14
 python3 software/camlink.py ident

@@ -35,7 +35,7 @@ $(BUILD)/fx3.img: $(BUILD)/fx3.elf elf2img.py
 $(BUILD)/fx3.elf: $(OBJS) fx3.ld
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(OBJS)
 
-CSR_CSV ?= ../../build/csr.csv
+CSR_CSV ?= ../build/csr.csv
 
 # The firmware uses the CSR map (and DRAM PHY settings) of a gateware build.
 ifneq ($(MAKECMDGOALS),clean)
@@ -51,11 +51,11 @@ generated/fpga_csr.h: $(CSR_CSV) csr2h.py
 # DRAM PHY settings/init sequence from the same gateware build (empty for builds without DRAM).
 SDRAM_PHY_H = $(dir $(CSR_CSV))software/include/generated/sdram_phy.h
 
-generated/sdram_init.h: $(CSR_CSV) gen_sdram.py ../../software/sdram_phy.py
+generated/sdram_init.h: $(CSR_CSV) gen_sdram.py ../software/sdram_phy.py
 	mkdir -p generated
 	python3 gen_sdram.py $(SDRAM_PHY_H) $@
 
-generated/edid.h: gen_edid.py ../../software/edid.py
+generated/edid.h: gen_edid.py ../software/edid.py
 	mkdir -p generated
 	python3 gen_edid.py $@
 

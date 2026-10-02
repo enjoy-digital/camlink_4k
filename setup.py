@@ -28,7 +28,7 @@ setup(
     install_requires              = ["litex", "litedram", "pyusb", "numpy"],
     extras_require                = {"bench": ["libusb1", "Pillow", "scipy", "pytest"]},
     packages                      = find_packages(exclude=["test*"]),
-    py_modules                    = ["camlink_4k_platform"],
+    py_modules                    = ["camlink_4k", "camlink_4k_platform"],
     keywords                      = "FPGA LiteX ECP5 FX3 UVC HDMI capture",
     classifiers                   = [
         "Topic :: Scientific/Engineering :: Electronic Design Automation (EDA)",

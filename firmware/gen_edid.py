@@ -11,7 +11,7 @@
 import os
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "software"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "software"))
 from edid import generate_edid
 
 edid = generate_edid()

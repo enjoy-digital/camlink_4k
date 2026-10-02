@@ -43,7 +43,7 @@ The ECP5 runs one LiteX SoC ([`camlink_4k.py`](camlink_4k.py)): the IT6802 video
 cropped/scaled (`Canvas`), color adjusted (`ColorAdjust`), written as NV12 planes to DDR3
 (`NV12FrameBuffer` on LiteDRAM), read back into UVC payloads (`UVCPacketizer`) and sent with the
 I2S audio (`AudioSource`) to the FX3 over GPIF-II (`GPIFStreamer`). The FX3 firmware
-([`firmware/fx3`](firmware/fx3)) configures the FPGA from the SPI flash, initializes the DRAM,
+([`firmware`](firmware)) configures the FPGA from the SPI flash, initializes the DRAM,
 bridges CSRs and exposes the UVC/UAC interfaces to the host.
 
 ```
@@ -117,7 +117,7 @@ at 1:4 to LiteDRAM (#408 merged, #409/#410 open) and LiteX-Boards (#866 merged),
 ```sh
 ./camlink_4k.py --build                 # Gateware, default NV12 variant (DRAM frame buffer, 4K30 NV12).
 ./camlink_4k.py --build --variant base  # Without DRAM (YUY2/M420), --output-dir to keep both.
-make -C firmware/fx3                    # FX3 firmware (uses build/csr.csv: build the gateware first).
+make -C firmware                    # FX3 firmware (uses build/csr.csv: build the gateware first).
 make -C software/viewer                 # Low latency viewer (optional).
 python3 -m pytest test                  # Simulation and host tests (~20 min).
 ```
@@ -128,7 +128,7 @@ python3 -m pytest test                  # Simulation and host tests (~20 min).
    (stock firmware, vendor HID interface), twice, and compare:
    `sudo ./tools/cl4k-fwtool.py dump flash_a.bin`, `... dump flash_b.bin`, `cmp flash_a.bin flash_b.bin`.
 2. Replace the stock FX3 image (flash offset 0) with the CamLink 4K one, with the same tool
-   (`flash --mcu firmware/fx3/build/fx3.img`, dry run, then `--commit`); the stock bitstream and
+   (`flash --mcu firmware/build/fx3.img`, dry run, then `--commit`); the stock bitstream and
    settings are left in place. Power cycle.
 3. Load the bitstream, then make the device standalone:
 
@@ -181,8 +181,8 @@ for attribution and remain the property of their owners.
 
 ## License
 
-BSD-2-Clause, see [LICENSE](LICENSE). Third-party parts: `firmware/fx3/rdb/` register definitions
-are MIT (Marcus Comstedt, fx3lafw, see [LICENSES](LICENSES)); `camlink_4k/gateware/ecp5ddrphy.py`
+BSD-2-Clause, see [LICENSE](LICENSE). Third-party parts: `firmware/rdb/` register definitions
+are MIT (Marcus Comstedt, fx3lafw, see [LICENSES](LICENSES)); `gateware/ecp5ddrphy.py`
 derives from LiteDRAM (BSD-2-Clause); `doc/pinout.csv` derives from the apertus/Greg Davill board
 netlist.
 

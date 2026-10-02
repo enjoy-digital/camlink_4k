@@ -11,7 +11,7 @@
 Build/boot (example, 1:4 at 99.5625MHz sys = DDR3-796):
     ./camlink_4k.py --build --with-sdram --sdram-rate 1:4 --sdram-banks 4 --with-sdram-bist \\
         --sys-clk-freq 99.5625e6 --output-dir build_dram14
-    make -C firmware/fx3 clean && make -C firmware/fx3 CSR_CSV=../../build_dram14/csr.csv
+    make -C firmware clean && make -C firmware CSR_CSV=../build_dram14/csr.csv
     python3 software/camlink.py boot --bit build_dram14/gateware/camlink_4k.bit
     python3 software/dram.py --build build_dram14 init       # init + read leveling
     python3 software/dram.py --build build_dram14 memtest    # BIST write/read + errors

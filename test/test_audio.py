@@ -9,7 +9,7 @@ from migen.sim import passive
 
 from litex.gen import *
 
-from camlink_4k.gateware.audio import I2SReceiver, AudioSource
+from gateware.audio import I2SReceiver, AudioSource
 
 # I2S Model ----------------------------------------------------------------------------------------
 

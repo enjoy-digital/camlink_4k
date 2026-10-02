@@ -6,7 +6,7 @@
 
 from migen import *
 
-from camlink_4k.gateware.watchdog import FX3Watchdog
+from gateware.watchdog import FX3Watchdog
 
 # Helpers ------------------------------------------------------------------------------------------
 

@@ -35,8 +35,8 @@ It is never committed (copyrighted firmware, unit serial number).
 Flash block 0 (start of the FX3 image) is erased on the development unit, so the FX3 boot ROM
 always falls back to USB boot (`04b4:00f3`) and our firmware is loaded to RAM:
 
-    make -C firmware/fx3
-    python3 software/camlink.py fx3-load firmware/fx3/build/fx3.img  # -> 1209:0001
+    make -C firmware
+    python3 software/camlink.py fx3-load firmware/build/fx3.img  # -> 1209:0001
     python3 software/camlink.py ident
     python3 software/camlink.py reboot                                # -> 04b4:00f3
 

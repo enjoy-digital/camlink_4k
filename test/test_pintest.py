@@ -6,7 +6,7 @@
 
 from migen import *
 
-from camlink_4k.gateware.pintest import PinTest
+from gateware.pintest import PinTest
 
 # Test ---------------------------------------------------------------------------------------------
 

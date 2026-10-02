@@ -17,11 +17,11 @@ from litex.gen import *
 
 from litex.soc.interconnect import stream
 
-from camlink_4k.gateware.hdmi_in import HDMIIn
-from camlink_4k.gateware.canvas  import Canvas
-from camlink_4k.gateware.color   import ColorAdjust
-from camlink_4k.gateware.uvc     import UVCPacketizer
-from camlink_4k.gateware.gpif    import GPIFStreamer
+from gateware.hdmi_in import HDMIIn
+from gateware.canvas  import Canvas
+from gateware.color   import ColorAdjust
+from gateware.uvc     import UVCPacketizer
+from gateware.gpif    import GPIFStreamer
 
 from test_hdmi_in import Pads as HDMIPads, pixel, HACT, HBLANK, VACT, VBLANK
 from test_hdmi_in import expected_frame, expected_m420

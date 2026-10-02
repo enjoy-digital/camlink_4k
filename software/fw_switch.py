@@ -80,7 +80,7 @@ def to_camlink(output):
     if camlink("boot", check=False).returncode:
         time.sleep(5)
         camlink("boot")
-    camlink("flash-fx3", os.path.join(ROOT, "firmware", "fx3", "build", "fx3.img"))
+    camlink("flash-fx3", os.path.join(ROOT, "firmware", "build", "fx3.img"))
     camlink("reboot")
     if not bench.wait_state("camlink_4k", timeout=30):
         raise RuntimeError(f"CamLink 4K did not boot from flash (state {bench.usb_state()}).")

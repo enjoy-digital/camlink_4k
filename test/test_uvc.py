@@ -8,8 +8,8 @@ from migen import *
 
 from litex.gen import *
 
-from camlink_4k.gateware.video import VideoPatternGenerator, yuy2_word
-from camlink_4k.gateware.uvc   import UVCPacketizer
+from gateware.video import VideoPatternGenerator, yuy2_word
+from gateware.uvc   import UVCPacketizer
 
 # DUT ----------------------------------------------------------------------------------------------
 

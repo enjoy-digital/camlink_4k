@@ -78,7 +78,7 @@ FX3 GPIO58/59 (I2C master), FPGA `P18`/`P19`, IT6802 `PCSCL`/`PCSDA`.
 | 2, 3  | 3.3V   | GPIF-II, I2C, resets            |
 | 6, 7  | VREF   | DDR3 (stock uses SSTL15)        |
 
-## FX3 GPIF-II Findings (empirical, see firmware/fx3/gpif.c)
+## FX3 GPIF-II Findings (empirical, see firmware/gpif.c)
 
 - FX3 as GPIF master: internal clock + CLK_OUT drives PCLK (GPIO16 -> FPGA L19). PIB DLL must stay
   disabled (0xf8f0): with the DLL enabled the PCLK output is unstable. 96MHz with div_x2 = 8.
@@ -149,7 +149,7 @@ Tools: `camlink.py flash-bitstream`, `flash-fx3`, `flash-dump`, `fpga-boot`, and
 | 2 | Device at I2C `0x38`       | Unknown, low priority.                                                                  |
 
 Resolved since the first version of this list: the IT6802 init sequence is our own
-(`firmware/fx3/it6802.c`), its output format is known (see IT6802 above), the IT6802 video, I2C and
+(`firmware/it6802.c`), its output format is known (see IT6802 above), the IT6802 video, I2C and
 I2S pins are verified by working video and audio capture, and the audio path is implemented
 (I2S -> FPGA -> GPIF in-band -> FX3 -> UAC).
 

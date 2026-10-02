@@ -30,7 +30,7 @@ not reachable on this board without the CamLink 4K I2C/UART bridge).
 - LiteDRAM https://github.com/enjoy-digital/litedram/pull/410 (stacked on #409): selectable
   `DFIRateConverter` serializers, `RateCrossing`, `ecp5ddrphy_with_ratio(rate_crossing=True)`
   (opt-in, sel/shift search needed in the init software: LiteX BIOS support to do).
-- Once merged, `camlink_4k/gateware/ecp5ddrphy.py` can use the upstream PHY again.
+- Once merged, `gateware/ecp5ddrphy.py` can use the upstream PHY again.
 
 ## Notes / Open Items
 
@@ -39,7 +39,7 @@ not reachable on this board without the CamLink 4K I2C/UART bridge).
   slice to sys on the next edge. With the ECP5 CLKDIVF clocks (edges coincident or a quarter sys
   period apart, set at each PHY init), one sample is a hold race or has ~3.4ns of setup, and
   nextpnr does not check these cross-domain paths: DRAM worked on ~1 of 8 frame buffer builds
-  (DFII writes did not land). `RateCrossing` (`camlink_4k/gateware/ecp5ddrphy.py`) captures each
+  (DFII writes did not land). `RateCrossing` (`gateware/ecp5ddrphy.py`) captures each
   word once per sys cycle on a CSR-selected sys2x edge and aligns the read words with a runtime
   shift: 8/8 loads OK on 2 builds. Proposed for `DFIRateConverter` as an optional safe crossing.
 - ECP5DDRPHY IO gearing reset (`io_rst_init`, upstreamed as #409, open): the IOLOGIC/DQSBUFM
@@ -73,7 +73,7 @@ not reachable on this board without the CamLink 4K I2C/UART bridge).
 - DDR3-796: the -8 ECP5 and the stock Lattice IP run DDR3-800 on this board. LiteDRAM only uses the
   DQSBUFM READCLKSEL (8 coarse steps) for read leveling; next candidates: DQSBUFM fine read delay
   (RDLOADN/RDMOVE), READ pulse positioning (a `rdly_re`/`rdly_data` calibration is prototyped in
-  `camlink_4k/gateware/ecp5ddrphy.py`), write DQS timing at 400 MHz (the GW5 1:4 PHY is a
+  `gateware/ecp5ddrphy.py`), write DQS timing at 400 MHz (the GW5 1:4 PHY is a
   reference).
 - Other ECP5 DDR3 boards (ECPIX-5, OrangeCrab, ButterStick, Versa ECP5, TrellisBoard, ...) can use
   the same CRG pattern: the second ECLKSYNCB/CLKDIVF BEL names depend on the DDR bank side.

@@ -30,7 +30,7 @@ from litex.gen import *
 from litex.soc.interconnect.csr import *
 from litex.soc.interconnect     import stream
 
-from camlink_4k.gateware.csc import RGB2YCbCr422, bt709_coefficients
+from gateware.csc import RGB2YCbCr422, bt709_coefficients
 
 # M420 Packer --------------------------------------------------------------------------------------
 

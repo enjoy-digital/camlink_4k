@@ -10,7 +10,7 @@ from litex.gen import *
 
 from litex.soc.interconnect import wishbone
 
-from camlink_4k.gateware.i2c_bridge import I2CBridge
+from gateware.i2c_bridge import I2CBridge
 
 # I2C Master Model ---------------------------------------------------------------------------------
 

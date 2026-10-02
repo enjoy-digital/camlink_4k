@@ -11,7 +11,7 @@
 Walks the descriptors, checks lengths/links and summarizes interfaces, Video Control chain,
 formats/frames and endpoints.
 
-    usb_desc_check.py [firmware/fx3/build/fx3.elf]   # HS and SS configs of the compiled firmware.
+    usb_desc_check.py [firmware/build/fx3.elf]   # HS and SS configs of the compiled firmware.
 """
 
 import sys
@@ -125,7 +125,7 @@ def configs_from_elf(elf):
 # Main ---------------------------------------------------------------------------------------------
 
 def main():
-    elf = sys.argv[1] if len(sys.argv) > 1 else "firmware/fx3/build/fx3.elf"
+    elf = sys.argv[1] if len(sys.argv) > 1 else "firmware/build/fx3.elf"
     for name, data in sorted(configs_from_elf(elf).items()):
         cfg = parse_config(data)
         print(f"{name}: {len(data)} bytes, {cfg['interfaces']} interfaces, "

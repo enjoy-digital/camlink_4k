@@ -165,7 +165,7 @@ stages (estimates, 1080p60):
 | LiteDRAM (frame/line rings) | Exists (DDR3/DDR4, used here at 1:4 on ECP5)                        |
 | LiteX video timing generator, HDMI/DVI out | Exists for FPGA serializers up to ~1080p60; 4K60 needs HDMI 2.0 rates (transceivers or an external HDMI 2.0 TX) |
 | HDMI input                 | CamLink 4K `HDMIIn` (IT6802 parallel video, 4K30); 4K60 needs an HDMI 2.0 RX |
-| Line/slice streaming, NV12/M420 packing, audio | CamLink 4K cores (`camlink_4k/gateware`)              |
+| Line/slice streaming, NV12/M420 packing, audio | CamLink 4K cores (`gateware`)              |
 | Phase lock (pixel clock trim / VRR) | New                                                         |
 | Host slice API, viewer, latency tools | CamLink 4K `software/viewer` (libusb today), to port to LitePCIe |
 

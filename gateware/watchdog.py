@@ -12,7 +12,7 @@ input while the FX3 is in reset/boot ROM does not arm it: pull-down + edge count
 on each edge and, on expiry, pulls RESET# low for `pulse` then disarms (the rebooted firmware
 re-arms it with its heartbeat). Independent of the FX3 CPU state: recovers from hangs with
 interrupts off or inside interrupt handlers (the FX3 internal watchdog does not reset the chip on
-the Cam Link, see firmware/fx3/fx3.c). RESET# is driven open-drain style (low or released).
+the Cam Link, see firmware.c). RESET# is driven open-drain style (low or released).
 """
 
 from migen import *

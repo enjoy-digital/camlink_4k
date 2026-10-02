@@ -11,7 +11,7 @@ from migen.sim import passive
 
 from litex.gen import *
 
-from camlink_4k.gateware.gpif import GPIFStreamer
+from gateware.gpif import GPIFStreamer
 
 # FX3 GPIF Model -----------------------------------------------------------------------------------
 
@@ -22,7 +22,7 @@ class FX3Pads:
         self.ctl  = Signal(9)
 
 class FX3Model:
-    """Behavioural model of the FX3 waveform (firmware/fx3/gpif.c) and DMA buffers.
+    """Behavioural model of the FX3 waveform (firmware/gpif.c) and DMA buffers.
 
     Waveform: IDLE/DATA on thread 0, DECIDE on ASEL|EOP (commit on EOP), AIDLE/ADATA on thread 1.
     DMA (per thread): ring of `buf_count` buffers of `buf_words` words, drained by the "USB" every

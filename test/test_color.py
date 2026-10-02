@@ -10,7 +10,7 @@ from migen import *
 
 from litex.gen import *
 
-from camlink_4k.gateware.color import ColorAdjust
+from gateware.color import ColorAdjust
 
 # Helpers ------------------------------------------------------------------------------------------
 
