@@ -56,6 +56,6 @@ and EDIDs (1440p, 1080p120), P010/RGB formats.
   hardware steps, 12/12). NV12 default build: seed 8, all clocks met.
 - Latency (1080p60, from the source render): first USB data ~3.5 ms, frame to application 19 ms
   (stock 46 ms, MS2109 64 ms), see `doc/LATENCY.md` and `doc/COMPARISON.md`.
-- Upstream: LiteDRAM #408 (ECP5 DDR3 1:4) and LiteX-Boards #866 merged, LiteDRAM #409/#410 open
-  (`doc/upstream`).
+- Upstream: LiteDRAM #408 (ECP5 DDR3 1:4), #409 (IO gearing reset), #410 (rate crossing) and
+  LiteX-Boards #866 merged: the gateware uses the upstream ECP5 PHY (`doc/upstream`).
 - Known limitations: see the README (4K max 30 fps, no HDCP, test USB PID).

@@ -44,7 +44,7 @@ from gateware.color      import ColorAdjust
 from gateware.canvas     import Canvas
 from gateware.watchdog   import FX3Watchdog
 from gateware.framebuffer import NV12FrameBuffer
-from gateware.ecp5ddrphy import ECP5DDRPHY, ecp5ddrphy_with_ratio
+from litedram.phy.ecp5ddrphy import ECP5DDRPHY, ecp5ddrphy_with_ratio
 from gateware.dram       import LiteDRAMNativePortBuffer, MT41K64M16_4Banks
 
 from litex.build.generic_platform import Pins, IOStandard, Subsignal
@@ -100,7 +100,7 @@ class BaseSoC(SoCCore):
         # - 1:4: ECP5DDRPHY at sys2x behind a DFI rate converter (DRAM clock = 4 x sys, e.g. 100MHz
         #   sys -> DDR3-800, stock-like bandwidth).
         if with_sdram:
-            phy_cls = ECP5DDRPHY if sdram_rate == "1:2" else ecp5ddrphy_with_ratio(2)
+            phy_cls = ECP5DDRPHY if sdram_rate == "1:2" else ecp5ddrphy_with_ratio(2, rate_crossing=True)
             self.ddrphy = phy_cls(platform.request("ddram"), sys_clk_freq=sys_clk_freq)
             # Debug: controller read/write latency offsets (sys cycles) and write phase offset (1:4
             # bring-up).

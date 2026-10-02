@@ -76,7 +76,7 @@ Trellis; the SoC with [LiteX](https://github.com/enjoy-digital/litex), [Migen](h
 and [LiteX-Boards](https://github.com/litex-hub/litex-boards); the DDR3 frame buffer with
 [LiteDRAM](https://github.com/enjoy-digital/litedram); the FX3 firmware is bare-metal C built with GCC;
 the host tools and viewer are open too. CamLink 4K adds the capture pipeline and gives back ECP5 DDR3
-at 1:4 to LiteDRAM (#408 merged, #409/#410 open) and LiteX-Boards (#866 merged), see
+at 1:4 to LiteDRAM (#408, #409, #410 merged) and LiteX-Boards (#866 merged), see
 [doc/upstream](doc/upstream).
 
 ## Docs
@@ -103,7 +103,7 @@ at 1:4 to LiteDRAM (#408 merged, #409/#410 open) and LiteX-Boards (#866 merged),
 
 - Linux host (host tools, viewer and udev rules are Linux only).
 - FPGA: [LiteX](https://github.com/enjoy-digital/litex), [LiteDRAM](https://github.com/enjoy-digital/litedram)
-  and Migen (`litex_setup.py --init --install`, LiteDRAM with #408), Yosys, nextpnr-ecp5 and
+  and Migen (`litex_setup.py --init --install`, LiteDRAM with #408-#410, e.g. master), Yosys, nextpnr-ecp5 and
   Project Trellis (e.g. [OSS CAD Suite](https://github.com/YosysHQ/oss-cad-suite-build)).
 - FX3 firmware: `arm-none-eabi-gcc`.
 - Python: `pip3 install -e .` (pyusb, numpy; `.[bench]` adds libusb1, Pillow, scipy, pytest for the
@@ -182,9 +182,8 @@ for attribution and remain the property of their owners.
 ## License
 
 BSD-2-Clause, see [LICENSE](LICENSE). Third-party parts: `firmware/rdb/` register definitions
-are MIT (Marcus Comstedt, fx3lafw, see [LICENSES](LICENSES)); `gateware/ecp5ddrphy.py`
-derives from LiteDRAM (BSD-2-Clause); `doc/pinout.csv` derives from the apertus/Greg Davill board
-netlist.
+are MIT (Marcus Comstedt, fx3lafw, see [LICENSES](LICENSES)); `doc/pinout.csv` derives from the
+apertus/Greg Davill board netlist.
 
 Custom work, 15+ years of FPGA: [enjoy-digital.fr](https://enjoy-digital.fr).
 

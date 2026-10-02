@@ -1,12 +1,12 @@
-# Upstream Patches: ECP5 DDR3 1:4
+# Upstream Contributions: ECP5 DDR3 1:4
 
-Merged: LiteDRAM https://github.com/enjoy-digital/litedram/pull/408 (full test suite passes)
-and LiteX-Boards https://github.com/litex-hub/litex-boards/pull/866 (1:4 PHY import only when used).
-Content:
+All merged, the gateware uses the upstream LiteDRAM PHY:
 
 | PR | Repo | Content |
 |---|---|---|
 | #408 | LiteDRAM | `ECP5DDRPHY(csr_cdc=...)` + `ecp5ddrphy_with_ratio()` (1:4 through `DFIRateConverter`) + `test/test_ecp5ddrphy.py` |
+| #409 | LiteDRAM | `ECP5DDRPHY(io_rst_init)`: IO gearing reset from the init sequence, default in `ecp5ddrphy_with_ratio` |
+| #410 | LiteDRAM | Selectable `DFIRateConverter` serializers, `RateCrossing`, `ecp5ddrphy_with_ratio(rate_crossing=True)` |
 | #866 | LiteX-Boards | `camlink_4k.py --sdram-rate 1:4` (CRG sys4x/sys2x/sys, 1:4 PHY) |
 
 ## Validation
@@ -23,26 +23,17 @@ On the Cam Link 4K (ECP5 LFE5U-25F-8, MT41K64M16), same CRG/PHY as the CamLink 4
 The LiteX-Boards target was built at 1:4/75 MHz (timing met) but not run as is (its BIOS console is
 not reachable on this board without the CamLink 4K I2C/UART bridge).
 
-## Follow-ups (open)
+## Notes
 
-- LiteDRAM https://github.com/enjoy-digital/litedram/pull/409: `ECP5DDRPHY(io_rst_init)`, IO
-  gearing reset from the init sequence, default in `ecp5ddrphy_with_ratio`.
-- LiteDRAM https://github.com/enjoy-digital/litedram/pull/410 (stacked on #409): selectable
-  `DFIRateConverter` serializers, `RateCrossing`, `ecp5ddrphy_with_ratio(rate_crossing=True)`
-  (opt-in, sel/shift search needed in the init software: LiteX BIOS support to do).
-- Once merged, `gateware/ecp5ddrphy.py` can use the upstream PHY again.
-
-## Notes / Open Items
-
-- sys/sys2x crossing of the DFI rate converter (upstreamed as #410, open): `Serializer` samples
+- sys/sys2x crossing of the DFI rate converter (LiteDRAM #410): `Serializer` samples
   each sys word on both sys2x edges (combinational slice select) and `Deserializer` hands the last
   slice to sys on the next edge. With the ECP5 CLKDIVF clocks (edges coincident or a quarter sys
   period apart, set at each PHY init), one sample is a hold race or has ~3.4ns of setup, and
   nextpnr does not check these cross-domain paths: DRAM worked on ~1 of 8 frame buffer builds
-  (DFII writes did not land). `RateCrossing` (`gateware/ecp5ddrphy.py`) captures each
+  (DFII writes did not land). `RateCrossing` captures each
   word once per sys cycle on a CSR-selected sys2x edge and aligns the read words with a runtime
-  shift: 8/8 loads OK on 2 builds. Proposed for `DFIRateConverter` as an optional safe crossing.
-- ECP5DDRPHY IO gearing reset (`io_rst_init`, upstreamed as #409, open): the IOLOGIC/DQSBUFM
+  shift: 8/8 loads OK on 2 builds. Now an option of `DFIRateConverter`.
+- ECP5DDRPHY IO gearing reset (`io_rst_init`, LiteDRAM #409): the IOLOGIC/DQSBUFM
   `RST` pins use the sys reset, released after the edge clock restarts. Routed to the IOLOGICs with
   up to ~2.5ns of skew (> 1 ECLK period at DDR3-594 on some placements), the pins' gearboxes came
   out of reset on different ECLK edges: commands/data misaligned, DRAM dead on ~1 of 5 builds even
@@ -72,8 +63,8 @@ not reachable on this board without the CamLink 4K I2C/UART bridge).
   passed without it at DDR3-594.
 - DDR3-796: the -8 ECP5 and the stock Lattice IP run DDR3-800 on this board. LiteDRAM only uses the
   DQSBUFM READCLKSEL (8 coarse steps) for read leveling; next candidates: DQSBUFM fine read delay
-  (RDLOADN/RDMOVE), READ pulse positioning (a `rdly_re`/`rdly_data` calibration is prototyped in
-  `gateware/ecp5ddrphy.py`), write DQS timing at 400 MHz (the GW5 1:4 PHY is a
+  (RDLOADN/RDMOVE), READ pulse positioning (a `rdly_re`/`rdly_data` calibration was
+  prototyped, not kept), write DQS timing at 400 MHz (the GW5 1:4 PHY is a
   reference).
 - Other ECP5 DDR3 boards (ECPIX-5, OrangeCrab, ButterStick, Versa ECP5, TrellisBoard, ...) can use
   the same CRG pattern: the second ECLKSYNCB/CLKDIVF BEL names depend on the DDR bank side.

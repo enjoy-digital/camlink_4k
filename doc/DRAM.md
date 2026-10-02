@@ -14,11 +14,12 @@ DDR3-800 = 1.6 GB/s peak. The stock gateware (Lattice DDR3 IP) runs its controll
 
 ## What (implemented, validated on hardware: see results below)
 
-- `gateware/ecp5ddrphy.py`: copy of LiteDRAM's `ECP5DDRPHY` with a `csr_cdc` hook (CSR
-  write strobes into the PHY clock domain), plus `ecp5ddrphy_with_ratio(2)`: the PHY runs at 2x
-  the controller clock behind LiteDRAM's generic `DFIRateConverter` (as done for the 7-series
-  PHY): **controller at sys (4 DFI phases), PHY at sys2x, DDR edge clock at sys4x (1:4)**.
-  The `csr_cdc` change and the 1:4 wrapper are upstreamed in LiteDRAM #408 (see `doc/upstream`).
+- LiteDRAM's `ECP5DDRPHY` with its `csr_cdc` hook (CSR write strobes into the PHY clock domain)
+  and `ecp5ddrphy_with_ratio(2, rate_crossing=True)`: the PHY runs at 2x the controller clock
+  behind LiteDRAM's generic `DFIRateConverter` (as done for the 7-series PHY): **controller at sys
+  (4 DFI phases), PHY at sys2x, DDR edge clock at sys4x (1:4)**, IO gearing reset from the init
+  sequence and `RateCrossing` sys/sys2x crossing. Developed here and upstreamed in LiteDRAM
+  #408/#409/#410 (see `doc/upstream`).
 - CRG (`crg.py`, `--sdram-rate 1:4`): PLL -> ECLKSYNCB (sys4x) -> CLKDIVF /2 (sys2x). The
   controller clock (sys) must be phase aligned with sys2x (DFI rate converter serializers):
   - `--sdram-sys-clk-src clkdivf` (default): a second PLL output at 2x sys through the second
