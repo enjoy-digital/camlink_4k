@@ -420,13 +420,19 @@ class CamLink:
 
 # SoC Bus (FPGA I2C Bridge) ------------------------------------------------------------------------
 
-from litex.tools.remote.csr_builder import CSRBuilder
+# LiteX is only needed for the CSR access (boot, flashing and update only need pyusb).
+try:
+    from litex.tools.remote.csr_builder import CSRBuilder
+except ImportError:
+    CSRBuilder = None
 
 FPGA_I2C_ADDR = 0x10
 
-class CamLinkBus(CSRBuilder):
+class CamLinkBus(CSRBuilder or object):
     """FPGA SoC bus access through the FX3 I2C master and the FPGA I2CBridge."""
     def __init__(self, cl=None, csr_csv=CSR_CSV):
+        if CSRBuilder is None:
+            raise ImportError("CSR access needs LiteX (see README requirements).")
         self.cl = CamLink() if cl is None else cl
         CSRBuilder.__init__(self, comm=self, csr_csv=csr_csv)
 
@@ -443,7 +449,11 @@ class CamLinkBus(CSRBuilder):
 
 # Stream Test --------------------------------------------------------------------------------------
 
-import numpy as np
+# numpy is only needed for the stream/UVC tests.
+try:
+    import numpy as np
+except ImportError:
+    np = None
 
 def stream_test(cl, bus, size=64*1024*1024, clk_div_x2=16, flag_omega=GPIF_OMEGA_EMPTY_FULL_TH0,
     flag_invert=0, data_delay=0, chunk=4*1024*1024):
@@ -636,6 +646,48 @@ def pintest(cl, id_bits=8):
     print(f"{len(gpios) - errors}/{len(gpios)} pins OK.")
     return errors == 0
 
+# Boot / Update ------------------------------------------------------------------------------------
+
+def camlink_from_bootloader(fx3_image, timeout=10.0):
+    """Return the CamLink 4K device, loading `fx3_image` to RAM first if in the FX3 bootloader."""
+    if find_device(FX3_BOOT_VID, FX3_BOOT_PID) is not None:
+        for retry in range(10):
+            try:
+                fx3_load(fx3_image)
+                break
+            except usb.core.USBError: # Just enumerated: udev permissions not applied yet.
+                time.sleep(0.5)
+        else:
+            raise RuntimeError("FX3 firmware load failed (USB access, see software/udev).")
+        time.sleep(1.0) # Let the host (uvcvideo) finish enumeration/probing.
+    deadline = time.time() + timeout
+    while True: # Firmware (re-)enumeration.
+        try:
+            return CamLink()
+        except (RuntimeError, usb.core.USBError):
+            if time.time() > deadline:
+                raise RuntimeError("CamLink 4K device not found (stock firmware? see README Install).")
+            time.sleep(0.5)
+
+def update(fx3_image, bitstream):
+    """Write a FX3 image + bitstream to the flash (standalone boot), reboot and check the version."""
+    image = open(fx3_image, "rb").read()
+    parse_fx3_image(image) # Check signature/checksum.
+    if len(image) > FLASH_FX3_MAX:
+        raise ValueError(f"FX3 image too large ({len(image)} > {FLASH_FX3_MAX} bytes).")
+    check_flash_range(FLASH_BITSTREAM_HDR, 256 + os.path.getsize(bitstream))
+    cl = camlink_from_bootloader(fx3_image)
+    print(f"Device: {cl.ident()}")
+    print(f"Writing bitstream {bitstream}...")
+    cl.flash_bitstream(bitstream)
+    print(f"Writing FX3 image {fx3_image}...")
+    cl.flash_write(0, image)
+    print("Rebooting (standalone boot from the flash)...")
+    cl.reboot()
+    time.sleep(2.0)
+    cl = camlink_from_bootloader(fx3_image, timeout=20.0)
+    print(f"Updated: {cl.ident()}")
+
 # Main ---------------------------------------------------------------------------------------------
 
 def main():
@@ -701,6 +753,9 @@ def main():
     p.add_argument("dump")
     p.add_argument("image")
     sub.add_parser("flash-recover", help="Erase the FX3 image and reboot to the USB bootloader.")
+    p = sub.add_parser("update", help="Write a FX3 image + bitstream to the flash, reboot standalone.")
+    p.add_argument("--fx3", default=FX3_IMAGE, help="FX3 image (fx3.img).")
+    p.add_argument("--bit", default=BITSTREAM, help="Bitstream (camlink_4k.bit).")
     sub.add_parser("fpga-boot", help="Load the FPGA from the flash bitstream.")
     sub.add_parser("stats", help="Show FX3 debug counters (link fallbacks, PHY timeouts, streams).")
     p = sub.add_parser("crop", help="Crop window for inputs larger than the UVC frame (no args: downscale).")
@@ -731,24 +786,7 @@ def main():
         fx3_load(args.image)
 
     if args.cmd == "boot":
-        if find_device(FX3_BOOT_VID, FX3_BOOT_PID) is not None:
-            for retry in range(10):
-                try:
-                    fx3_load(args.fx3)
-                    break
-                except usb.core.USBError: # Just enumerated: udev permissions not applied yet.
-                    time.sleep(0.5)
-            else:
-                raise RuntimeError("FX3 firmware load failed (USB access, see software/udev).")
-            time.sleep(1.0) # Let the host (uvcvideo) finish enumeration/probing.
-        for retry in range(20): # Firmware (re-)enumeration.
-            try:
-                cl = CamLink()
-                break
-            except (RuntimeError, usb.core.USBError):
-                time.sleep(0.5)
-        else:
-            raise RuntimeError("CamLink 4K device not found after the firmware load.")
+        cl = camlink_from_bootloader(args.fx3)
         for retry in range(5):
             try:
                 print(cl.ident())
@@ -859,6 +897,9 @@ def main():
         parse_fx3_image(image) # Check signature/checksum.
         open(args.image, "wb").write(image)
         print(f"Extracted a {len(image)} bytes FX3 image to {args.image}.")
+
+    if args.cmd == "update":
+        update(args.fx3, args.bit)
 
     if args.cmd == "flash-recover":
         CamLink().flash_recover()

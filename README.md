@@ -124,23 +124,39 @@ python3 -m pytest test                  # Simulation and host tests (~20 min).
 
 ### Install
 
+Release binaries (FX3 firmware, ECP5 bitstream, CSR map) are on the
+[Releases](https://github.com/enjoy-digital/camlink_4k/releases) page; the host tool only needs
+Python 3 and pyusb to flash them (`pip3 install pyusb`, plus the udev rules above):
+
+```sh
+git clone --branch 2026_10_08 https://github.com/enjoy-digital/camlink_4k
+cd camlink_4k
+unzip camlink_4k_2026_10_08.zip && (cd camlink_4k_2026_10_08 && sha256sum -c SHA256SUMS)
+```
+
 1. Back up the stock flash with [cl4k-fwtool](https://github.com/schlarpc/elgato-cam-link-4k-firmware-re)
    (stock firmware, vendor HID interface), twice, and compare:
    `sudo ./tools/cl4k-fwtool.py dump flash_a.bin`, `... dump flash_b.bin`, `cmp flash_a.bin flash_b.bin`.
 2. Replace the stock FX3 image (flash offset 0) with the CamLink 4K one, with the same tool
-   (`flash --mcu firmware/build/fx3.img`, dry run, then `--commit`); the stock bitstream and
-   settings are left in place. Power cycle.
-3. Load the bitstream, then make the device standalone:
+   (`flash --mcu camlink_4k_2026_10_08/fx3.img`, dry run, then `--commit`); the stock bitstream
+   and settings are left in place. Power cycle.
+3. Write the bitstream and the firmware for the standalone boot, the device reboots on it:
 
 ```sh
-python3 software/camlink.py boot             # Device in the FX3 bootloader (04b4:00f3) or running our firmware.
-python3 software/camlink.py flash-bitstream  # Bitstream at 0x100000 (stock bitstream kept at 0x040000).
-python3 software/camlink.py flash-fx3        # FX3 image at 0 (standalone boot).
-python3 software/validate.py                 # Hardware checks (capture, audio, controls, 4K30).
+python3 software/camlink.py update --fx3 camlink_4k_2026_10_08/fx3.img --bit camlink_4k_2026_10_08/camlink_4k.bit
 ```
 
 The device then enumerates as `CamLink 4K` (UVC + UAC): `ffplay -f v4l2 /dev/videoN`, OBS, VLC, or
 `software/viewer/camlink_view` (lowest latency, see [doc/LATENCY.md](doc/LATENCY.md)).
+
+### Update
+
+From a device running CamLink 4K (or in the FX3 bootloader), the same command writes a newer release
+(or your own build: `camlink.py update` defaults to `firmware/build/fx3.img` and
+`build/gateware/camlink_4k.bit`) and reboots on it; `camlink.py ident` shows the firmware version.
+A RAM-only test without writing the flash: `camlink.py flash-recover`, then
+`camlink.py boot --fx3 fx3.img --bit camlink_4k.bit`. Hardware checks (needs a source build with
+LiteX): `python3 software/validate.py`.
 
 ### Recovery and back to stock
 
