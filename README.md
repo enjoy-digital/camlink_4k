@@ -138,8 +138,8 @@ unzip camlink_4k_2026_10_08.zip && (cd camlink_4k_2026_10_08 && sha256sum -c SHA
    (stock firmware, vendor HID interface), twice, and compare:
    `sudo ./tools/cl4k-fwtool.py dump flash_a.bin`, `... dump flash_b.bin`, `cmp flash_a.bin flash_b.bin`.
 2. Replace the stock FX3 image (flash offset 0) with the CamLink 4K one, with the same tool
-   (`flash --mcu camlink_4k_2026_10_08/fx3.img`, dry run, then `--commit`); the stock bitstream
-   and settings are left in place. Power cycle.
+   (`flash --mcu camlink_4k_<version>/fx3.img`, dry run, then `--commit`): the tool writes the unit
+   serial number into the image; the stock bitstream and settings are left in place. Power cycle.
 3. Write the bitstream and the firmware for the standalone boot, the device reboots on it:
 
 ```sh
@@ -151,7 +151,8 @@ The device then enumerates as `CamLink 4K` (UVC + UAC): `ffplay -f v4l2 /dev/vid
 
 ### Update
 
-From a device running CamLink 4K (or in the FX3 bootloader), the same command writes a newer release
+From a device running CamLink 4K (or in the FX3 bootloader), the same command (keeping the unit
+serial number) writes a newer release
 (or your own build: `camlink.py update` defaults to `firmware/build/fx3.img` and
 `build/gateware/camlink_4k.bit`) and reboots on it; `camlink.py ident` shows the firmware version.
 A RAM-only test without writing the flash: `camlink.py flash-recover`, then

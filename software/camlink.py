@@ -69,6 +69,45 @@ def fx3_image_size(data):
             return offset + 4
         offset += 4*length
 
+# Unit serial number: USB string descriptor with 13 alphanumeric characters in the FX3 image, set
+# per unit (stock images and cl4k-fwtool use the same format).
+FX3_SERIAL_LEN = 13
+
+def fx3_image_checksum(data):
+    """FX3 boot image checksum (sum of the section words) and its offset."""
+    checksum = 0
+    offset   = 4
+    while True:
+        length, _ = struct.unpack_from("<II", data, offset)
+        offset += 8
+        if length == 0:
+            return checksum & 0xffffffff, offset
+        checksum += sum(struct.unpack_from(f"<{length}I", data, offset))
+        offset   += 4*length
+
+def fx3_image_serial(data):
+    """(offset, serial) of the serial number string descriptor of a FX3 image, or None."""
+    hits = []
+    for o in range(len(data) - 2 - 2*FX3_SERIAL_LEN):
+        if data[o] == 2 + 2*FX3_SERIAL_LEN and data[o + 1] == 0x03:
+            raw = data[o + 2:o + 2 + 2*FX3_SERIAL_LEN]
+            if all(raw[i + 1] == 0 and chr(raw[i]).isalnum() for i in range(0, len(raw), 2)):
+                hits.append((o, raw.decode("utf-16le")))
+    return hits[0] if len(hits) == 1 else None
+
+def fx3_image_personalise(data, serial):
+    """Copy of a FX3 image carrying the unit `serial` (checksum updated)."""
+    found = fx3_image_serial(data)
+    if found is None:
+        raise ValueError("No serial number descriptor in the FX3 image.")
+    if len(serial) != FX3_SERIAL_LEN or not serial.isalnum():
+        raise ValueError(f"Serial number must be {FX3_SERIAL_LEN} alphanumeric characters.")
+    out = bytearray(data)
+    out[found[0] + 2:found[0] + 2 + 2*FX3_SERIAL_LEN] = serial.encode("utf-16le")
+    checksum, offset = fx3_image_checksum(bytes(out))
+    struct.pack_into("<I", out, offset, checksum)
+    return bytes(out)
+
 def parse_fx3_image(data):
     """Parse a FX3 boot image ("CY" header, sections, entry point, checksum)."""
     if data[0:2] != b"CY":
@@ -669,7 +708,37 @@ def camlink_from_bootloader(fx3_image, timeout=10.0):
                 raise RuntimeError("CamLink 4K device not found (stock firmware? see README Install).")
             time.sleep(0.5)
 
-def update(fx3_image, bitstream):
+def unit_serial(cl):
+    """Unit serial number: from the FX3 image in the flash, else from the running firmware."""
+    placeholder = "0"*FX3_SERIAL_LEN
+    data = cl.flash_read(0, FLASH_FX3_MAX)
+    if data[0:2] == b"CY":
+        found = fx3_image_serial(data[:fx3_image_size(data)])
+        if found is not None and found[1] != placeholder:
+            return found[1]
+    try:
+        serial = cl.dev.serial_number
+    except (ValueError, usb.core.USBError):
+        serial = None
+    if serial and len(serial) == FX3_SERIAL_LEN and serial.isalnum() and serial != placeholder:
+        return serial
+    return None
+
+def flash_fx3_image(cl, image, serial=None):
+    """Write a FX3 image at offset 0, carrying the unit serial number (kept from the flash)."""
+    parse_fx3_image(image) # Check signature/checksum.
+    if len(image) > FLASH_FX3_MAX:
+        raise ValueError(f"FX3 image too large ({len(image)} > {FLASH_FX3_MAX} bytes).")
+    serial = serial or unit_serial(cl)
+    if fx3_image_serial(image) is not None:
+        if serial is None:
+            print("Warning: unit serial number not found, the image keeps its placeholder.")
+        else:
+            print(f"Unit serial number: {serial}")
+            image = fx3_image_personalise(image, serial)
+    cl.flash_write(0, image)
+
+def update(fx3_image, bitstream, serial=None):
     """Write a FX3 image + bitstream to the flash (standalone boot), reboot and check the version."""
     image = open(fx3_image, "rb").read()
     parse_fx3_image(image) # Check signature/checksum.
@@ -681,7 +750,7 @@ def update(fx3_image, bitstream):
     print(f"Writing bitstream {bitstream}...")
     cl.flash_bitstream(bitstream)
     print(f"Writing FX3 image {fx3_image}...")
-    cl.flash_write(0, image)
+    flash_fx3_image(cl, image, serial)
     print("Rebooting (standalone boot from the flash)...")
     cl.reboot()
     time.sleep(2.0)
@@ -749,6 +818,7 @@ def main():
     p.add_argument("bitstream", nargs="?", default=BITSTREAM)
     p = sub.add_parser("flash-fx3", help="Write a FX3 image at offset 0 (standalone boot).")
     p.add_argument("image", nargs="?", default=FX3_IMAGE)
+    p.add_argument("--serial", help="Unit serial number (default: kept from the flash).")
     p = sub.add_parser("fx3-extract", help="Extract the FX3 image of a flash dump (stock RAM-load).")
     p.add_argument("dump")
     p.add_argument("image")
@@ -756,6 +826,7 @@ def main():
     p = sub.add_parser("update", help="Write a FX3 image + bitstream to the flash, reboot standalone.")
     p.add_argument("--fx3", default=FX3_IMAGE, help="FX3 image (fx3.img).")
     p.add_argument("--bit", default=BITSTREAM, help="Bitstream (camlink_4k.bit).")
+    p.add_argument("--serial", help="Unit serial number (default: kept from the flash).")
     sub.add_parser("fpga-boot", help="Load the FPGA from the flash bitstream.")
     sub.add_parser("stats", help="Show FX3 debug counters (link fallbacks, PHY timeouts, streams).")
     p = sub.add_parser("crop", help="Crop window for inputs larger than the UVC frame (no args: downscale).")
@@ -885,11 +956,7 @@ def main():
         CamLink().flash_bitstream(args.bitstream)
 
     if args.cmd == "flash-fx3":
-        image = open(args.image, "rb").read()
-        parse_fx3_image(image) # Check signature/checksum.
-        if len(image) > FLASH_FX3_MAX:
-            raise ValueError(f"FX3 image too large ({len(image)} > {FLASH_FX3_MAX} bytes).")
-        CamLink().flash_write(0, image)
+        flash_fx3_image(CamLink(), open(args.image, "rb").read(), args.serial)
 
     if args.cmd == "fx3-extract":
         dump  = open(args.dump, "rb").read()
@@ -899,7 +966,7 @@ def main():
         print(f"Extracted a {len(image)} bytes FX3 image to {args.image}.")
 
     if args.cmd == "update":
-        update(args.fx3, args.bit)
+        update(args.fx3, args.bit, args.serial)
 
     if args.cmd == "flash-recover":
         CamLink().flash_recover()

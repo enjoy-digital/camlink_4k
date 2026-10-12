@@ -215,9 +215,12 @@ static const uint8_t string_product[] = {
     'C',0, 'a',0, 'm',0, 'L',0, 'i',0, 'n',0, 'k',0, ' ',0, '4',0, 'K',0,
 };
 
+/* Serial number: 13 alphanumeric characters, a placeholder replaced by the unit's own serial when
+ * the image is written to the flash (cl4k-fwtool flash, camlink.py update/flash-fx3, same format
+ * as the stock image). */
 static const uint8_t string_serial[] = {
-    10, USB_DT_STRING,
-    '0',0, '0',0, '0',0, '1',0,
+    28, USB_DT_STRING,
+    '0',0, '0',0, '0',0, '0',0, '0',0, '0',0, '0',0, '0',0, '0',0, '0',0, '0',0, '0',0, '0',0,
 };
 
 static const uint8_t *const strings[] = {
