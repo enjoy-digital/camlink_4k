@@ -129,9 +129,9 @@ Release binaries (FX3 firmware, ECP5 bitstream, CSR map) are on the
 Python 3 and pyusb to flash them (`pip3 install pyusb`, plus the udev rules above):
 
 ```sh
-git clone --branch 2026_10_08 https://github.com/enjoy-digital/camlink_4k
+git clone --branch 2026_10_12 https://github.com/enjoy-digital/camlink_4k
 cd camlink_4k
-unzip camlink_4k_2026_10_08.zip && (cd camlink_4k_2026_10_08 && sha256sum -c SHA256SUMS)
+unzip camlink_4k_2026_10_12.zip && (cd camlink_4k_2026_10_12 && sha256sum -c SHA256SUMS)
 ```
 
 1. Back up the stock flash with [cl4k-fwtool](https://github.com/schlarpc/elgato-cam-link-4k-firmware-re)
@@ -143,7 +143,7 @@ unzip camlink_4k_2026_10_08.zip && (cd camlink_4k_2026_10_08 && sha256sum -c SHA
 3. Write the bitstream and the firmware for the standalone boot, the device reboots on it:
 
 ```sh
-python3 software/camlink.py update --fx3 camlink_4k_2026_10_08/fx3.img --bit camlink_4k_2026_10_08/camlink_4k.bit
+python3 software/camlink.py update --fx3 camlink_4k_2026_10_12/fx3.img --bit camlink_4k_2026_10_12/camlink_4k.bit
 ```
 
 The device then enumerates as `CamLink 4K` (UVC + UAC): `ffplay -f v4l2 /dev/videoN`, OBS, VLC, or
