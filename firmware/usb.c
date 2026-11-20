@@ -25,16 +25,31 @@ enum usb_speed usb_get_speed(void)
     return usb_speed;
 }
 
-/* USB liveness, polled periodically (~40ms): SuperSpeed link in U0 with the ITP frame counter
- * advancing, or in U1/U2/U3 (low power/suspended), or no VBUS. LTSSM encodings measured on
- * hardware: 0x08-0x0a polling, 0x10 U0, 0x13 U3 (autosuspend), 0x18-0x19 recovery. USB2 mode
- * (SS fallback): not monitored. */
+/* USB liveness, polled periodically (~30ms): no setup packet left unserviced, and SuperSpeed link
+ * in U0 with the ITP frame counter advancing, or in U1/U2/U3 (low power/suspended), or no VBUS.
+ * LTSSM encodings measured on hardware: 0x08-0x0a polling, 0x10 U0, 0x13 U3 (autosuspend),
+ * 0x18-0x19 recovery. USB2 mode (SS fallback): only the setup check.
+ *
+ * Setup check: the USB interrupt clears the SUTOK (USB3) / SUDAV (USB2) event within microseconds
+ * of a setup packet. The raw event still set at two polls in a row means the setup is not being
+ * handled (USB interrupt masked or disabled, setup event masked): the link stays in U0 with the
+ * ITP counter advancing while every control request times out on the host (seen on hardware, 5s
+ * GET_DESCRIPTOR timeouts at SuperSpeed with the main loop alive). */
 int usb_alive(void)
 {
     static uint32_t last_framecnt;
+    static int      setup_pending;
     uint32_t ltssm, framecnt;
+    int pending;
 
-    if (!(reg_read(FX3_GCTL_IOPOWER) & FX3_GCTL_IOPOWER_VBUS) || usb_speed != USB_SUPER_SPEED)
+    if (!(reg_read(FX3_GCTL_IOPOWER) & FX3_GCTL_IOPOWER_VBUS))
+        return 1;
+    pending = (reg_read(FX3_PROT_INTR) & FX3_PROT_INTR_SUTOK_EV) ||
+        (reg_read(FX3_DEV_CTRL_INTR) & FX3_DEV_CTRL_INTR_SUDAV);
+    if (pending && setup_pending)
+        return 0;
+    setup_pending = pending;
+    if (usb_speed != USB_SUPER_SPEED)
         return 1;
     ltssm    = reg_read(FX3_LNK_LTSSM_STATE) & 0x3f;
     framecnt = reg_read(FX3_PROT_FRAMECNT);
