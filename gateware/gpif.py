@@ -45,7 +45,8 @@ from litex.soc.interconnect     import stream
 
 class GPIFStreamer(LiteXModule):
     def __init__(self, pads, fifo_depth=512, max_delay=4, with_audio=False, audio_packet_words=48,
-        audio_fifo_depth=512, io_regs=("ctl",), sim=False, with_csr=True):
+        audio_fifo_depth=512, io_regs=("ctl",), dq_delay_taps=0, dq_phase=0, ctl_delay=0,
+        sim=False, with_csr=True):
         # Streams. The `next` field (on payload last words) is the first word of the following
         # payload (UVCPacketizer).
         self.sink       = sink       = stream.Endpoint([("data", 32), ("next", 32)])
@@ -69,6 +70,12 @@ class GPIFStreamer(LiteXModule):
         self.switch_guard = Signal(16, reset=256)
         self.force        = Signal()
         self.force_value  = Signal(32)
+        self.dq_delay     = Signal(7, reset=dq_delay_taps) # DQ output delay taps (`dq_delay`).
+        self.dq_phase     = Signal(reset=dq_phase)  # DQ switches at the falling edge (`dq_delay`).
+        self.ctl_delay    = Signal(3, reset=ctl_delay) # CTL output delay (cycles).
+        self.dq_delay_taps   = dq_delay_taps
+        self.dq_phase_reset  = dq_phase
+        self.ctl_delay_reset = ctl_delay
 
         # Status (sys domain).
         self.flag          = Signal()
@@ -150,7 +157,20 @@ class GPIFStreamer(LiteXModule):
             self.specials += Tristate(pads.ctl, ctl_o_r, ctl_oe, ctl_i_r)
             self.comb += ctl.o.eq(ctl_o_r)
         else:
-            self.specials += SDRTristate(io=pads.ctl, o=ctl_o, oe=ctl_oe, i=ctl_i,
+            # CTL outputs delayed by `ctl_delay` cycles: the `dq_delay` DQ path (ODDRX1F) has more
+            # latency than an IO register, and the FX3 takes the DQ word by its position relative
+            # to VALID/EOP/ASEL. The delay control comes through a reset-less register so it holds
+            # its value across GPIF restarts.
+            ctl_delay = Signal(3)
+            self.specials += MultiReg(self.ctl_delay, ctl_delay, "gpif_cdc")
+            ctl_pipe = [ctl_o]
+            for i in range(7):
+                r = Signal(len(pads.ctl))
+                self.sync.gpif += r.eq(ctl_pipe[-1])
+                ctl_pipe.append(r)
+            ctl_o_d = Signal(len(pads.ctl))
+            self.comb += Case(ctl_delay, {i: ctl_o_d.eq(ctl_pipe[i]) for i in range(8)})
+            self.specials += SDRTristate(io=pads.ctl, o=ctl_o_d, oe=ctl_oe, i=ctl_i,
                 clk=ClockSignal("gpif"))
             self.comb += ctl.o.eq(ctl_o)
 
@@ -463,8 +483,42 @@ class GPIFStreamer(LiteXModule):
                 dq_o.eq(data_o),
             ),
         ]
-        if sim or "dq" not in io_regs:
+        if sim or not ({"dq", "dq_delay"} & set(io_regs)):
             self.sync.gpif_cdc += pads.dq.eq(dq_o)
+        elif "dq_delay" in io_regs:
+            # IO register + DELAYF per line: the DQ transition time no longer depends on the
+            # placement (fabric registers: the slowest line, DQ[29], missed the FX3 sampling on
+            # some cards and kept the previous word's bit). ODDRX1F with D0 = D1 is the SDR IO
+            # register (the ODDR -> DELAY -> pad path is the one LiteEth's ECP5 RGMII PHY uses).
+            # `dq_phase`: D0 = previous word, D1 = word, DQ switches at the falling edge (half a
+            # cycle later). Both modes add latency over an IO register: `ctl_delay` realigns CTL.
+            self.dq_delay_ctrl = dq_delay_ctrl = DQDelayControl(self.dq_delay)
+            dq_phase = Signal()
+            dq_prev  = Signal(32)
+            dq_d0    = Signal(32)
+            self.specials += MultiReg(self.dq_phase, dq_phase, "gpif_cdc")
+            self.sync.gpif_cdc += dq_prev.eq(dq_o)
+            self.comb += dq_d0.eq(Mux(dq_phase, dq_prev, dq_o))
+            for j in range(len(pads.dq)):
+                dq_r = Signal()
+                self.specials += [
+                    Instance("ODDRX1F",
+                        i_RST  = 0,
+                        i_SCLK = ClockSignal("gpif_cdc"),
+                        i_D0   = dq_d0[j],
+                        i_D1   = dq_o[j],
+                        o_Q    = dq_r,
+                    ),
+                    Instance("DELAYF",
+                        p_DEL_MODE  = "USER_DEFINED",
+                        p_DEL_VALUE = 0,
+                        i_A         = dq_r,
+                        i_LOADN     = dq_delay_ctrl.loadn,
+                        i_MOVE      = dq_delay_ctrl.move,
+                        i_DIRECTION = 0,
+                        o_Z         = pads.dq[j],
+                    ),
+                ]
         else:
             self.specials += SDROutput(i=dq_o, o=pads.dq, clk=ClockSignal("gpif_cdc"))
         self.comb += [
@@ -528,6 +582,14 @@ class GPIFStreamer(LiteXModule):
             CSRField("flag",  size=1,  offset=0,  description="Audio FLAG (CTL4) level."),
             CSRField("level", size=16, offset=16, description="Audio FIFO level (words)."),
         ])
+        # Last in the bank: the earlier CSR addresses stay those of the previous builds.
+        self._dq_delay      = CSRStorage(7, reset=self.dq_delay_taps,
+            description="DQ output delay (DELAYF taps, ~25ps each, `dq_delay` IO regs only).")
+        self._dq_phase      = CSRStorage(1, reset=self.dq_phase_reset,
+            description="DQ switches at the PCLK falling edge (`dq_delay` IO regs only).")
+        self._ctl_delay     = CSRStorage(3, reset=self.ctl_delay_reset,
+            description="CTL output delay (cycles, matches the DQ output latency). Added to the "
+                        "guard cycles.")
 
         # # #
 
@@ -543,10 +605,13 @@ class GPIFStreamer(LiteXModule):
             self.audio_lead.eq(self._control.fields.audio_lead),
             self.audio_batch.eq(self._control.fields.audio_batch),
             self.burst.eq(self._burst.storage),
-            self.guard.eq(self._guard.storage),
+            self.guard.eq(self._guard.storage + self._ctl_delay.storage),
             self.switch_guard.eq(self._switch_guard.storage),
             self.force.eq(self._force.fields.enable),
             self.force_value.eq(self._force_value.storage),
+            self.dq_delay.eq(self._dq_delay.storage),
+            self.dq_phase.eq(self._dq_phase.storage),
+            self.ctl_delay.eq(self._ctl_delay.storage),
 
             # Status.
             self._status.fields.flag.eq(self.flag),
@@ -562,6 +627,51 @@ class GPIFStreamer(LiteXModule):
             self._audio_status.fields.flag.eq(self.audio_flag),
             self._audio_status.fields.level.eq(self.audio_level),
         ]
+
+# DQ Delay Control ---------------------------------------------------------------------------------
+
+class DQDelayControl(LiteXModule):
+    """Sets DELAYF cells (DEL_VALUE = 0, DIRECTION = 0: each MOVE pulse adds one tap) to `taps`.
+
+    On each change of `taps` (and after reset when its reset value is not 0), LOADN reloads 0 into
+    the cells, then one MOVE pulse per tap moves them to the new value (sys domain)."""
+    def __init__(self, taps):
+        self.loadn   = Signal(reset=1)
+        self.move    = Signal()
+        self.current = current = Signal(len(taps))
+
+        # # #
+
+        target = Signal(len(taps))
+        wait   = Signal(2)
+        self.fsm = fsm = FSM(reset_state="IDLE")
+        fsm.act("IDLE",
+            If(taps != current,
+                NextValue(target, taps),
+                NextValue(wait, 3),
+                NextState("LOAD"),
+            )
+        )
+        fsm.act("LOAD",
+            self.loadn.eq(0),
+            NextValue(current, 0),
+            NextValue(self.move, 0),
+            NextValue(wait, wait - 1),
+            If(wait == 0,
+                NextState("MOVE"),
+            )
+        )
+        fsm.act("MOVE",
+            If(current == target,
+                NextValue(self.move, 0),
+                NextState("IDLE"),
+            ).Else(
+                NextValue(self.move, ~self.move),
+                If(self.move,
+                    NextValue(current, current + 1),
+                )
+            )
+        )
 
 # Pattern Generator --------------------------------------------------------------------------------
 

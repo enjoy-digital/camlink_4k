@@ -62,7 +62,10 @@ class BaseSoC(SoCCore):
         sdram_banks       = 8,
         sdram_lat_adj     = (0, 0),
         video_clk_freq    = None,
-        gpif_io_regs      = ("ctl",),
+        gpif_io_regs      = ("ctl", "dq_delay"),
+        gpif_dq_delay     = 0,
+        gpif_dq_phase     = 1,
+        gpif_ctl_delay    = None,
         with_framebuffer  = False,
         with_pintest = False,
         ):
@@ -191,7 +194,12 @@ class BaseSoC(SoCCore):
             self.specials += Tristate(fx3.reset_n, o=0, oe=self.fx3_watchdog.reset)
 
             # GPIF Streamer ------------------------------------------------------------------------
-            self.gpif = VR(GPIFStreamer(fx3, with_audio=True, io_regs=gpif_io_regs))
+            if gpif_ctl_delay is None:
+                # Words the dq_delay DQ path (ODDRX1F) presents DQ after CTL, measured with the
+                # UVC color bars: 2 in SDR, 3 with the falling edge phase.
+                gpif_ctl_delay = (3 if gpif_dq_phase else 2) if "dq_delay" in gpif_io_regs else 0
+            self.gpif = VR(GPIFStreamer(fx3, with_audio=True, io_regs=gpif_io_regs,
+                dq_delay_taps=gpif_dq_delay, dq_phase=gpif_dq_phase, ctl_delay=gpif_ctl_delay))
 
             # Audio (IT6802 I2S) -> GPIF thread 1.
             self.audio = VR(AudioSource(platform.request("i2s"), vfreq))
@@ -376,8 +384,15 @@ def main():
         help="1:4 sys clock source.")
     parser.add_argument("--with-framebuffer",  action=argparse.BooleanOptionalAction,
         help="NV12 DRAM frame buffer (needs --with-sdram and --video-clk-freq).")
-    parser.add_argument("--gpif-io-regs",      default="ctl",
-        help="Debug: GPIF signal groups registered in the IO cells (dq,ctl).")
+    parser.add_argument("--gpif-io-regs",      default="ctl,dq_delay",
+        help="Debug: GPIF signal groups registered in the IO cells (dq,ctl; dq_delay: dq + DELAYF).")
+    parser.add_argument("--gpif-dq-delay",     default=0, type=int,
+        help="DQ output delay at reset (DELAYF taps, ~25ps each, with --gpif-io-regs dq_delay).")
+    parser.add_argument("--gpif-dq-phase",     default=1, type=int,
+        help="DQ switches at the PCLK falling edge at reset (with --gpif-io-regs dq_delay).")
+    parser.add_argument("--gpif-ctl-delay",    default=None, type=int,
+        help="CTL output delay at reset (cycles, matches the DQ output latency; default: 3 with "
+        "dq_delay and the falling edge phase, 2 with dq_delay in SDR, 0 otherwise).")
     parser.add_argument("--video-clk-freq",    default=None, type=float,
         help="Video pipeline clock (own domain, DRAM builds with a slow sys, 0: sys).")
     parser.add_argument("--sdram-lat-adj",     default="0,0",
@@ -410,6 +425,9 @@ def main():
         sdram_lat_adj     = tuple(int(x) for x in args.sdram_lat_adj.split(",")),
         video_clk_freq    = args.video_clk_freq,
         gpif_io_regs      = tuple(x for x in args.gpif_io_regs.split(",") if x),
+        gpif_dq_delay     = args.gpif_dq_delay,
+        gpif_dq_phase     = args.gpif_dq_phase,
+        gpif_ctl_delay    = args.gpif_ctl_delay,
         with_framebuffer  = args.with_framebuffer,
         with_pintest      = args.with_pintest,
     )

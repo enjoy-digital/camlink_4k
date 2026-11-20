@@ -90,12 +90,22 @@ FX3 GPIO58/59 (I2C master), FPGA `P18`/`P19`, IT6802 `PCSCL`/`PCSDA`.
   drives the next payload's first word on DQ during EOP.
 - USB3: CLEAR_FEATURE(ENDPOINT_HALT) requires resetting the endpoint sequence number
   (PROT_SEQ_NUM), otherwise later transfers fail (OOSERR).
-- DQ timing window (FPGA side, 100.8MHz PCLK received from the FX3): DQ from fabric registers
-  (transition ~1.5-3.5ns after the received PCLK edge, routing dependent) works; from IO registers
-  (earlier) video breaks; from DDR cells switching at the falling edge (later) the words shift by
-  one. The window is narrow: on some placements the slowest line (DQ[29]) corrupts rare audio
-  samples (the default build seed is chosen bit exact). Open item: IO register + output delay
-  (DELAYF, runtime sweep to measure the window) for a placement independent DQ timing.
+- DQ timing (FPGA side, 100.8MHz PCLK received from the FX3). Default build: each DQ line goes
+  through an ODDRX1F and a DELAYF (`--gpif-io-regs ctl,dq_delay`). With `gpif_dq_phase` = 1 the
+  ODDRX1F drives the previous word in the first half cycle and the new word in the second, so DQ
+  switches at the PCLK falling edge. At 0 taps that is 3.6-4.4ns after the FX3 sampling edge, and
+  the whole `gpif_dq_delay` range (0-127 taps, ~3.2ns) reads back clean. The FX3 sees DQ 3 cycles
+  later than CTL, so `gpif_ctl_delay` = 3 delays VALID, EOP and ASEL by 3 cycles to keep them on
+  the same words, and the post-burst guard gets the same 3 cycles. Checked with the UVC color bars
+  (`main_source_sel` 1): bar edges on the 120-word grid and 0 mismatched words in 3.8M per
+  setting. A `gpif_ctl_delay` of 2 shifts the bars by one word, and 4 stops the stream.
+- Fabric register DQ (the earlier default, `--gpif-io-regs ctl`) switches ~1.5-3.5ns after the
+  received PCLK edge, routing dependent. On some units the slowest line, DQ[29], misses the FX3
+  sampling and keeps the previous word's bit. Right channel audio then loses bit 13, about 130
+  samples/s on Xbox audio, heard as static, and video loses V bit 5. In SDR (`gpif_dq_phase` 0)
+  the dq_delay path switches 0.6-1.4ns before the FX3 sampling edge at 0 taps, line dependent
+  (DQ[29] and DQ[31] cross first at ~24 taps, DQ[27] and DQ[13] last at ~56), and needs
+  `gpif_ctl_delay` 2.
 - The FPGA must not drive CTL1/CTL4 (FX3 FLAG outputs): per-pin output enables (a single TSTriple
   `oe` drove all CTL pins until 5851a2d).
 
