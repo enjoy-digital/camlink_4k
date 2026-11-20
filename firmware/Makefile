@@ -69,6 +69,9 @@ $(BUILD)/version.txt: FORCE | $(BUILD)
 
 $(BUILD)/main.o: $(BUILD)/version.txt
 
+# GCC 13.2 (Ubuntu) crashes inlining the helper ISRs into usb_core_isr.
+$(BUILD)/usb.o: CFLAGS += -fno-inline-functions-called-once
+
 $(BUILD)/%.o: %.c | $(BUILD)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
