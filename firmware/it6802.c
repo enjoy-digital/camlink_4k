@@ -216,25 +216,60 @@ static void it6802_update_colorspace(int force)
 }
 
 /* HDMI audio: after the source stops/restarts its audio stream, the I2S output stays silent until
- * an audio reset (0x10 bit 1 pulse, validated on hardware: I2S samples back). Reset on each rising
- * edge of the audio packet presence (0xB3 bit 3: 0x07 without, 0x0f with audio from a PC source). */
+ * an audio reset (0x10 bit 1 pulse, validated on hardware: I2S samples back). The audio packet
+ * presence (0xB3 bit 3) is not a level with every source: with an Xbox it pulses for ~1ms about 50
+ * times a second, so the edges this ~50ms poll sees are not audio restarts (a reset on each of them
+ * cut ~11ms of audio every few seconds: clicks). Reset only when the FPGA filled nearly all the
+ * samples of two polls in a row with silence (no I2S samples while streaming) and the source sent
+ * audio packets in the last AUDIO_PRESENT_HOLD polls, at most once per AUDIO_RESET_HOLDOFF polls. */
 #define REG_RST_CTRL   0x10
 #define RST_AUDIO      (1 << 1)
 #define REG_AUD_STATUS 0xb3
 #define AUD_PRESENT    (1 << 3)
 
+#define AUDIO_PRESENT_HOLD  100 /* ~5s. */
+#define AUDIO_RESET_HOLDOFF 20  /* ~1s. */
+
 static void it6802_update_audio(void)
 {
-    static uint8_t present;
-    uint8_t aud = 0;
+    static uint8_t  present_hold;
+    static uint8_t  silent_polls;
+    static uint8_t  holdoff;
+    static uint32_t last_samples, last_silences;
+    uint32_t samples, silences, d_samples, d_silences;
+    uint8_t  aud = 0;
 
     if (it6802_read(0, REG_AUD_STATUS, &aud))
         return;
-    if ((aud & AUD_PRESENT) && !present) {
+    if (aud & AUD_PRESENT)
+        present_hold = AUDIO_PRESENT_HOLD;
+    else if (present_hold)
+        present_hold--;
+
+    if (fpga_csr_read(CSR_AUDIO_SAMPLES, &samples) || fpga_csr_read(CSR_AUDIO_SILENCES, &silences))
+        return;
+    d_samples     = samples  - last_samples;
+    d_silences    = silences - last_silences;
+    last_samples  = samples;
+    last_silences = silences;
+    /* Counters still while the audio stream is off: never silent then. */
+    if (d_samples && d_silences >= d_samples - d_samples/16) {
+        if (silent_polls < 255)
+            silent_polls++;
+    } else {
+        silent_polls = 0;
+    }
+
+    if (holdoff) {
+        holdoff--;
+        return;
+    }
+    if (present_hold && silent_polls >= 2) {
         it6802_write(0, REG_RST_CTRL, RST_AUDIO);
         it6802_write(0, REG_RST_CTRL, 0);
+        silent_polls = 0;
+        holdoff      = AUDIO_RESET_HOLDOFF;
     }
-    present = !!(aud & AUD_PRESENT);
 }
 
 /* Input change tracking: a change of (stable, size, color space) settled for 4 polls (~200ms)
