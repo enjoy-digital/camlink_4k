@@ -83,6 +83,7 @@ static volatile int      flash_erase_request;
 static volatile int      flash_recover_request;
 static volatile int      fpga_boot_request;
 static volatile int      sdram_init_request;
+#define SDRAM_AUTO_RETRIES 4 /* Extra automatic sdram_init() rounds after a failed one. */
 static volatile uint32_t fpga_boot_status;
 static uint8_t           flash_buf[4096] __attribute__((aligned(32)));
 
@@ -477,10 +478,23 @@ int main(void)
         if (sdram_init_request) {
             int r = sdram_init_request;
             sdram_init_request = 0;
-            if (r & 0x100)
+            if (r & 0x100) {
                 sdram_init_rate(r & 0xff);
-            else
+            } else {
+                /* Automatic init (1 = boot or FPGA reload, 2 = retry). Each round draws new
+                 * CLKDIVF phases and can fail at power-up, so a failed round is retried up to
+                 * SDRAM_AUTO_RETRIES times through the loop top (boot watchdog stop, USB service).
+                 * The vendor request (0x1000) runs a single round. */
+                static int sdram_auto_retries;
+                if (r == 1)
+                    sdram_auto_retries = 0;
                 sdram_init();
+                if (r <= 2 && sdram_status.state == SDRAM_STATE_FAILED &&
+                    sdram_auto_retries < SDRAM_AUTO_RETRIES && !sdram_init_request) {
+                    sdram_auto_retries++;
+                    sdram_init_request = 2;
+                }
+            }
         }
         if (flash_recover_request) {
             /* Invalidate the FX3 image: the boot ROM falls back to USB boot. */
